@@ -10,7 +10,7 @@
 
 ## Global Constraints
 
-(copied verbatim from `docs/SPEC.md` §3 NFRs + toolchain floors — every task implicitly includes these.)
+(copied verbatim from `docs/superpowers/specs/2026-07-21-providers-config-control-plane-design.md` §3 NFRs + toolchain floors — every task implicitly includes these.)
 
 - **NFR-1:** Engine-overhead portion of the read path < 10 ms p95 @ 200 memories, always; hashing path overall p95 < 10 ms; external path p95 target < 300 ms.
 - **NFR-2:** Every LLM/embedding dep has a pure-code fallback when unconfigured. Zero-config, offline, testable. Existing 103 tests stay green & offline; LangChain/FastAPI are optional extras, never imported in the offline path.
@@ -2810,7 +2810,7 @@ implementer should re-run that test after Task 3.1.
 
 ## Execution Handoff
 
-**Plan complete and saved to `docs/PLAN.md`. Two execution options:**
+**Plan complete and saved to `docs/superpowers/plans/2026-07-21-providers-config-control-plane.md`. Two execution options:**
 
 1. **Subagent-Driven (recommended)** — I dispatch a fresh subagent per task, review between
    tasks, fast iteration.
