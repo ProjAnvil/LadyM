@@ -237,3 +237,101 @@ def test_engine_enable_wal_is_wired(tmp_path):
         assert mode == "wal"
     finally:
         eng.close()
+
+
+# ---------- Task 1.4 review fix: lazy-dim provider regression ----------
+
+def test_ollama_embedding_dim_is_none_until_first_embed():
+    """OllamaEmbedding keeps dim=None until embed() populates it (construction must not hit network)."""
+    client = FakeHTTPClient(responder=lambda payload: {"embedding": [0.0, 0.0, 0.0, 0.0]})
+    emb = OllamaEmbedding("http://x", "m", client=client)
+    assert emb.dim is None  # lazy by design
+    v = emb.embed("probe")
+    assert len(v) == 4
+    assert emb.dim == 4
+
+
+def test_engine_ensure_provider_dim_populates_lazy_provider(tmp_path):
+    """A None-dim provider must be probed by Engine init, before the store is built.
+
+    Regression for the crash where SQLiteStore(dim=None) and the persisted
+    ``meta.embedding_dim = "None"`` poisoned subsequent reopens (``int("None")`` dies).
+    """
+    from ladym.config import Config
+    from ladym.engine import Engine
+
+    cfg = Config(db_path=tmp_path / "d.db")
+    cfg.embedding_provider = "hashing"
+    cfg.embedding_dim = 256
+    eng = Engine(cfg)
+    try:
+        # Build an OllamaEmbedding wired to a fake 4-dim client, then swap it in as the
+        # Engine's provider with dim reset to None — the state it would be in right after
+        # make_provider returned it. ``_ensure_provider_dim`` must repopulate dim.
+        client = FakeHTTPClient(responder=lambda payload: {"embedding": [0.1, 0.2, 0.3, 0.4]})
+        ollama = OllamaEmbedding("http://x", "m", client=client)
+        assert ollama.dim is None
+        eng.provider = ollama
+        # Simulate the lazy-dim state being None at probe time.
+        ollama.dim = None
+        eng._ensure_provider_dim()
+        assert eng.provider.dim == 4
+    finally:
+        eng.close()
+
+
+def test_engine_init_with_lazy_dim_provider_persists_concrete_dim(tmp_path):
+    """End-to-end: Engine init must persist a concrete dim even for a lazy provider.
+
+    We wire a 4-dim OllamaEmbedding via monkeypatch of ``make_provider`` (the cleanest way
+    to exercise the full init path with a fake HTTP backend) and confirm the persisted
+    ``meta.embedding_dim`` is the string "4", not "None".
+    """
+    from ladym import engine as engine_mod
+    from ladym.config import Config
+    from ladym.engine import Engine
+
+    client = FakeHTTPClient(responder=lambda payload: {"embedding": [0.1, 0.2, 0.3, 0.4]})
+    fake_ollama = OllamaEmbedding("http://x", "m", client=client)
+    assert fake_ollama.dim is None
+
+    original_make_provider = engine_mod.make_provider
+
+    def _fake_make_provider(cfg):  # noqa: ARG001
+        return fake_ollama
+
+    engine_mod.make_provider = _fake_make_provider
+    try:
+        cfg = Config(db_path=tmp_path / "d.db")
+        cfg.embedding_provider = "ollama"
+        cfg.embedding_base_url = "http://x"
+        cfg.embedding_model = "m"
+        eng = Engine(cfg)
+        try:
+            assert eng.provider.dim == 4
+            assert eng.store.get_meta("embedding_dim") == "4"
+        finally:
+            eng.close()
+    finally:
+        engine_mod.make_provider = original_make_provider
+
+
+def test_engine_ensure_provider_dim_raises_on_failure():
+    """A provider that cannot embed must raise EmbeddingProviderError, not crash opaquely."""
+    from ladym.config import Config
+    from ladym.engine import Engine
+    from ladym.storage.embeddings import EmbeddingProviderError
+
+    cfg = Config()
+
+    class _BrokenProvider:
+        dim = None
+
+        def embed(self, text):  # noqa: ARG002
+            raise ConnectionError("endpoint down")
+
+    eng = Engine.__new__(Engine)
+    eng.config = cfg
+    eng.provider = _BrokenProvider()
+    with pytest.raises(EmbeddingProviderError, match="cannot determine embedding dimension"):
+        eng._ensure_provider_dim()

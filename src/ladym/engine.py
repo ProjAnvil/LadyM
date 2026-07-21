@@ -31,7 +31,12 @@ from .schema import (
     RecallResponse,
     Stats,
 )
-from .storage.embeddings import EmbeddingProvider, make_provider
+from .storage.embeddings import (
+    EmbeddingProvider,
+    EmbeddingProviderError,
+    _assert_dim_matches,
+    make_provider,
+)
 from .storage.store import SQLiteStore
 
 
@@ -43,6 +48,12 @@ class Engine:
         cfg = config or config_obj or Config()
         self.config = cfg
         self.provider: EmbeddingProvider = make_provider(cfg)
+        # Some providers (e.g. OllamaEmbedding) keep ``dim=None`` until the first embed()
+        # call so construction doesn't hit the network and ``health_check`` can run without
+        # a working endpoint. But SQLiteStore needs a concrete dim, and the dim-probe below
+        # would persist the string "None" otherwise. Probe once, eagerly, before the store
+        # is constructed.
+        self._ensure_provider_dim()
         # SQLiteVec is preferred in production; tests pass prefer_sqlite_vec=False to keep
         # the index in-memory for determinism. Embeddings are always persisted as a BLOB so
         # either path survives a reopen.
@@ -243,6 +254,24 @@ class Engine:
 
     # ----- embedding-dim lifecycle -----
 
+    def _ensure_provider_dim(self) -> None:
+        """Force a concrete ``dim`` onto providers that defer it (e.g. ``OllamaEmbedding``).
+
+        Providers may keep ``self.dim is None`` until the first :meth:`embed` call so that
+        construction does not require a working endpoint (needed for ``health_check``). But
+        the store and the dim-probe both need a concrete int. We probe once here, before
+        either is constructed. A failing probe surfaces as
+        :class:`EmbeddingProviderError` so callers can format a useful diagnostic.
+        """
+        if getattr(self.provider, "dim", None) is None:
+            try:
+                self.provider.embed("dimensionality probe")
+            except Exception as e:  # noqa: BLE001
+                raise EmbeddingProviderError(
+                    f"cannot determine embedding dimension for provider "
+                    f"{self.config.embedding_provider!r}: {e}"
+                ) from e
+
     def _enforce_embedding_dim(self) -> None:
         """Persist the live provider's dim on an empty DB; refuse (or re-embed) on mismatch.
 
@@ -269,8 +298,7 @@ class Engine:
                 self.store.set_meta("embedding_dim", str(actual))
                 self.store.set_meta("embedding_provider", self.config.embedding_provider)
             else:
-                from .storage.embeddings import EmbeddingDimensionMismatch
-                raise EmbeddingDimensionMismatch(int(stored), actual)
+                _assert_dim_matches(stored=int(stored), configured=actual)
 
     def _reembed_all(self) -> None:
         """Re-embed every persisted memory with the current provider.
@@ -280,6 +308,7 @@ class Engine:
         so a single pass is sufficient. The store was already constructed with the new dim,
         so the index accepts the new vectors directly.
         """
-        for m in self.store.iter_memories():
+        # Snapshot first: ``put_memory`` mutates the rows we are iterating over.
+        for m in list(self.store.iter_memories()):
             vec = self.provider.embed(m.content)
             self.store.put_memory(m, vector=vec)
