@@ -6,7 +6,7 @@ from ladym.engine import Engine
 def test_config_defaults_unchanged():
     cfg = Config()
     assert cfg.embedding_provider == "hashing"
-    assert cfg.llm_provider is None
+    assert cfg.llm_provider == "none"
     assert cfg.workspace == "default"
     assert cfg.prefer_sqlite_vec is True
     assert cfg.activation.similarity == 1.0
