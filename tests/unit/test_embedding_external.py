@@ -1,7 +1,8 @@
-import pytest
-
 from ladym.providers.embeddings_http import (
-    CallableEmbedding, FakeHTTPClient, HttpEmbedding, OllamaEmbedding,
+    CallableEmbedding,
+    FakeHTTPClient,
+    HttpEmbedding,
+    OllamaEmbedding,
 )
 
 
