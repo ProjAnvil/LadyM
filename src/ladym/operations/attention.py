@@ -68,7 +68,7 @@ def attention_gate(content: str, *, engine, layer: Layer) -> GateDecision:
     if layer == Layer.WORKING:
         return GateDecision(action="pass", reason="working memory never gated")
 
-    agent = getattr(engine, "_agents", {}).get("attention_gate")
+    agent = engine._get_agent("attention_gate")
     if agent is not None:
         return _llm_gate(agent, content)
 

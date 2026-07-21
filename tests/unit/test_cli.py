@@ -1,5 +1,6 @@
 """CLI smoke tests using typer's CliRunner."""
 
+import os
 from pathlib import Path
 
 import pytest
@@ -8,6 +9,19 @@ from typer.testing import CliRunner
 from ladym.cli import app
 
 runner = CliRunner()
+
+
+@pytest.fixture(autouse=True)
+def _isolate_config(monkeypatch, tmp_path):
+    """Hermetic: ignore any project/global ``ladym.toml`` and ``LADYM_*`` env during CLI
+    tests, so a developer's local ``./ladym.toml`` (e.g. an ollama config) can't change
+    which provider these tests run against."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    for k in list(os.environ):
+        if k.startswith("LADYM_"):
+            monkeypatch.delenv(k, raising=False)
+    yield
 
 
 @pytest.fixture

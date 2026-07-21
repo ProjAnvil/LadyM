@@ -80,23 +80,13 @@ class Engine:
         self.procedural = ProceduralMemory(self.store, self.provider, workspace=cfg.workspace)
         self.associative = AssociativeMemory(self.store)
 
+        # LLM agents are built LAZILY on first use (``_resolve_llm_classify`` /
+        # ``_get_agent``). This keeps read / non-LLM commands (recall, stats, index) free
+        # of any LLM dependency: a configured-but-uninstalled ``[llm]`` extra degrades to
+        # heuristic mode with a warning instead of crashing Engine construction.
         self._llm_classify: LLMClassifier | None = None
-        # Auto-wire the consolidate agent from config. With no LLM configured (offline
-        # default) ``make_agent`` returns None and this is a clean no-op, keeping the
-        # offline test suite green. With ``[agents.consolidate]`` (or ``[llm]`` globals)
-        # configured, the engine gets a working classifier with no extra glue.
-        self.attach_llm_classifier()
-
-        # Per-operation LLM agent map. ``make_agent`` returns ``None`` for ops whose
-        # provider resolves to ``"none"`` (the offline default), so in the offline
-        # baseline every value is ``None`` and the heuristic code paths stay active.
-        # The attention_gate entry controls whether ``Engine.remember`` consults an LLM
-        # before writing to L1/L2/L3 (see operations.attention).
-        from .providers import make_agent
-
-        self._agents: dict = {
-            "attention_gate": make_agent(cfg, "attention_gate"),
-        }
+        self._llm_classify_resolved: bool = False
+        self._agents: dict = {}
 
     # ----- wiring helpers -----
 
@@ -111,6 +101,9 @@ class Engine:
           :func:`ladym.providers.make_agent`. Returns silently with ``_llm_classify``
           set to ``None`` when no LLM is configured (offline / heuristic mode).
         """
+        # Mark resolved FIRST so the lazy ``_resolve_llm_classify`` won't override an
+        # explicit classifier and won't rebuild after a config-driven build.
+        self._llm_classify_resolved = True
         if fn is not None:
             self._llm_classify = fn
             return
@@ -141,6 +134,47 @@ class Engine:
             return Action(action_val), new_text
 
         self._llm_classify = _classify
+
+    def _resolve_llm_classify(self) -> LLMClassifier | None:
+        """Lazily build the consolidate classifier from config (cached).
+
+        Tolerates a missing ``[llm]`` extra: if the configured provider can't be imported,
+        log a warning and fall back to the heuristic (``None``) instead of crashing — so
+        read / non-LLM commands keep working even when an LLM is configured but uninstalled.
+        """
+        if self._llm_classify_resolved:
+            return self._llm_classify
+        try:
+            self.attach_llm_classifier()  # builds from config, or sets None if provider="none"
+        except ImportError as e:  # pragma: no cover - depends on an optional extra
+            import logging
+            logging.getLogger("ladym").warning(
+                "consolidate LLM is configured but its dependency is missing (%s); "
+                "falling back to the heuristic classifier. "
+                "Install with: pip install 'ladym[llm]'", e)
+            self._llm_classify = None
+            self._llm_classify_resolved = True
+        return self._llm_classify
+
+    def _get_agent(self, op: str):
+        """Lazily build + cache the LLM agent for one op.
+
+        Returns ``None`` when the op is heuristic (provider "none") OR when the configured
+        provider's extra is missing (logged warning → heuristic fallback). Never raises.
+        """
+        if op in self._agents:
+            return self._agents[op]
+        from .providers import make_agent
+        try:
+            agent = make_agent(self.config, op)
+        except ImportError as e:  # pragma: no cover - depends on an optional extra
+            import logging
+            logging.getLogger("ladym").warning(
+                "LLM agent %r is configured but its dependency is missing (%s); "
+                "using the heuristic path. Install with: pip install 'ladym[llm]'", op, e)
+            agent = None
+        self._agents[op] = agent
+        return agent
 
     def close(self) -> None:
         self.store.close()
@@ -278,7 +312,7 @@ class Engine:
             self.provider,
             cfg=self.config,
             workspace=workspace,
-            llm_classify=self._llm_classify,
+            llm_classify=self._resolve_llm_classify(),
             since=since,
         )
 

@@ -8,14 +8,28 @@ BEFORE the Engine constructs its ``SQLiteStore`` — see the Task 4.2 correction
 
 from __future__ import annotations
 
+import os
 import threading
 import time
 
+import pytest
 from typer.testing import CliRunner
 
 from ladym.cli import app
 from ladym.config import Config
 from ladym.engine import Engine
+
+
+@pytest.fixture(autouse=True)
+def _isolate_config(monkeypatch, tmp_path):
+    """Hermetic: ignore project/global ``ladym.toml`` and ``LADYM_*`` env so a developer's
+    local config can't change which provider this test runs against."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    for k in list(os.environ):
+        if k.startswith("LADYM_"):
+            monkeypatch.delenv(k, raising=False)
+    yield
 
 
 def _wal_config(tmp_path) -> Config:

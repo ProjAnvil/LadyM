@@ -188,6 +188,8 @@ class Config:
     llm_temperature: float = 0.2
     llm_structured_method: str = "function_calling"
     llm_timeout_s: float = 30.0
+    llm_api_key: str = ""  # plaintext LLM key (honored only when allow_plaintext_secrets=true)
+    allow_plaintext_secrets: bool = False  # DEV/testing escape hatch; default stays secure
     llm: LLMConfig = field(default_factory=LLMConfig)
 
     agents_overrides: dict = field(default_factory=dict)
@@ -227,7 +229,8 @@ class Config:
         path = Path(path)
         with open(path, "rb") as fh:
             raw = tomllib.load(fh)
-        data = _strip_secrets(raw, path)
+        allow = bool(raw.get("allow_plaintext_secrets", False))
+        data = _strip_secrets(raw, path, allow_plaintext=allow)
         data = _rename_deprecated(data, path)
         cfg = cls()
         _apply_toml(cfg, data)
@@ -259,11 +262,19 @@ class Config:
         if config_path is not None:
             layers.append(Path(config_path))
 
-        merged: dict = {}
+        # First pass: read each layer + detect the dev plaintext-secrets flag
+        # (set in ANY layer → all layers skip secret stripping for testing).
+        layers_raw: list[tuple[Path, dict]] = []
+        allow_plaintext = False
         for p in layers:
             with open(p, "rb") as fh:
                 raw = tomllib.load(fh)
-            raw = _strip_secrets(raw, p)
+            layers_raw.append((p, raw))
+            if raw.get("allow_plaintext_secrets"):
+                allow_plaintext = True
+        merged: dict = {}
+        for p, raw in layers_raw:
+            raw = _strip_secrets(raw, p, allow_plaintext=allow_plaintext)
             raw = _rename_deprecated(raw, p)
             merged = _deep_merge_toml(merged, raw)
 
@@ -324,8 +335,16 @@ def _is_secret(key: str) -> bool:
     return k in _SECRET_EXACT or k.endswith(_SECRET_SUFFIXES)
 
 
-def _strip_secrets(data: dict, path: Path) -> dict:
-    """Recursively drop secret literals from a TOML-derived dict, warning on each."""
+def _strip_secrets(data: dict, path: Path, *, allow_plaintext: bool = False) -> dict:
+    """Recursively drop secret literals from a TOML-derived dict, warning on each.
+
+    ``allow_plaintext=True`` is a DEV/testing escape hatch (set via the
+    ``allow_plaintext_secrets`` config flag): the dict is returned unchanged so an
+    operator can keep a literal key in the file for local testing. Default ``False``
+    keeps the secure behaviour (literal secrets are stripped + warned).
+    """
+    if allow_plaintext:
+        return data
     cleaned: dict = {}
     for k, v in data.items():
         if isinstance(v, dict):
@@ -439,6 +458,8 @@ _FLAT_KEYS: dict[str, str] = {
     "llm_temperature": "llm_temperature",
     "llm_structured_method": "llm_structured_method",
     "llm_timeout_s": "llm_timeout_s",
+    "llm_api_key": "llm_api_key",
+    "allow_plaintext_secrets": "allow_plaintext_secrets",
 }
 
 # [embedding.<k>] → flat field (same suffix in both).
@@ -460,6 +481,7 @@ _LLM_TABLE_KEYS = {
     "provider",
     "base_url",
     "model",
+    "api_key",
     "api_key_env",
     "max_tokens",
     "temperature",

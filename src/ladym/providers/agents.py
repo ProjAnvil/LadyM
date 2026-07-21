@@ -40,6 +40,7 @@ class AgentConfig:
     temperature: float = 0.2
     structured_method: str = "function_calling"
     timeout_s: float = 30.0
+    api_key: str = ""  # plaintext key (when allow_plaintext_secrets=true); else ""
 
 
 class AgentRegistry:
@@ -62,6 +63,7 @@ class AgentRegistry:
             provider=provider,
             base_url=overrides.get("base_url", self._cfg.llm_base_url),
             model=overrides.get("model", self._cfg.llm_model),
+            api_key=overrides.get("api_key", getattr(self._cfg, "llm_api_key", "")),
             api_key_env=overrides.get(
                 "api_key_env", getattr(self._cfg, "llm_api_key_env", "")
             ),
@@ -88,7 +90,8 @@ def make_agent(cfg: Config, op: str) -> LLMProvider | None:
     ac = AgentRegistry(cfg).get(op)
     if ac.provider == "none":
         return None
-    api_key = os.environ.get(ac.api_key_env, "") if ac.api_key_env else ""
+    # Plaintext key (allow_plaintext_secrets=true) wins; else env-var lookup.
+    api_key = ac.api_key or (os.environ.get(ac.api_key_env, "") if ac.api_key_env else "")
     return make_llm_provider(
         provider=ac.provider,
         base_url=ac.base_url,
