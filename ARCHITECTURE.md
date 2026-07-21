@@ -94,7 +94,8 @@ recall(query):
 ```
 
 The `reflect()` gate uses a tiny heuristic by default (coverage of query terms + count of
-high-activation hits) and is pluggable for an LLM judge when one is configured.
+high-activation hits). Per the hard read-path constraint (NFR-3), it is **heuristic-only**; no
+LLM judge is ever invoked in the read path.
 
 ## 4. Activation function (ACT-R inspired)
 

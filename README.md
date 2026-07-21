@@ -35,6 +35,8 @@ uv pip install -e ".[dev]"            # core + test/lint tooling
 uv pip install -e ".[mcp]"            # MCP server (for Claude Code / Cursor)
 uv pip install -e ".[local]"          # sentence-transformers embeddings
 uv pip install -e ".[openai]"         # OpenAI embeddings
+uv pip install -e ".[llm]"           # LLM provider support (consolidation classifier)
+uv pip install -e ".[web]"            # web config editor (ladym config)
 ```
 
 Requires Python ≥ 3.11 (uses `enum.StrEnum`). `sqlite-vec` ships as a wheel — no native
@@ -162,9 +164,21 @@ sqlite-vec-backed path has its own regression tests in
 | `LADYM_WORKSPACE` | `default` | Multi-workspace isolation in a shared DB |
 | `LADYM_EMBEDDING` | `hashing` | `hashing` / `st` / `openai` |
 | `LADYM_EMBEDDING_MODEL` | (provider default) | Model name for `st` or `openai` |
+| `LADYM_EMBEDDING_BASE_URL` | (provider default) | Override embedding API base URL (OpenAI/Ollama-compatible third parties) |
+| `LADYM_LLM_PROVIDER` | (none) | LLM provider name (e.g. `openai`, `ollama`) — enable via `pip install 'ladym[llm]'` |
+| `LADYM_LLM_BASE_URL` | (provider default) | Override LLM API base URL (OpenAI/Ollama-compatible third parties) |
+| `LADYM_LLM_MODEL` | (provider default) | LLM model name for consolidation classifier |
 
-All values are also overridable on the `Config` dataclass — see
+`base_url` support lets you point embedding and LLM calls at any OpenAI/Ollama-compatible endpoint
+(e.g. vLLM, LiteLLM, local Ollama). All values are also overridable on the `Config` dataclass — see
 [src/ladym/config.py](src/ladym/config.py).
+
+**CLI extras:**
+
+| Command | What it does | Install |
+|---|---|---|
+| `ladym config` | Local web config editor (browser UI) | `pip install 'ladym[web]'` |
+| `ladym worker` | Background System2 consolidation daemon | core (use `--once` or `--interval`) |
 
 ## Status & roadmap
 
