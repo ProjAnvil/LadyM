@@ -52,3 +52,10 @@ def test_cosine_similarity_edge_cases():
     assert cosine_similarity([1.0, 0.0], [0.0, 1.0]) == pytest.approx(0.0)
     # different dims return 0 (defensive)
     assert cosine_similarity([1.0], [1.0, 2.0]) == 0.0
+
+
+def test_hashing_health_check_ok():
+    from ladym.storage.embeddings import HashingEmbedding
+    ok, msg = HashingEmbedding(dim=64).health_check()
+    assert ok is True
+    assert isinstance(msg, str)

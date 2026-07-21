@@ -46,6 +46,14 @@ class EmbeddingProvider(ABC):
     def embed_batch(self, texts: list[str]) -> list[list[float]]:
         return [self.embed(t) for t in texts]
 
+    def health_check(self) -> "tuple[bool, str]":
+        """One-shot probe for the web UI 'test embedding' button."""
+        try:
+            v = self.embed("dimensionality probe")
+            return True, f"ok dim={len(v)}"
+        except Exception as e:  # noqa: BLE001
+            return False, f"{type(e).__name__}: {e}"
+
 
 class HashingEmbedding(EmbeddingProvider):
     """Deterministic, offline, dependency-free embedding via feature hashing.
