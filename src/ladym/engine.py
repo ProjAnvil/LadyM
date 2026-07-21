@@ -24,6 +24,8 @@ from .operations.consolidate import (
     consolidate,
 )
 from .operations.decay import DecayReport, decay
+from .operations.l5 import L5ExtractionReport
+from .operations.l6 import L6PredictionReport
 from .operations.proceduralize import ProceduralizeReport, proceduralize
 from .operations.recall import recall
 from .schema import (
@@ -321,6 +323,34 @@ class Engine:
         return proceduralize(
             self.store, self.provider, cfg=self.config,
             workspace=workspace, min_cluster_size=min_cluster_size,
+        )
+
+    def extract_mental_models(self, *, workspace: str | None = None) -> L5ExtractionReport:
+        """L5 extraction (SPEC §2.8): cluster uncovered L2/L3 into mental models + periodic merge.
+
+        Write-path only; a no-op (``skipped=True``) when no LLM is configured.
+        """
+        from .operations.l5 import extract
+        from .providers.agents import AgentRegistry
+
+        prompt = AgentRegistry(self.config).get("l5_mental_model").prompt_template or None
+        return extract(
+            self.store, self.provider, cfg=self.config, workspace=workspace,
+            llm=self._get_agent("l5_mental_model"), prompt=prompt,
+        )
+
+    def predict_forward_intents(self, *, workspace: str | None = None) -> L6PredictionReport:
+        """L6 prediction (SPEC §2.8): predict next intents from recent episodes, with TTL expiry.
+
+        Write-path only; a no-op (``skipped=True``) when no LLM is configured.
+        """
+        from .operations.l6 import predict
+        from .providers.agents import AgentRegistry
+
+        prompt = AgentRegistry(self.config).get("l6_forward_intent").prompt_template or None
+        return predict(
+            self.store, self.provider, cfg=self.config, workspace=workspace,
+            llm=self._get_agent("l6_forward_intent"), prompt=prompt,
         )
 
     def decay(self, *, workspace: str | None = None, dry_run: bool = False,
