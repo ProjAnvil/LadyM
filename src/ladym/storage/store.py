@@ -89,17 +89,26 @@ CREATE TABLE IF NOT EXISTS index_state (
     body_hash   TEXT NOT NULL,
     indexed_at  REAL NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS meta (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
 """
 
 
 class SQLiteStore:
     """The single persistence layer for LadyM."""
 
-    def __init__(self, db_path: Path, dim: int, prefer_sqlite_vec: bool = True):
+    def __init__(self, db_path: Path, dim: int, prefer_sqlite_vec: bool = True,
+                 enable_wal: bool = False):
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self.conn = sqlite3.connect(str(self.db_path))
         self.conn.row_factory = sqlite3.Row
+        self.prefer_sqlite_vec = prefer_sqlite_vec
+        if enable_wal:
+            self.conn.execute("PRAGMA journal_mode=WAL")
         self.conn.execute("PRAGMA foreign_keys = ON")
         self.conn.executescript(_SCHEMA)
         # migrate: add embedding column to pre-existing DBs (idempotent)
@@ -129,6 +138,28 @@ class SQLiteStore:
     @property
     def using_sqlite_vec(self) -> bool:
         return self._using_sqlite_vec
+
+    def rebuild_vector_index(self, new_dim: int) -> None:
+        """Tear down and recreate the vector index at a different dimension.
+
+        Used by the Engine when ``Config.embedding_allow_dim_change=True`` and a reopened DB
+        is found to carry vectors of a different dim than the live provider. The old
+        ``vec_memories`` virtual table (if any) is dropped, the in-memory index is rebuilt
+        empty, and ``self.dim`` is updated. Callers then re-embed every memory via
+        :meth:`put_memory` to repopulate both the BLOB column and the new index.
+        """
+        self.conn.execute("DROP TABLE IF EXISTS vec_memories")
+        self.conn.commit()
+        self.dim = new_dim
+        self._using_sqlite_vec = False
+        if self.prefer_sqlite_vec:
+            try:
+                self.vector_index = SQLiteVecIndex(self.conn, new_dim)
+                self._using_sqlite_vec = True
+            except Exception:
+                self.vector_index = InMemoryVectorIndex(new_dim)
+        else:
+            self.vector_index = InMemoryVectorIndex(new_dim)
 
     def _warm_index_from_blobs(self) -> None:
         """Repopulate the in-memory vector index from persisted ``embedding`` BLOBs."""
@@ -416,3 +447,15 @@ class SQLiteStore:
             "SELECT DISTINCT workspace FROM memories ORDER BY workspace"
         ).fetchall()
         return [r[0] for r in rows]
+
+    def get_meta(self, key: str) -> str | None:
+        row = self.conn.execute("SELECT value FROM meta WHERE key = ?", (key,)).fetchone()
+        return row["value"] if row else None
+
+    def set_meta(self, key: str, value: str) -> None:
+        self.conn.execute(
+            "INSERT INTO meta (key, value) VALUES (?,?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            (key, value),
+        )
+        self.conn.commit()

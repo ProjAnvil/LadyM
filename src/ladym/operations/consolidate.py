@@ -19,7 +19,7 @@ from enum import StrEnum
 
 from ..config import Config
 from ..layers.semantic import SemanticMemory, content_hash
-from ..schema import Layer, Memory
+from ..schema import Layer, Memory, _new_id
 from ..storage.embeddings import EmbeddingProvider
 from ..storage.store import SQLiteStore
 
@@ -133,13 +133,33 @@ def consolidate(
             )
             report.promoted_to_semantic += 1
         elif action == Action.UPDATE and similar:
+            # SPEC §2.6: create a NEW merged memory and retire the old one (instead of
+            # mutating in place) so the supersedes chain preserves lineage.
             target = similar[0][0]
-            target.content = new_text or ep.content
-            target.updated_at = time.time()
-            target.content_hash = content_hash(target.content)
-            store.put_memory(target, vector=embedder.embed(target.content))
+            from .supersedes import retire as _retire
+
+            merged = target.model_copy(
+                update={
+                    "id": _new_id(),
+                    "content": new_text or ep.content,
+                    "summary": ep.summary or target.summary,
+                    "updated_at": time.time(),
+                    "content_hash": content_hash(new_text or ep.content),
+                    "metadata": {
+                        **(target.metadata or {}),
+                        "source_episode": ep.id,
+                        "updated_from": target.id,
+                    },
+                }
+            )
+            store.put_memory(merged, vector=embedder.embed(merged.content))
+            _retire(store, target, new_id=merged.id)
         elif action == Action.DELETE and similar:
-            store.delete_memory(similar[0][0].id)
+            # SPEC §2.6: retire the stale item in place rather than physically deleting
+            # it, so the audit trail survives and downstream indexes stay consistent.
+            from .supersedes import retire as _retire
+
+            _retire(store, similar[0][0])
         # NOOP: nothing to do
     report.kept_episodes = len(episodes)
     return report

@@ -4,7 +4,7 @@
 > already-decided enhancements into an implementation contract. Target reader: an engineer
 > who was **not** in the design conversation and must implement from this document alone.
 >
-> Companion: `docs/PLAN.md` (phased implementation plan, produced after this spec).
+> Companion: `docs/superpowers/plans/2026-07-21-providers-config-control-plane.md` (phased implementation plan, produced after this spec).
 
 ---
 

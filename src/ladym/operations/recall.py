@@ -19,6 +19,7 @@ from .activation import (
     infer_query_types,
     neighbour_counts_for,
 )
+from .supersedes import is_retired
 
 
 @dataclass
@@ -32,8 +33,8 @@ def _reflect(query: str, hits: list[RecallResult], cfg: RecallConfig) -> _Reflec
     """Cheap self-check: did tier-1 surface enough high-signal context?
 
     Default heuristic: count distinct query tokens covered by the union of hit contents, and
-    the number of hits above a small similarity floor. Pluggable — ``Engine`` can substitute
-    an LLM judge when one is configured.
+    the number of hits above a small similarity floor. Per NFR-3, reflect is heuristic-only —
+    no LLM judge is ever invoked in the read path.
     """
     q_tokens = set(tokenize(query)) - {"the", "a", "an", "is", "are", "to", "of", "and", "or"}
     if not q_tokens:
@@ -97,13 +98,19 @@ def recall(
         mem = store.get_memory(mem_id)
         if mem is None or mem.workspace != ws:
             continue
+        if is_retired(mem):
+            continue
         if layers is not None and Layer(mem.layer) not in layers:
             continue
         if types is not None and MemoryType(mem.type) not in types:
             continue
         cand.append((mem, sim))
 
-    neighbour_counts = store.associative_neighbour_counts() if hasattr(store, "associative_neighbour_counts") else {}
+    neighbour_counts = (
+        store.associative_neighbour_counts()
+        if hasattr(store, "associative_neighbour_counts")
+        else {}
+    )
 
     tier1 = _rank(
         query_vec=query_vec,
@@ -143,7 +150,8 @@ def recall(
             query_types=query_types,
         )
         by_id[mem.id] = RecallResult(memory=mem, score=act, tier=2, via=via)
-    merged = sorted(by_id.values(), key=lambda r: r.score, reverse=True)[: (top_k or rcfg.top_k_tier2)]
+    tier2_top_k = top_k or rcfg.top_k_tier2
+    merged = sorted(by_id.values(), key=lambda r: r.score, reverse=True)[:tier2_top_k]
 
     _commit_access(store, [r.memory.id for r in merged])
     return RecallResponse(
@@ -172,6 +180,20 @@ def _tier2_expand(
             cur_id, depth, path = frontier.pop(0)
             if depth > cfg.recall.graph_hops:
                 continue
+            # follow supersedes to the newest version even if it was filtered from tier-1
+            # (an anchor might have been retired by a parallel UPDATE; this walks old→new).
+            for sup_edge in store.neighbors(cur_id, relation="supersedes"):
+                if sup_edge.src_id == cur_id and sup_edge.dst_id not in seen:
+                    seen.add(sup_edge.dst_id)
+                    newer = store.get_memory(sup_edge.dst_id)
+                    if newer and newer.workspace == workspace:
+                        out.append(
+                            (
+                                newer,
+                                max(0.05, anchor.score * 0.6 / depth),
+                                path + [sup_edge.dst_id],
+                            )
+                        )
             for edge in store.neighbors(cur_id):
                 other_id = edge.dst_id if edge.src_id == cur_id else edge.src_id
                 if other_id in seen:
