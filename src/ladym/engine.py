@@ -83,6 +83,17 @@ class Engine:
         # configured, the engine gets a working classifier with no extra glue.
         self.attach_llm_classifier()
 
+        # Per-operation LLM agent map. ``make_agent`` returns ``None`` for ops whose
+        # provider resolves to ``"none"`` (the offline default), so in the offline
+        # baseline every value is ``None`` and the heuristic code paths stay active.
+        # The attention_gate entry controls whether ``Engine.remember`` consults an LLM
+        # before writing to L1/L2/L3 (see operations.attention).
+        from .providers import make_agent
+
+        self._agents: dict = {
+            "attention_gate": make_agent(cfg, "attention_gate"),
+        }
+
     # ----- wiring helpers -----
 
     def attach_llm_classifier(self, fn: LLMClassifier | None = None) -> None:
@@ -150,6 +161,30 @@ class Engine:
         summary: str = "",
     ) -> Memory:
         """Generic write. Routes to the right layer based on ``layer``/``type_``."""
+        from .operations.attention import attention_gate
+
+        gate = attention_gate(content, engine=self, layer=layer)
+        if gate.action == "drop":
+            # Do NOT persist: return an unpersisted Memory tagged so callers can tell
+            # the write was filtered (preserves the Memory return-type contract, NFR-4).
+            return Memory(
+                layer=layer,
+                type=type_,
+                content=content,
+                summary=summary,
+                tags=tags or [],
+                metadata={
+                    **(metadata or {}),
+                    "gated": "dropped",
+                    "reason": gate.reason,
+                },
+                source=source,
+                workspace=self.config.workspace,
+            )
+        if gate.action == "rewrite" and gate.content:
+            content = gate.content
+            metadata = {**(metadata or {}), "gated": "rewritten"}
+
         if layer == Layer.WORKING:
             return self.working.push(
                 content, tags=tags, metadata=metadata, source=source
