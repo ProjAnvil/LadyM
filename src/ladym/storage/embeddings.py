@@ -47,7 +47,7 @@ class EmbeddingProvider(ABC):
     def embed_batch(self, texts: list[str]) -> list[list[float]]:
         return [self.embed(t) for t in texts]
 
-    def health_check(self) -> "tuple[bool, str]":
+    def health_check(self) -> tuple[bool, str]:
         """One-shot probe for the web UI 'test embedding' button."""
         try:
             v = self.embed("dimensionality probe")
