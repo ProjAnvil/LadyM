@@ -113,7 +113,11 @@ def test_remember_llm_drop(tmp_path):
 
 
 def test_remember_llm_rewrite(tmp_path):
-    """LLM mode: provider returns action=rewrite → rewritten content persisted + tagged."""
+    """LLM mode: provider returns action=rewrite → rewritten content persisted + tagged.
+
+    SPEC §2.7 also requires the pre-rewrite content to survive on
+    ``metadata["original"]`` for audit / undo.
+    """
     e = Engine(Config.for_testing(tmp_path))
     try:
         e._agents["attention_gate"] = _fake_gate(
@@ -123,12 +127,17 @@ def test_remember_llm_rewrite(tmp_path):
                 "reason": "cleaner",
             }
         )
-        m = e.remember("auth is jwt 24 hour", layer=Layer.SEMANTIC)
+        original = "auth is jwt 24 hour"
+        m = e.remember(original, layer=Layer.SEMANTIC)
         assert m.metadata.get("gated") == "rewritten"
         assert m.content == "auth uses JWT with 24h expiry"
+        # SPEC §2.7: original content preserved on metadata.
+        assert m.metadata.get("original") == original
         assert e.store.get_memory(m.id) is not None
-        # The persisted row carries the rewritten content.
-        assert e.store.get_memory(m.id).content == "auth uses JWT with 24h expiry"
+        # The persisted row carries the rewritten content + original on metadata.
+        persisted = e.store.get_memory(m.id)
+        assert persisted.content == "auth uses JWT with 24h expiry"
+        assert persisted.metadata.get("original") == original
     finally:
         e.close()
 

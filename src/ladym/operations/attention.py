@@ -83,13 +83,20 @@ def attention_gate(content: str, *, engine, layer: Layer) -> GateDecision:
         return GateDecision(action="drop", reason="noise")
 
     # Recent-duplicate: same content hash inside the dedup window against L1 events.
+    # SPEC §2.7: keep the scan O(recent_rows) rather than O(all_episodes) by pushing the
+    # time-window cut into SQL; hash-equality is then checked in Python (cheap, and stays
+    # independent of the store's content_hash column which may be empty for legacy rows).
     now = time.time()
     window = cfg.attention.dedup_window_s
     needle = _hash(content)
-    for m in engine.store.iter_memories(workspace=cfg.workspace, layer=Layer.EPISODIC.value):
-        if now - m.created_at > window:
-            continue
-        if _hash(m.content) == needle:
+    since = now - window
+    cur = engine.store.conn.execute(
+        "SELECT content FROM memories "
+        "WHERE workspace = ? AND layer = ? AND created_at >= ?",
+        (cfg.workspace, Layer.EPISODIC.value, since),
+    )
+    for row in cur:
+        if _hash(row["content"]) == needle:
             return GateDecision(action="drop", reason="recent duplicate")
 
     return GateDecision(action="pass")

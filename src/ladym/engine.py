@@ -182,8 +182,14 @@ class Engine:
                 workspace=self.config.workspace,
             )
         if gate.action == "rewrite" and gate.content:
+            # SPEC §2.7: on rewrite, persist the original content under metadata["original"]
+            # so the pre-rewrite text is recoverable for audit / undo.
+            metadata = {
+                **(metadata or {}),
+                "gated": "rewritten",
+                "original": content,
+            }
             content = gate.content
-            metadata = {**(metadata or {}), "gated": "rewritten"}
 
         if layer == Layer.WORKING:
             return self.working.push(
