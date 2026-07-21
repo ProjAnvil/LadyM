@@ -358,3 +358,24 @@ def test_agents_overrides_deep_merge(tmp_path, monkeypatch):
     # Provider from global survives; model from project overrides.
     assert ov["provider"] == "openai"
     assert ov["model"] == "project-m"
+
+
+def test_plaintext_api_key_allowed_when_flag_on(tmp_path):
+    """DEV escape hatch: with allow_plaintext_secrets=true, a literal api_key survives."""
+    f = tmp_path / "ladym.toml"
+    f.write_text(
+        'allow_plaintext_secrets = true\n'
+        '[llm]\nprovider = "openai"\napi_key = "sk-test-123"\n'
+    )
+    cfg = Config.from_file(f)
+    assert cfg.allow_plaintext_secrets is True
+    assert cfg.llm_api_key == "sk-test-123"
+
+
+def test_plaintext_api_key_still_rejected_when_flag_off(tmp_path, capsys):
+    """Default stays secure: without the flag, a literal api_key is stripped + warned."""
+    f = tmp_path / "ladym.toml"
+    f.write_text('[llm]\nprovider = "openai"\napi_key = "sk-test-123"\n')
+    cfg = Config.from_file(f)
+    assert cfg.llm_api_key == ""  # stripped
+    assert "secret literal" in capsys.readouterr().err.lower()

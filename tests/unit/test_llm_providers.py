@@ -102,3 +102,23 @@ def test_make_agent_none_when_provider_none():
     cfg = Config()
     agent = make_agent(cfg, "consolidate")
     assert agent is None  # heuristic mode
+
+
+def test_make_agent_passes_plaintext_api_key(monkeypatch):
+    """A configured plaintext llm_api_key is threaded into make_llm_provider."""
+    from ladym.config import Config
+    from ladym.providers import agents
+
+    captured: dict = {}
+
+    def fake_make(**kw):
+        captured.update(kw)
+        return "STUB"
+
+    monkeypatch.setattr(agents, "make_llm_provider", fake_make)
+    cfg = Config()
+    cfg.llm_provider = "openai"
+    cfg.llm_api_key = "sk-plaintext"
+    result = agents.make_agent(cfg, "consolidate")
+    assert result == "STUB"
+    assert captured["api_key"] == "sk-plaintext"
