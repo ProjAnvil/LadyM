@@ -127,6 +127,14 @@ class System2Config:
     # LLM endpoint is visible instead of looping silently forever. The CLI
     # ``worker`` loop is unbounded (user-supervised) and does not use this knob.
     max_consecutive_errors: int = 10
+    # L5 mental-model extraction (SPEC §2.8): cluster uncovered L2/L3 memories.
+    l5_cluster_similarity: float = 0.65   # cosine to put two memories in one cluster
+    l5_min_cluster_size: int = 3          # minimum component size to abstract
+    l5_merge_similarity: float = 0.80     # cosine to merge two existing L5 models
+    l5_merge_every_n_cycles: int = 5      # run the merge pass every N extract cycles
+    # L6 forward-intent prediction (SPEC §2.8): predict next intents from episodes.
+    l6_max_episodes: int = 50             # cap on episodes handed to the agent per tick
+    l6_horizon_s: float = 3 * 24 * 3600.0  # default prediction TTL (3 days)
 
 
 @dataclass
