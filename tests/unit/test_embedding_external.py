@@ -335,3 +335,24 @@ def test_engine_ensure_provider_dim_raises_on_failure():
     eng.provider = _BrokenProvider()
     with pytest.raises(EmbeddingProviderError, match="cannot determine embedding dimension"):
         eng._ensure_provider_dim()
+
+
+# ---------- Task 1.5: query-embedding LRU cache ----------
+
+def test_query_cache_hits_after_first_embed():
+    from ladym.providers.query_cache import CachedEmbedding
+    from ladym.storage.embeddings import HashingEmbedding
+
+    calls = {"n": 0}
+
+    class Counted(HashingEmbedding):
+        def embed(self, text):
+            calls["n"] += 1
+            return super().embed(text)
+
+    cached = CachedEmbedding(Counted(dim=64), size=4)
+    cached.embed("same")
+    cached.embed("same")
+    assert calls["n"] == 1  # second was a cache hit
+    assert cached.dim == 64
+    assert cached.embed_batch(["x"])  # batch still works (bypasses cache)

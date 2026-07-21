@@ -192,29 +192,29 @@ def make_provider(config: Config) -> EmbeddingProvider:
     Routes between the offline :class:`HashingEmbedding`, heavy local models
     (sentence-transformers), hosted (OpenAI, including OpenAI-compatible third parties via
     ``base_url``), and the external HTTP providers added in Task 1.2 (Ollama, generic HTTP,
-    user callables). No caching is applied here — Task 1.5 wraps the result in
-    :class:`CachedEmbedding`.
+    user callables). Optionally wraps the result in :class:`CachedEmbedding` when
+    ``config.embedding_query_cache_size > 0``.
     """
     name = config.embedding_provider.lower()
     if name == "hashing":
-        return HashingEmbedding(dim=config.embedding_dim)
-    if name in ("st", "sentence-transformer", "sentence_transformers"):
-        return SentenceTransformerEmbedding(config.embedding_model or None)  # type: ignore[arg-type]
-    if name == "openai":
-        return OpenAIEmbedding(
+        provider: EmbeddingProvider = HashingEmbedding(dim=config.embedding_dim)
+    elif name in ("st", "sentence-transformer", "sentence_transformers"):
+        provider = SentenceTransformerEmbedding(config.embedding_model or None)  # type: ignore[arg-type]
+    elif name == "openai":
+        provider = OpenAIEmbedding(
             config.embedding_model or "text-embedding-3-small",
             base_url=config.embedding_base_url or None,
         )
-    if name == "ollama":
+    elif name == "ollama":
         from ..providers.embeddings_http import OllamaEmbedding
-        return OllamaEmbedding(
+        provider = OllamaEmbedding(
             config.embedding_base_url or "http://localhost:11434",
             config.embedding_model or "nomic-embed-text",
             timeout_s=config.embedding_timeout_s,
         )
-    if name == "http":
+    elif name == "http":
         from ..providers.embeddings_http import HttpEmbedding
-        return HttpEmbedding(
+        provider = HttpEmbedding(
             config.embedding_base_url,
             request_template=config.embedding_http_request,
             response_path=config.embedding_http_response_path,
@@ -222,7 +222,7 @@ def make_provider(config: Config) -> EmbeddingProvider:
             model=config.embedding_model,
             timeout_s=config.embedding_timeout_s,
         )
-    if name == "callable":
+    elif name == "callable":
         fn = _callable_registry.get(config.embedding_model)
         if fn is None:
             raise ValueError(
@@ -230,5 +230,11 @@ def make_provider(config: Config) -> EmbeddingProvider:
                 "(call ladym.storage.embeddings.register_callable first)"
             )
         from ..providers.embeddings_http import CallableEmbedding
-        return CallableEmbedding(fn, dim=config.embedding_dim)
-    raise ValueError(f"unknown embedding provider: {name}")
+        provider = CallableEmbedding(fn, dim=config.embedding_dim)
+    else:
+        raise ValueError(f"unknown embedding provider: {name}")
+
+    if config.embedding_query_cache_size > 0:
+        from ..providers.query_cache import CachedEmbedding
+        provider = CachedEmbedding(provider, config.embedding_query_cache_size)
+    return provider

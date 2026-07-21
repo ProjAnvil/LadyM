@@ -83,6 +83,7 @@ class Config:
     embedding_http_request: str = '{"input": "{text}"}'
     embedding_http_response_path: str = "data"
     embedding_allow_dim_change: bool = False
+    embedding_query_cache_size: int = 0          # LRU cache for embed(); 0 = off
     llm_provider: str | None = None           # None = no LLM (offline mode)
     llm_model: str = "gpt-4o-mini"
     activation: ActivationWeights = field(default_factory=ActivationWeights)
