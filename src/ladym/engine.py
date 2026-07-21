@@ -322,6 +322,12 @@ class Engine:
         n_code_syms = self.store.conn.execute(
             "SELECT COUNT(*) FROM code_symbols"
         ).fetchone()[0]
+        # token estimate via the existing tokenizer
+        from .storage.embeddings import tokenize
+
+        mems = list(self.store.iter_memories(workspace=self.config.workspace))
+        total_tokens = sum(len(tokenize(m.content)) for m in mems)
+        avg = (total_tokens / len(mems)) if mems else 0.0
         return Stats(
             total_memories=sum(by_layer.values()),
             by_layer=by_layer,
@@ -330,6 +336,7 @@ class Engine:
             code_symbols=n_code_syms,
             workspaces=self.store.workspaces(),
             db_path=str(self.config.db_path),
+            avg_tokens_per_memory=avg,
         )
 
     # ----- private -----

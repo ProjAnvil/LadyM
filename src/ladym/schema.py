@@ -32,6 +32,8 @@ class Layer(StrEnum):
     SEMANTIC = "L2_semantic"      # consolidated facts + code analysis
     PROCEDURAL = "L3_procedural"  # how-to playbooks
     ASSOCIATIVE = "L4_associative"  # graph edges (handled via Edge, not Memory rows)
+    L5_MENTAL = "L5_mental"          # mental models (schema-only, post-MVP extraction)
+    L6_PREDICTIVE = "L6_predictive"  # forward intent (schema-only, post-MVP extraction)
 
 
 class MemoryType(StrEnum):
@@ -44,6 +46,8 @@ class MemoryType(StrEnum):
     CODE_SYMBOL = "code_symbol"  # function/class/method/doc
     PLAYBOOK = "playbook"       # procedural steps
     SNIPPET = "snippet"         # verified reusable code
+    MENTAL_MODEL = "mental_model"      # L5 mental model (schema-only, post-MVP)
+    FORWARD_INTENT = "forward_intent"  # L6 forward intent (schema-only, post-MVP)
 
 
 class Memory(BaseModel):
@@ -141,3 +145,4 @@ class Stats(BaseModel):
     code_symbols: int
     workspaces: list[str]
     db_path: str
+    avg_tokens_per_memory: float = 0.0

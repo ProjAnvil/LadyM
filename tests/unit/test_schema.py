@@ -21,7 +21,7 @@ def test_memory_touch_increments():
     assert m.last_access_at >= before[0]
 
 
-def test_layer_enum_has_five_layers():
+def test_layer_enum_has_seven_layers():
     layers = {layer.value for layer in Layer}
     assert layers == {
         "L0_working",
@@ -29,6 +29,8 @@ def test_layer_enum_has_five_layers():
         "L2_semantic",
         "L3_procedural",
         "L4_associative",
+        "L5_mental",
+        "L6_predictive",
     }
 
 
@@ -36,3 +38,23 @@ def test_edge_defaults():
     e = Edge(src_id="a", relation="calls", dst_id="b")
     assert e.valid_to is None  # still valid
     assert e.weight == 1.0
+
+
+def test_new_layers_and_types_exist():
+    from ladym.schema import Layer, MemoryType
+    assert Layer.L5_MENTAL.value == "L5_mental"
+    assert Layer.L6_PREDICTIVE.value == "L6_predictive"
+    assert MemoryType.MENTAL_MODEL.value == "mental_model"
+    assert MemoryType.FORWARD_INTENT.value == "forward_intent"
+
+
+def test_stats_has_density(tmp_path):
+    from ladym.config import Config
+    from ladym.engine import Engine
+    e = Engine(Config.for_testing(tmp_path))
+    try:
+        e.semantic.put_fact("alpha beta gamma delta")
+        s = e.stats()
+        assert s.avg_tokens_per_memory > 0
+    finally:
+        e.close()
