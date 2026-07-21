@@ -193,6 +193,9 @@ def test_allowed_non_secret_keys_applied(tmp_path):
 def test_cli_overrides_strip_secret_literals(tmp_path, capsys, monkeypatch):
     """Defense-in-depth: secret literals in ``cli_overrides`` are stripped too,
     not silently applied. Non-secret CLI overrides still take effect."""
+    # Hermetic: don't let a real ./ladym.toml or ~/.ladym/config.toml leak in.
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.delenv("LADYM_WORKSPACE", raising=False)
     f = tmp_path / "ladym.toml"
     write(f, 'workspace = "fromfile"\n')
