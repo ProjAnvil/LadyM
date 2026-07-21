@@ -89,17 +89,25 @@ CREATE TABLE IF NOT EXISTS index_state (
     body_hash   TEXT NOT NULL,
     indexed_at  REAL NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS meta (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
 """
 
 
 class SQLiteStore:
     """The single persistence layer for LadyM."""
 
-    def __init__(self, db_path: Path, dim: int, prefer_sqlite_vec: bool = True):
+    def __init__(self, db_path: Path, dim: int, prefer_sqlite_vec: bool = True,
+                 enable_wal: bool = False):
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self.conn = sqlite3.connect(str(self.db_path))
         self.conn.row_factory = sqlite3.Row
+        if enable_wal:
+            self.conn.execute("PRAGMA journal_mode=WAL")
         self.conn.execute("PRAGMA foreign_keys = ON")
         self.conn.executescript(_SCHEMA)
         # migrate: add embedding column to pre-existing DBs (idempotent)
@@ -416,3 +424,15 @@ class SQLiteStore:
             "SELECT DISTINCT workspace FROM memories ORDER BY workspace"
         ).fetchall()
         return [r[0] for r in rows]
+
+    def get_meta(self, key: str) -> str | None:
+        row = self.conn.execute("SELECT value FROM meta WHERE key = ?", (key,)).fetchone()
+        return row["value"] if row else None
+
+    def set_meta(self, key: str, value: str) -> None:
+        self.conn.execute(
+            "INSERT INTO meta (key, value) VALUES (?,?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            (key, value),
+        )
+        self.conn.commit()

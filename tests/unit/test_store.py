@@ -152,3 +152,24 @@ def test_workspaces_listing(store):
     store.put_memory(_mem("a", workspace="alpha"))
     store.put_memory(_mem("b", workspace="beta"))
     assert set(store.workspaces()) == {"alpha", "beta"}
+
+
+def test_meta_roundtrip(tmp_db):
+    from ladym.storage.store import SQLiteStore
+    s = SQLiteStore(tmp_db, dim=8)
+    assert s.get_meta("foo") is None
+    s.set_meta("foo", "bar")
+    assert s.get_meta("foo") == "bar"
+    # reopen -> persisted
+    s.close()
+    s2 = SQLiteStore(tmp_db, dim=8)
+    assert s2.get_meta("foo") == "bar"
+    s2.close()
+
+
+def test_wal_mode_when_requested(tmp_db):
+    from ladym.storage.store import SQLiteStore
+    s = SQLiteStore(tmp_db, dim=8, enable_wal=True)
+    mode = s.conn.execute("PRAGMA journal_mode").fetchone()[0]
+    assert mode == "wal"
+    s.close()
