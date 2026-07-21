@@ -35,6 +35,40 @@ def test_update_creates_new_and_retires_old(engine):
     assert latest_in_chain(engine.store, old.id) == new.id
 
 
+def test_retire_preserves_supersedes_edge_against_close_loop(engine):
+    """retire() must close existing outgoing edges BEFORE writing the new supersedes
+    edge, otherwise the close-loop closes the very edge latest_in_chain needs to walk.
+
+    This test makes the ordering guarantee actually exercised: ``old`` has a
+    pre-existing ``old -> third`` edge with ``valid_to=None`` so the close-loop has
+    real work to do. If the order were swapped, the new ``supersedes`` edge would be
+    closed by the loop and latest_in_chain would not reach ``new``.
+    """
+    from ladym.operations import supersedes as sup
+    from ladym.schema import Edge
+
+    old = engine.semantic.put_fact("auth uses JWT", summary="v1")
+    third = engine.semantic.put_fact("auth uses OAuth2", summary="related")
+    new = engine.semantic.put_fact("auth uses JWT with 24h expiry", summary="v2")
+    # pre-existing open edge old -> third; this is what the close-loop must close.
+    engine.store.put_edge(
+        Edge(src_id=old.id, relation="related_to", dst_id=third.id, valid_to=None)
+    )
+
+    sup.retire(engine.store, old, new_id=new.id)
+
+    # the supersedes edge survived the close-loop: latest_in_chain reaches ``new``.
+    assert latest_in_chain(engine.store, old.id) == new.id
+    # the old -> third edge was closed (valid_to now set, edge still present in the
+    # table — only its temporal validity ended, it was not deleted).
+    rows = engine.store.conn.execute(
+        "SELECT valid_to FROM edges WHERE src_id = ? AND dst_id = ? AND relation = 'related_to'",
+        (old.id, third.id),
+    ).fetchall()
+    assert len(rows) == 1
+    assert rows[0]["valid_to"] is not None
+
+
 def test_delete_retires_without_successor(engine):
     from ladym.operations import supersedes as sup
 

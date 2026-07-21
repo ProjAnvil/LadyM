@@ -65,6 +65,12 @@ def latest_in_chain(store: SQLiteStore, mem_id: str) -> str:
 
     Stops at the head (a memory with no outgoing ``supersedes`` edge) and guards against
     cycles by tracking the visited set.
+
+    SPEC §2.6 is a single-successor model, but we guard against a future double-UPDATE
+    bug that leaves two ``supersedes`` edges from the same node: when multiple outgoing
+    edges exist we pick the one with the most recent ``valid_from`` — the newest
+    supersede wins. The deterministic choice keeps the walk stable and prevents a silent
+    fork from losing a successor.
     """
     seen: set[str] = set()
     cur = mem_id
@@ -77,5 +83,8 @@ def latest_in_chain(store: SQLiteStore, mem_id: str) -> str:
         ]
         if not nxt:
             return cur
-        cur = nxt[0].dst_id
+        # Single-successor model (SPEC §2.6); if a bug leaves multiple supersedes
+        # edges from ``cur``, the newest supersede (max valid_from) wins.
+        best = max(nxt, key=lambda e: e.valid_from)
+        cur = best.dst_id
     return cur
