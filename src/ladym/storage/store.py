@@ -106,6 +106,7 @@ class SQLiteStore:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self.conn = sqlite3.connect(str(self.db_path))
         self.conn.row_factory = sqlite3.Row
+        self.prefer_sqlite_vec = prefer_sqlite_vec
         if enable_wal:
             self.conn.execute("PRAGMA journal_mode=WAL")
         self.conn.execute("PRAGMA foreign_keys = ON")
@@ -137,6 +138,28 @@ class SQLiteStore:
     @property
     def using_sqlite_vec(self) -> bool:
         return self._using_sqlite_vec
+
+    def rebuild_vector_index(self, new_dim: int) -> None:
+        """Tear down and recreate the vector index at a different dimension.
+
+        Used by the Engine when ``Config.embedding_allow_dim_change=True`` and a reopened DB
+        is found to carry vectors of a different dim than the live provider. The old
+        ``vec_memories`` virtual table (if any) is dropped, the in-memory index is rebuilt
+        empty, and ``self.dim`` is updated. Callers then re-embed every memory via
+        :meth:`put_memory` to repopulate both the BLOB column and the new index.
+        """
+        self.conn.execute("DROP TABLE IF EXISTS vec_memories")
+        self.conn.commit()
+        self.dim = new_dim
+        self._using_sqlite_vec = False
+        if self.prefer_sqlite_vec:
+            try:
+                self.vector_index = SQLiteVecIndex(self.conn, new_dim)
+                self._using_sqlite_vec = True
+            except Exception:
+                self.vector_index = InMemoryVectorIndex(new_dim)
+        else:
+            self.vector_index = InMemoryVectorIndex(new_dim)
 
     def _warm_index_from_blobs(self) -> None:
         """Repopulate the in-memory vector index from persisted ``embedding`` BLOBs."""

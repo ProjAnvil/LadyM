@@ -47,11 +47,16 @@ class Engine:
         # the index in-memory for determinism. Embeddings are always persisted as a BLOB so
         # either path survives a reopen.
         self.store = SQLiteStore(
-            cfg.db_path, dim=self.provider.dim, prefer_sqlite_vec=cfg.prefer_sqlite_vec
+            cfg.db_path, dim=self.provider.dim,
+            prefer_sqlite_vec=cfg.prefer_sqlite_vec, enable_wal=cfg.enable_wal,
         )
         # convenience: monkeypatch hook so recall can find neighbour counts on the store
         if not hasattr(self.store, "associative_neighbour_counts"):
             self.store.associative_neighbour_counts = self._associative_neighbour_counts  # type: ignore[attr-defined]
+        # Persist/probe the embedding dimension so a reopened DB cannot silently mix vectors
+        # of different dims. On empty DB we record the probe; on mismatch we either re-embed
+        # (if allowed) or refuse to start.
+        self._enforce_embedding_dim()
 
         self.working = WorkingMemory(workspace=cfg.workspace)
         self.episodic = EpisodicMemory(self.store, self.provider, workspace=cfg.workspace)
@@ -235,3 +240,46 @@ class Engine:
 
     def _associative_neighbour_counts(self) -> dict[str, int]:
         return self.associative.neighbor_counts()
+
+    # ----- embedding-dim lifecycle -----
+
+    def _enforce_embedding_dim(self) -> None:
+        """Persist the live provider's dim on an empty DB; refuse (or re-embed) on mismatch.
+
+        Called once during ``__init__`` after the store is open. Reads the ``embedding_dim``
+        key from the ``meta`` table (Task 1.3); when absent (fresh DB) we just record the
+        current dim. When present and different, the behaviour depends on
+        ``Config.embedding_allow_dim_change``: ``True`` wipes & re-embeds every memory;
+        ``False`` (default) raises :class:`EmbeddingDimensionMismatch` so the operator decides.
+        """
+        stored = self.store.get_meta("embedding_dim")
+        actual = self.provider.dim
+        if stored is None:
+            # fresh DB: probe & persist
+            self.store.set_meta("embedding_dim", str(actual))
+            self.store.set_meta("embedding_provider", self.config.embedding_provider)
+            return
+        if int(stored) != actual:
+            if self.config.embedding_allow_dim_change:
+                # The store was constructed with the new dim, but its ``vec_memories``
+                # virtual table (and self.store.dim for sqlite-vec) still reflects the old
+                # dim because the table already existed. Drop & rebuild before re-embedding.
+                self.store.rebuild_vector_index(actual)
+                self._reembed_all()
+                self.store.set_meta("embedding_dim", str(actual))
+                self.store.set_meta("embedding_provider", self.config.embedding_provider)
+            else:
+                from .storage.embeddings import EmbeddingDimensionMismatch
+                raise EmbeddingDimensionMismatch(int(stored), actual)
+
+    def _reembed_all(self) -> None:
+        """Re-embed every persisted memory with the current provider.
+
+        Used when the operator opts into a dim change (``embedding_allow_dim_change=True``).
+        ``put_memory`` rewrites both the embedding BLOB and the in-memory / sqlite-vec index,
+        so a single pass is sufficient. The store was already constructed with the new dim,
+        so the index accepts the new vectors directly.
+        """
+        for m in self.store.iter_memories():
+            vec = self.provider.embed(m.content)
+            self.store.put_memory(m, vector=vec)

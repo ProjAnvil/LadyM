@@ -77,6 +77,12 @@ class Config:
         default_factory=lambda: os.environ.get("LADYM_EMBEDDING_MODEL", "")
     )
     embedding_dim: int = 256                  # for the hashing provider; overridden by others
+    # --- embedding provider control-plane stubs (full schema lands in Task 2.1) ---
+    embedding_base_url: str = ""
+    embedding_timeout_s: float = 10.0
+    embedding_http_request: str = '{"input": "{text}"}'
+    embedding_http_response_path: str = "data"
+    embedding_allow_dim_change: bool = False
     llm_provider: str | None = None           # None = no LLM (offline mode)
     llm_model: str = "gpt-4o-mini"
     activation: ActivationWeights = field(default_factory=ActivationWeights)
@@ -84,6 +90,7 @@ class Config:
     consolidate: ConsolidateConfig = field(default_factory=ConsolidateConfig)
     code_index: CodeIndexConfig = field(default_factory=CodeIndexConfig)
     prefer_sqlite_vec: bool = True
+    enable_wal: bool = False
 
     @classmethod
     def for_testing(cls, tmp_path: Path) -> Config:
