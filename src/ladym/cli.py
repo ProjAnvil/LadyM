@@ -297,5 +297,40 @@ def worker(
         eng.close()
 
 
+@app.command()
+def config(
+    port: int = typer.Option(8765, "--port", help="Port to serve the editor on."),
+    no_browser: bool = typer.Option(
+        False, "--no-browser", help="Don't auto-open the browser."
+    ),
+):
+    """Open the local web config editor (needs the optional web extra).
+
+    Serves a FastAPI + HTMX form on 127.0.0.1 that edits embedding/llm/activation
+    and writes the result to ./ladym.toml. Imports are lazy so the rest of the
+    CLI works without the extra; importing fastapi is checked explicitly so the
+    guard fires even if ladym.web.app is already cached in the process.
+    """
+    try:
+        import fastapi  # noqa: F401 — explicit dependency guard (order-independent)
+        import uvicorn
+
+        from .web.app import build_app
+    except ImportError:
+        console.print(
+            "[red]web extra not installed[/red] — install with: pip install 'ladym\\[web]'"
+        )
+        raise typer.Exit(1) from None
+    cfg_path = Path(_config_path) if _config_path else None
+    app_obj = build_app(config_path=cfg_path)
+    if not no_browser:
+        import threading
+        import webbrowser
+
+        threading.Timer(1.0, lambda: webbrowser.open(f"http://127.0.0.1:{port}/")).start()
+    console.print(f"[bold]LadyM config[/bold] on http://127.0.0.1:{port}/")
+    uvicorn.run(app_obj, host="127.0.0.1", port=port, log_level="warning")
+
+
 if __name__ == "__main__":  # pragma: no cover
     app()

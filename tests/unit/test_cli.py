@@ -167,3 +167,18 @@ def test_cli_recall_with_config_file(tmp_path, monkeypatch):
     f.write_text(f'db_path = "{tmp_path}/c.db"\nworkspace = "w"\nembedding_provider = "hashing"\n')
     res = runner.invoke(app, ["--config", str(f), "recall", "anything"])
     assert res.exit_code == 0, res.output
+
+
+def test_config_command_missing_web_extra_errors(monkeypatch):
+    """``ladym config`` errors clearly when the [web] extra isn't installed.
+
+    Simulates fastapi being absent (sets ``sys.modules['fastapi'] = None``) so the
+    command's explicit dependency guard fires regardless of whether other tests
+    have already cached ``ladym.web.app``.
+    """
+    import sys
+
+    monkeypatch.setitem(sys.modules, "fastapi", None)
+    res = runner.invoke(app, ["config", "--no-browser"])
+    assert res.exit_code != 0
+    assert "ladym[web]" in res.output
