@@ -249,5 +249,38 @@ def serve(
     server.run()
 
 
+@app.command()
+def worker(
+    once: bool = typer.Option(False, "--once", help="Run one cycle and exit."),
+    interval: int = typer.Option(300, "--interval", help="Seconds between cycles."),
+    db: str | None = typer.Option(None, "--db"),
+    workspace: str | None = typer.Option(None, "--workspace", "-w"),
+):
+    """Run System2 consolidation cycles in the background (SPEC §2.8).
+
+    Opens the store in WAL mode so concurrent readers (other CLI invocations,
+    the MCP server, an in-process ``start_system2`` thread) can ``recall``
+    while this worker writes — without sqlite locking. WAL must be enabled
+    BEFORE the Engine is constructed (``enable_wal`` is read by
+    ``SQLiteStore.__init__``), so we build the Config inline rather than via
+    ``_engine`` (which doesn't set WAL).
+    """
+    import time
+
+    cfg = _load_config(db, workspace)
+    cfg.enable_wal = True
+    eng = Engine(cfg)
+    from .operations.system2 import run_system2_cycle
+
+    try:
+        while True:
+            run_system2_cycle(eng, workspace=workspace)
+            if once:
+                break
+            time.sleep(interval)
+    finally:
+        eng.close()
+
+
 if __name__ == "__main__":  # pragma: no cover
     app()

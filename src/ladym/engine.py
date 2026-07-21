@@ -6,6 +6,7 @@ object. All front-ends call the same Engine so behaviour is identical everywhere
 
 from __future__ import annotations
 
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -308,6 +309,51 @@ class Engine:
 
     def forget(self, memory_id: str) -> None:
         self.store.delete_memory(memory_id)
+
+    # ----- background System2 worker (opt-in, in-process) -----
+
+    def start_system2(
+        self,
+        *,
+        interval_s: int | None = None,
+        workspace: str | None = None,
+    ) -> threading.Event:
+        """Launch a daemon thread running System2 cycles in the background.
+
+        Returns a :class:`threading.Event`; ``set()`` it to ask the worker to
+        stop after its current cycle. The worker runs in its OWN Engine (its
+        own ``SQLiteStore`` / sqlite connection), opened in WAL mode so it can
+        write while the caller's Engine reads without locking. WAL is enabled
+        BEFORE the worker Engine is constructed (``enable_wal`` is consumed by
+        ``SQLiteStore.__init__``); setting it post-construction is a no-op.
+        """
+        import contextlib
+        import copy
+
+        stop = threading.Event()
+        interval = interval_s if interval_s is not None else self.config.system2.interval_s
+
+        # Fresh Config so the worker's mutations can't leak back to self.config.
+        worker_cfg = copy.copy(self.config)
+        worker_cfg.enable_wal = True
+
+        def _loop() -> None:
+            from .operations import system2 as _sys2
+
+            worker_eng = Engine(worker_cfg)
+            try:
+                while not stop.is_set():
+                    # Worker must stay alive across a single bad cycle; swallow
+                    # errors and try again next tick. Call through the module
+                    # so tests can monkeypatch run_system2_cycle.
+                    with contextlib.suppress(Exception):
+                        _sys2.run_system2_cycle(worker_eng, workspace=workspace)
+                    stop.wait(interval)
+            finally:
+                worker_eng.close()
+
+        threading.Thread(target=_loop, daemon=True).start()
+        return stop
 
     # ----- introspection -----
 
