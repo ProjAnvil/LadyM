@@ -66,3 +66,60 @@ class FakeLLMProvider(LLMProvider):
         if self._structured is None:
             raise NotImplementedError("FakeLLMProvider has no structured_fn scripted")
         return self._structured(messages, schema)
+
+
+def _to_lc(msg: Message):
+    from langchain_core.messages import (  # local import keeps ABC light
+        AIMessage,
+        HumanMessage,
+        SystemMessage,
+    )
+    if msg["role"] == "system":
+        return SystemMessage(content=msg["content"])
+    if msg["role"] == "assistant":
+        return AIMessage(content=msg["content"])
+    return HumanMessage(content=msg["content"])
+
+
+class LangChainLLMProvider(LLMProvider):
+    name = "langchain"
+
+    def __init__(self, chat_model, structured_method: str = "function_calling"):
+        self._cm = chat_model
+        self._sm = structured_method
+
+    def complete(self, messages, **params):
+        return self._cm.invoke([_to_lc(m) for m in messages]).content
+
+    def complete_structured(self, messages, schema, **params):
+        runner = self._cm.with_structured_output(schema, method=self._sm)
+        out = runner.invoke([_to_lc(m) for m in messages])
+        return out if isinstance(out, dict) else out.dict() if hasattr(out, "dict") else dict(out)
+
+
+def make_llm_provider(*, provider: str, base_url: str, model: str, api_key: str,
+                      structured_method: str = "function_calling",
+                      max_tokens: int = 1024, temperature: float = 0.2,
+                      timeout_s: float = 30.0) -> LLMProvider | None:
+    provider = (provider or "none").lower()
+    if provider == "none":
+        return None
+    try:
+        if provider == "openai" or provider == "http":
+            from langchain_openai import ChatOpenAI
+            cm = ChatOpenAI(base_url=base_url or None, model=model, api_key=api_key or None,
+                            max_tokens=max_tokens, temperature=temperature, timeout=timeout_s)
+        elif provider == "anthropic":
+            from langchain_anthropic import ChatAnthropic
+            cm = ChatAnthropic(base_url=base_url or None, model=model, api_key=api_key or None,
+                               max_tokens=max_tokens, temperature=temperature, timeout=timeout_s)
+        elif provider == "ollama":
+            from langchain_ollama import ChatOllama
+            cm = ChatOllama(base_url=base_url or None, model=model, temperature=temperature)
+        else:
+            raise ValueError(f"unknown llm provider: {provider}")
+    except ImportError as e:  # pragma: no cover
+        raise ImportError(
+            f"LLM provider {provider!r} needs langchain extras: pip install 'ladym[llm]'"
+        ) from e
+    return LangChainLLMProvider(cm, structured_method)

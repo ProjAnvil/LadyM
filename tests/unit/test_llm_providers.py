@@ -36,3 +36,20 @@ def test_llmprovider_is_abstract():
 
     with pytest.raises(TypeError):
         LLMProvider()  # type: ignore[abstract]
+
+
+def test_make_llm_provider_none_returns_none():
+    from ladym.providers.llm import make_llm_provider
+    assert make_llm_provider(provider="none", base_url="", model="",
+                             api_key="", structured_method="function_calling") is None
+
+
+def test_langchain_provider_built_when_importable():
+    import pytest
+
+    from ladym.providers.llm import LangChainLLMProvider, make_llm_provider
+    pytest.importorskip("langchain_openai")
+    p = make_llm_provider(provider="openai", base_url="https://example.test/v1",
+                          model="m", api_key="k", structured_method="function_calling",
+                          max_tokens=8, temperature=0.0, timeout_s=5)
+    assert isinstance(p, LangChainLLMProvider)
