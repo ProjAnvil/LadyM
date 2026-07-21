@@ -105,7 +105,7 @@ def _connected_components(
     return list(groups.values())
 
 
-def _summarise(llm, prompt: str, members: list[Memory]) -> dict | None:
+def _summarise(llm, prompt: str, members: list[Memory]) -> dict:
     corpus = "\n".join(f"- ({m.type}) {m.content}" for m in members)
     msgs = [
         {"role": "system", "content": prompt},
@@ -168,8 +168,12 @@ def _merge(
                     mb = store.get_memory(e.dst_id)
                     if mb is not None:
                         members.append(mb)
-        corpus_src = members or old_models
-        result = _summarise(llm, prompt, corpus_src)
+        if not members:
+            # An active L5 always has open abstracts edges to its members; if none
+            # resolved the models can't be meaningfully merged — skip rather than
+            # double-abstract the old model text (unreachable in normal operation).
+            continue
+        result = _summarise(llm, prompt, members)
         if not result:
             continue
         merged = _store_model(
@@ -250,7 +254,11 @@ def extract(
     # periodic merge: every Nth extract, collapse similar existing L5 models.
     n = cfg.system2.l5_merge_every_n_cycles
     if n > 0:
-        counter = int(store.get_meta("l5_merge_cycle_count") or 0) + 1
+        raw = store.get_meta("l5_merge_cycle_count")
+        try:
+            counter = int(raw) + 1 if raw else 1
+        except ValueError:
+            counter = 1  # foreign/corrupt meta value — start a fresh count
         if counter >= n:
             store.set_meta("l5_merge_cycle_count", "0")
             report = _merge(

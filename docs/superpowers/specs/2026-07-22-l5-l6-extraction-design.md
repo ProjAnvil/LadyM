@@ -136,8 +136,10 @@ Ship defaults at `src/ladym/prompts/l5.txt` and `src/ladym/prompts/l6.txt` (the 
 table in the prior SPEC, lines 414-415, already promises). Load via
 `importlib.resources.files("ladym.prompts") / "<name>.txt"`. **Override:** if
 `AgentConfig.prompt_template` for the op is non-empty, use it verbatim instead of the file default —
-this finally makes the currently-vestigial `prompt_template` field operator-meaningful. Add
-`src/ladym/prompts/` to package-data in `pyproject.toml` so the files ship in the wheel.
+this finally makes the currently-vestigial `prompt_template` field operator-meaningful. No
+`pyproject.toml` change is needed: hatchling (`[tool.hatch.build.targets.wheel] packages =
+["src/ladym"]`) includes data files under packages by default, so the `.txt` prompts ship in the
+wheel automatically (verified by `test_prompts_are_packaged_and_readable`).
 
 - `l5.txt`: system role = "abstract several memories into one concise mental model"; instructs the
   JSON shape `{title, model}` and to stay factual / not invent beyond the inputs.
@@ -168,7 +170,8 @@ propagates to the caller, exactly as `consolidate`/`proceduralize` do; the Syste
   `src/ladym/prompts/l6.txt` (and `src/ladym/prompts/__init__.py` empty, so `importlib.resources`
   resolves the subpackage).
 - **Modified:** `engine.py` (+`extract_mental_models` / `+predict_forward_intents` methods + report
-  imports), `config.py` (`System2Config` +6 fields), `pyproject.toml` (prompts package-data).
+  imports), `config.py` (`System2Config` +6 fields). (No `pyproject.toml` change — hatchling ships
+  data files under `packages` by default; see §3.4.)
 - **Unchanged:** `operations/system2.py` (already wired via `hasattr`), `schema.py`, `providers/agents.py`.
 
 ## 4. NFR compliance

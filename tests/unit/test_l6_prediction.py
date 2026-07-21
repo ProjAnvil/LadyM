@@ -37,6 +37,7 @@ def test_predict_stores_one_memory_per_intent(engine):
 
     assert isinstance(report, L6PredictionReport)
     assert report.predictions == 2
+    assert report.episodes_seen == 1
     l6 = list(engine.store.iter_memories(workspace="test", layer=Layer.L6_PREDICTIVE.value))
     assert len(l6) == 2
     # the explicit-horizon intent keeps it; the other falls back to the config default
@@ -74,6 +75,8 @@ def test_predict_retires_expired_intents(engine):
     report = predict(engine.store, engine.provider, cfg=engine.config, llm=fake)
 
     assert report.expired_retired == 1
+    assert report.episodes_seen == 1  # fresh episode consumed even with empty intents
+    assert report.watermark_updated_to is not None
     assert is_retired(engine.store.get_memory(expired.id))
 
 

@@ -37,6 +37,7 @@ class _Intents(BaseModel):
 class L6PredictionReport:
     predictions: int = 0
     expired_retired: int = 0
+    episodes_seen: int = 0
     watermark_updated_to: float | None = None
     details: list[dict] = field(default_factory=list)
     skipped: bool = False
@@ -85,6 +86,7 @@ def predict(
         (_L1_LAYER, ws, watermark, cfg.system2.l6_max_episodes),
     ).fetchall()
     episodes = [store._row_to_memory(r) for r in rows]
+    report.episodes_seen = len(episodes)
     if not episodes:
         return report
 
