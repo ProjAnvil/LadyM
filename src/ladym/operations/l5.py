@@ -18,7 +18,7 @@ from ..config import Config
 from ..schema import Edge, Layer, Memory, MemoryType
 from ..storage.embeddings import EmbeddingProvider
 from ..storage.store import SQLiteStore
-from .supersedes import is_retired
+from .supersedes import is_retired, retire
 
 _L5_LAYER = Layer.L5_MENTAL.value
 _ABSTRACTS = "abstracts"
@@ -131,6 +131,68 @@ def _store_model(store, embedder, *, title, body, workspace, source, extra_meta)
     return mem
 
 
+def _merge(
+    store: SQLiteStore,
+    embedder: EmbeddingProvider,
+    *,
+    cfg: Config,
+    workspace: str,
+    llm,
+    prompt: str,
+    report: L5ExtractionReport,
+) -> L5ExtractionReport:
+    """Re-cluster current non-retired L5 models; merge each similar pair via supersedes."""
+    models = [
+        m for m in store.iter_memories(workspace=workspace, layer=_L5_LAYER)
+        if not is_retired(m)
+    ]
+    if len(models) < 2:
+        return report
+    by_id = {m.id: m for m in models}
+    vecs = embedder.embed_batch([m.content for m in models])
+    components = _connected_components(
+        [m.id for m in models], vecs, cfg.system2.l5_merge_similarity
+    )
+    now = time.time()
+    for comp in components:
+        if len(comp) < 2:
+            continue
+        old_models = [by_id[mid] for mid in comp]
+        # gather every member across the old models (dedup by id)
+        members: list[Memory] = []
+        seen: set[str] = set()
+        for om in old_models:
+            for e in store.neighbors(om.id, relation=_ABSTRACTS):
+                if e.src_id == om.id and e.dst_id not in seen:
+                    seen.add(e.dst_id)
+                    mb = store.get_memory(e.dst_id)
+                    if mb is not None:
+                        members.append(mb)
+        corpus_src = members or old_models
+        result = _summarise(llm, prompt, corpus_src)
+        if not result:
+            continue
+        merged = _store_model(
+            store, embedder,
+            title=result.get("title", "mental model"),
+            body=result.get("model", ""),
+            workspace=workspace, source="l5_merge",
+            extra_meta={"n_members": len(members), "merged_from": [om.id for om in old_models]},
+        )
+        # retire old models (closes their abstracts out-edges), then re-link members to merged
+        for om in old_models:
+            retire(store, om, new_id=merged.id)
+        for mb in members:
+            store.put_edge(
+                Edge(src_id=merged.id, relation=_ABSTRACTS, dst_id=mb.id, valid_from=now)
+            )
+        report.merged_models += 1
+        report.clusters.append(
+            {"model_id": merged.id, "n_members": len(members), "action": "merged"}
+        )
+    return report
+
+
 def extract(
     store: SQLiteStore,
     embedder: EmbeddingProvider,
@@ -184,5 +246,17 @@ def extract(
         report.clusters.append(
             {"model_id": model_mem.id, "n_members": len(members), "action": "new"}
         )
+
+    # periodic merge: every Nth extract, collapse similar existing L5 models.
+    n = cfg.system2.l5_merge_every_n_cycles
+    if n > 0:
+        counter = int(store.get_meta("l5_merge_cycle_count") or 0) + 1
+        if counter >= n:
+            store.set_meta("l5_merge_cycle_count", "0")
+            report = _merge(
+                store, embedder, cfg=cfg, workspace=ws, llm=llm, prompt=prompt, report=report
+            )
+        else:
+            store.set_meta("l5_merge_cycle_count", str(counter))
 
     return report
