@@ -14,19 +14,48 @@ from .engine import Engine
 
 app = typer.Typer(
     name="ladym",
-    help="LadyM — Layered Agent DYnamic Memory: brain-inspired memory for LLM agents & codebase RAG.",
+    help=(
+        "LadyM — Layered Agent DYnamic Memory: brain-inspired memory for LLM agents & codebase RAG."
+    ),
     no_args_is_help=True,
 )
 console = Console()
 
+# Set by the callback when ``--config`` is passed; honoured by ``_engine``.
+_config_path: str | None = None
+
+
+@app.callback()
+def _main(
+    config: str | None = typer.Option(  # noqa: B008 - typer idiom
+        None, "--config", help="Path to a ladym.toml to load on top of defaults/env."
+    ),
+) -> None:
+    """LadyM — global options live here (parsed BEFORE the subcommand)."""
+    global _config_path
+    _config_path = config
+
+
+def _load_config(db: str | None, workspace: str | None) -> Config:
+    """Resolve a Config via ``Config.load`` (4-layer precedence from Task 2.1).
+
+    ``--db`` / ``--workspace`` per-command flags become CLI overrides (highest
+    precedence); ``--config`` (global) becomes the ``config_path`` argument.
+    """
+    overrides: dict = {}
+    if db:
+        overrides["db_path"] = Path(db)
+    if workspace:
+        overrides["workspace"] = workspace
+    return Config.load(
+        config_path=Path(_config_path) if _config_path else None,
+        cli_overrides=overrides or None,
+    )
+
 
 def _engine(db: str | None, workspace: str | None) -> Engine:
-    cfg = Config()
-    if db:
-        cfg.db_path = Path(db)
-    if workspace:
-        cfg.workspace = workspace
-    return Engine(cfg)
+    """Build an Engine from the resolved Config (see :func:`_load_config`)."""
+    return Engine(_load_config(db, workspace))
 
 
 @app.command()
@@ -106,16 +135,18 @@ def recall(
 
 @app.command()
 def index(
-    root: Path = typer.Argument(..., help="Directory to index."),
+    root: Path = typer.Argument(..., help="Directory to index."),  # noqa: B008 - typer idiom
     db: str | None = typer.Option(None, "--db"),
     workspace: str | None = typer.Option(None, "--workspace", "-w"),
     force: bool = typer.Option(False, "--force", help="Re-index even if unchanged."),
-    languages: str | None = typer.Option(None, "--languages", help="Comma-separated, e.g. python,go"),
+    languages: str | None = typer.Option(
+        None, "--languages", help="Comma-separated, e.g. python,go"
+    ),
 ):
     """Index a codebase into L2 semantic memory."""
     eng = _engine(db, workspace)
     try:
-        langs = [l.strip() for l in languages.split(",")] if languages else None
+        langs = [lang.strip() for lang in languages.split(",")] if languages else None
         report = eng.index_code(root, force=force, languages=langs)
         console.print(
             f"[green]indexed[/green] {report.files_indexed}/{report.files_seen} files "
@@ -210,12 +241,9 @@ def serve(
     workspace: str | None = typer.Option(None, "--workspace", "-w"),
 ):
     """Run the LadyM MCP server over stdio (for MCP-aware agents)."""
-    cfg = Config()
-    if db:
-        cfg.db_path = Path(db)
-    if workspace:
-        cfg.workspace = workspace
+    cfg = _load_config(db, workspace)
     from .mcp.server import build_server
+
     server = build_server(cfg)
     console.print(f"[bold]LadyM MCP server[/bold] starting (db={cfg.db_path}, ws={cfg.workspace})")
     server.run()
