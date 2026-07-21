@@ -130,6 +130,89 @@ def test_parse_toml_safely_strips_secrets(capsys):
     assert "warning" in capsys.readouterr().err.lower()
 
 
+def test_api_key_env_survives_secret_stripping(tmp_path):
+    """Regression guard for the Critical bug: ``api_key_env`` references the NAME
+    of an env var (not a secret literal), so it must NOT be dropped by _is_secret.
+    See NFR-5: operators wire keys via ``*_env`` instead of persisting secrets.
+    """
+    f = tmp_path / "ladym.toml"
+    write(
+        f,
+        '[llm]\napi_key_env = "MY_LLM_KEY"\n'
+        '[embedding]\napi_key_env = "MY_EMB_KEY"\n',
+    )
+    cfg = Config.from_file(f)
+    assert cfg.llm_api_key_env == "MY_LLM_KEY"
+    assert cfg.embedding_api_key_env == "MY_EMB_KEY"
+
+
+def test_non_underscore_secret_variants_rejected(tmp_path, capsys):
+    """``apikey``, ``access_token``, ``signing_key`` are all secret literals and
+    must be rejected (warned + not applied). The old substring matcher missed
+    the no-underscore forms because it only looked for 'api_key' (with one '_').
+    """
+    f = tmp_path / "ladym.toml"
+    write(
+        f,
+        '[llm]\napikey = "x"\n'
+        'access_token = "x"\n'
+        'signing_key = "x"\n'
+        'model = "kept"\n',
+    )
+    cfg = Config.from_file(f)
+    err = capsys.readouterr().err.lower()
+    # Each variant warned.
+    assert "apikey" in err
+    assert "access_token" in err
+    assert "signing_key" in err
+    # Non-secret field in the same section still applied.
+    assert cfg.llm_model == "kept"
+    # No secret value leaked into any attribute.
+    assert getattr(cfg, "llm_apikey", None) in (None, "")
+    assert getattr(cfg, "llm_access_token", None) in (None, "")
+    assert getattr(cfg, "llm_signing_key", None) in (None, "")
+
+
+def test_allowed_non_secret_keys_applied(tmp_path):
+    """``model``, ``base_url``, and ``api_key_env`` are all legitimate non-secret
+    keys and must be applied as-is.
+    """
+    f = tmp_path / "ladym.toml"
+    write(
+        f,
+        '[llm]\nmodel = "m"\n'
+        'base_url = "u"\n'
+        'api_key_env = "V"\n',
+    )
+    cfg = Config.from_file(f)
+    assert cfg.llm_model == "m"
+    assert cfg.llm_base_url == "u"
+    assert cfg.llm_api_key_env == "V"
+
+
+def test_cli_overrides_strip_secret_literals(tmp_path, capsys, monkeypatch):
+    """Defense-in-depth: secret literals in ``cli_overrides`` are stripped too,
+    not silently applied. Non-secret CLI overrides still take effect."""
+    monkeypatch.delenv("LADYM_WORKSPACE", raising=False)
+    f = tmp_path / "ladym.toml"
+    write(f, 'workspace = "fromfile"\n')
+    cfg = Config.load(
+        config_path=f,
+        cli_overrides={
+            "workspace": "fromcli",
+            "llm_api_key": "sk-cli-leak",
+            "llm_model": "from-cli",
+        },
+    )
+    err = capsys.readouterr().err.lower()
+    # Non-secret override applied.
+    assert cfg.workspace == "fromcli"
+    assert cfg.llm_model == "from-cli"
+    # Secret override warned + did not leak.
+    assert "llm_api_key" in err
+    assert getattr(cfg, "llm_api_key", None) in (None, "")
+
+
 
 # ---- precedence ---------------------------------------------------------------
 

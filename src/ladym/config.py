@@ -280,12 +280,43 @@ class Config:
 # Helpers — secret handling
 # ---------------------------------------------------------------------------
 
-_SECRET_KEYS = ("api_key", "secret", "token", "password")
+# Exact secret-literal key names (case-insensitive). These hold the secret value
+# itself; ``<name>_env`` variants instead hold the *name* of an env var and must
+# NOT be treated as secrets (see ``_ENV_SUFFIX`` below).
+_SECRET_EXACT = frozenset(
+    {
+        "api_key",
+        "apikey",
+        "secret",
+        "token",
+        "password",
+        "passwd",
+        "private_key",
+        "access_key",
+        "secret_key",
+        "bearer",
+        "bearer_token",
+    }
+)
+# Suffixes that mark a key as holding a secret literal.
+_SECRET_SUFFIXES = ("_api_key", "_apikey", "_secret", "_token", "_password", "_key")
+# Suffix marking "name of an env var that holds the secret" — checked FIRST so
+# e.g. ``api_key_env`` and ``embedding_api_key_env`` are never misclassified.
+_ENV_SUFFIX = "_env"
 
 
 def _is_secret(key: str) -> bool:
+    """Return True iff ``key`` names a *secret literal* (not an env-var reference).
+
+    ``<name>_env`` keys (e.g. ``api_key_env``, ``embedding_api_key_env``) name the
+    environment variable that holds the secret at runtime — they must survive
+    secret stripping so operators can wire keys without persisting them to disk.
+    That check happens first, before any positive secret match.
+    """
     k = key.lower()
-    return any(s in k for s in _SECRET_KEYS) or k.endswith("_key")
+    if k.endswith(_ENV_SUFFIX):
+        return False
+    return k in _SECRET_EXACT or k.endswith(_SECRET_SUFFIXES)
 
 
 def _strip_secrets(data: dict, path: Path) -> dict:
@@ -503,8 +534,14 @@ def _apply_toml(cfg: Config, data: dict) -> None:
 
 
 def _apply_dict(cfg: Config, d: dict) -> None:
-    """Apply a CLI-style dict (same shape as the TOML dict) to a Config in place."""
-    _apply_toml(cfg, d)
+    """Apply a CLI-style dict (same shape as the TOML dict) to a Config in place.
+
+    Defense-in-depth: strip secret literals first, the same way ``from_file`` does,
+    so a stray ``api_key`` in ``cli_overrides`` is rejected with a warning rather
+    than silently applied. Non-secret overrides still take effect.
+    """
+    cleaned = _strip_secrets(d, Path("<cli-overrides>"))
+    _apply_toml(cfg, cleaned)
 
 
 def _sync_nested(cfg: Config) -> None:
