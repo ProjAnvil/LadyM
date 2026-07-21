@@ -122,6 +122,11 @@ class System2Config:
     enabled: bool = False
     interval_s: int = 300
     min_episodes_to_run: int = 3
+    # After this many consecutive cycle failures, ``Engine.start_system2`` logs
+    # critical and stops the worker thread so a persistently broken index /
+    # LLM endpoint is visible instead of looping silently forever. The CLI
+    # ``worker`` loop is unbounded (user-supervised) and does not use this knob.
+    max_consecutive_errors: int = 10
 
 
 @dataclass

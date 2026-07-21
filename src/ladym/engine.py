@@ -6,6 +6,7 @@ object. All front-ends call the same Engine so behaviour is identical everywhere
 
 from __future__ import annotations
 
+import logging
 import threading
 from pathlib import Path
 from typing import Any
@@ -40,6 +41,8 @@ from .storage.embeddings import (
     make_provider,
 )
 from .storage.store import SQLiteStore
+
+logger = logging.getLogger("ladym.system2")
 
 
 class Engine:
@@ -326,12 +329,19 @@ class Engine:
         write while the caller's Engine reads without locking. WAL is enabled
         BEFORE the worker Engine is constructed (``enable_wal`` is consumed by
         ``SQLiteStore.__init__``); setting it post-construction is a no-op.
+
+        Resilience: each cycle's exceptions are logged via
+        ``logger.exception``; after
+        ``config.system2.max_consecutive_errors`` consecutive failures the
+        worker logs ``critical`` and stops (so a stale index / misconfigured
+        LLM surfaces visibly instead of looping silently). A successful cycle
+        resets the counter.
         """
-        import contextlib
         import copy
 
         stop = threading.Event()
         interval = interval_s if interval_s is not None else self.config.system2.interval_s
+        max_errs = self.config.system2.max_consecutive_errors
 
         # Fresh Config so the worker's mutations can't leak back to self.config.
         worker_cfg = copy.copy(self.config)
@@ -341,13 +351,30 @@ class Engine:
             from .operations import system2 as _sys2
 
             worker_eng = Engine(worker_cfg)
+            consecutive_errs = 0
             try:
                 while not stop.is_set():
-                    # Worker must stay alive across a single bad cycle; swallow
-                    # errors and try again next tick. Call through the module
-                    # so tests can monkeypatch run_system2_cycle.
-                    with contextlib.suppress(Exception):
+                    # Worker must stay alive across a single bad cycle; log and
+                    # try again next tick. Call through the module so tests can
+                    # monkeypatch run_system2_cycle. After ``max_errs`` in a row
+                    # we log critical and stop the thread.
+                    try:
                         _sys2.run_system2_cycle(worker_eng, workspace=workspace)
+                        consecutive_errs = 0
+                    except Exception:
+                        consecutive_errs += 1
+                        logger.exception(
+                            "system2 cycle failed (%d/%d consecutive)",
+                            consecutive_errs,
+                            max_errs,
+                        )
+                        if consecutive_errs >= max_errs:
+                            logger.critical(
+                                "system2 worker stopping after %d consecutive "
+                                "failures (config: system2.max_consecutive_errors)",
+                                consecutive_errs,
+                            )
+                            break
                     stop.wait(interval)
             finally:
                 worker_eng.close()

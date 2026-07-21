@@ -94,7 +94,14 @@ class LangChainLLMProvider(LLMProvider):
     def complete_structured(self, messages, schema, **params):
         runner = self._cm.with_structured_output(schema, method=self._sm)
         out = runner.invoke([_to_lc(m) for m in messages])
-        return out if isinstance(out, dict) else out.dict() if hasattr(out, "dict") else dict(out)
+        # pydantic v2 deprecates ``.dict()`` in favour of ``.model_dump()``; the
+        # ``isinstance(out, dict)`` short-circuit stays first because some
+        # langchain structured-output paths already return a plain dict.
+        return (
+            out
+            if isinstance(out, dict)
+            else (out.model_dump() if hasattr(out, "model_dump") else dict(out))
+        )
 
 
 def make_llm_provider(*, provider: str, base_url: str, model: str, api_key: str,

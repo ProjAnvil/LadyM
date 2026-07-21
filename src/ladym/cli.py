@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 
 import typer
@@ -20,6 +21,7 @@ app = typer.Typer(
     no_args_is_help=True,
 )
 console = Console()
+logger = logging.getLogger("ladym.system2")
 
 # Set by the callback when ``--config`` is passed; honoured by ``_engine``.
 _config_path: str | None = None
@@ -264,6 +266,13 @@ def worker(
     BEFORE the Engine is constructed (``enable_wal`` is read by
     ``SQLiteStore.__init__``), so we build the Config inline rather than via
     ``_engine`` (which doesn't set WAL).
+
+    Resilience: in ``--interval`` loop mode each cycle is wrapped in
+    ``try/except Exception``; failures are logged and the loop continues (the
+    CLI worker is user-supervised — there is no bounded stop, in contrast to
+    ``Engine.start_system2``'s background thread). In ``--once`` mode
+    exceptions propagate so the user sees the error and the process exits
+    non-zero.
     """
     import time
 
@@ -274,9 +283,15 @@ def worker(
 
     try:
         while True:
-            run_system2_cycle(eng, workspace=workspace)
             if once:
+                # Single cycle; let exceptions propagate so the user sees the
+                # error and the process exits non-zero.
+                run_system2_cycle(eng, workspace=workspace)
                 break
+            try:
+                run_system2_cycle(eng, workspace=workspace)
+            except Exception:
+                logger.exception("system2 CLI worker cycle failed; continuing")
             time.sleep(interval)
     finally:
         eng.close()

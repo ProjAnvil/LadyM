@@ -59,3 +59,25 @@ def test_hashing_health_check_ok():
     ok, msg = HashingEmbedding(dim=64).health_check()
     assert ok is True
     assert isinstance(msg, str)
+
+
+def test_health_check_failure_branch_returns_false_with_exception_name():
+    """The ABC default ``health_check`` catches ``embed`` failures and reports them.
+
+    Covers the ``except`` branch in ``EmbeddingProvider.health_check``: a provider
+    whose ``embed`` raises must surface ``ok=False`` with a message containing the
+    exception type, so the web UI's "test embedding" button can render a useful
+    diagnostic instead of crashing.
+    """
+    from ladym.storage.embeddings import EmbeddingProvider
+
+    class _BrokenProvider(EmbeddingProvider):
+        dim = 8
+
+        def embed(self, text: str):
+            raise RuntimeError("boom: endpoint unreachable")
+
+    ok, msg = _BrokenProvider().health_check()
+    assert ok is False
+    assert "RuntimeError" in msg
+    assert "boom" in msg

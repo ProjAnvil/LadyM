@@ -25,7 +25,7 @@ def _new_id() -> str:
 
 
 class Layer(StrEnum):
-    """The five memory layers, see ARCHITECTURE.md §1."""
+    """The seven memory layers, see ARCHITECTURE.md §1."""
 
     WORKING = "L0_working"        # in-process scratch
     EPISODIC = "L1_episodic"      # time-stamped events

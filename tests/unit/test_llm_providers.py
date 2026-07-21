@@ -69,6 +69,32 @@ def test_agent_registry_inherits_global_llm():
     assert reg.get("l5_mental_model").model == "m"
 
 
+def test_agent_registry_timeout_s_inherits_llm_timeout_s():
+    """``AgentConfig.timeout_s`` falls back to ``Config.llm_timeout_s`` (Task 2.1 flat field)."""
+    from ladym.config import Config
+    from ladym.providers.agents import AgentRegistry
+
+    cfg = Config()
+    cfg.llm_provider = "none"
+    cfg.llm_timeout_s = 90.0
+    reg = AgentRegistry(cfg)
+    # Global llm_timeout_s flows through to every op's AgentConfig.timeout_s.
+    assert reg.get("consolidate").timeout_s == 90.0
+
+
+def test_agent_registry_timeout_s_per_op_override():
+    """A per-op ``timeout_s`` override wins over the global ``llm_timeout_s``."""
+    from ladym.config import Config
+    from ladym.providers.agents import AgentRegistry
+
+    cfg = Config()
+    cfg.llm_provider = "none"
+    cfg.llm_timeout_s = 90.0
+    cfg.agents_overrides = {"consolidate": {"timeout_s": 5.0}}
+    reg = AgentRegistry(cfg)
+    assert reg.get("consolidate").timeout_s == 5.0
+
+
 def test_make_agent_none_when_provider_none():
     from ladym.config import Config
     from ladym.providers.agents import make_agent

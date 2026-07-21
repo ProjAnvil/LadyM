@@ -39,6 +39,7 @@ class AgentConfig:
     max_tokens: int = 1024
     temperature: float = 0.2
     structured_method: str = "function_calling"
+    timeout_s: float = 30.0
 
 
 class AgentRegistry:
@@ -51,8 +52,10 @@ class AgentRegistry:
         if op not in NAMED_OPS:
             raise ValueError(f"unknown op {op!r}; expected one of {NAMED_OPS}")
         overrides = getattr(self._cfg, "agents_overrides", {}).get(op, {})
-        # ``llm_provider`` may legitimately be None on Config (offline default). Normalise
-        # to the string "none" so AgentConfig always carries a comparable provider token.
+        # The offline default is the string ``"none"`` (Task 2.1 normalised
+        # ``Config.llm_provider``'s default). Legacy callers may still pass
+        # ``None``; the ``or "none"`` normalisation below keeps them working
+        # so ``AgentConfig`` always carries a comparable provider token.
         provider = overrides.get("provider", self._cfg.llm_provider) or "none"
         return AgentConfig(
             op=op,
@@ -68,6 +71,10 @@ class AgentRegistry:
             structured_method=overrides.get(
                 "structured_method",
                 getattr(self._cfg, "llm_structured_method", "function_calling"),
+            ),
+            timeout_s=overrides.get(
+                "timeout_s",
+                getattr(self._cfg, "llm_timeout_s", 30.0),
             ),
         )
 
@@ -90,4 +97,5 @@ def make_agent(cfg: Config, op: str) -> LLMProvider | None:
         structured_method=ac.structured_method,
         max_tokens=ac.max_tokens,
         temperature=ac.temperature,
+        timeout_s=ac.timeout_s,
     )
