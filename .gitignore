@@ -24,8 +24,11 @@ htmlcov/
 # LadyM runtime data
 *.ladym.db
 *.ladym.db-*
+ladym.db
+ladym.db-*
 .ladym/
 ladym_data/
+ladym.toml
 
 # IDE
 .idea/
