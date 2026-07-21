@@ -53,3 +53,26 @@ def test_langchain_provider_built_when_importable():
                           model="m", api_key="k", structured_method="function_calling",
                           max_tokens=8, temperature=0.0, timeout_s=5)
     assert isinstance(p, LangChainLLMProvider)
+
+
+def test_agent_registry_inherits_global_llm():
+    from ladym.config import Config
+    from ladym.providers.agents import AgentRegistry
+
+    cfg = Config()
+    cfg.llm_provider = "none"
+    reg = AgentRegistry(cfg)
+    assert reg.get("consolidate").provider == "none"
+    cfg.agents_overrides = {"l5_mental_model": {"provider": "openai", "model": "m",
+                                                "base_url": "u", "api_key_env": "K"}}
+    assert reg.get("l5_mental_model").provider == "openai"
+    assert reg.get("l5_mental_model").model == "m"
+
+
+def test_make_agent_none_when_provider_none():
+    from ladym.config import Config
+    from ladym.providers.agents import make_agent
+
+    cfg = Config()
+    agent = make_agent(cfg, "consolidate")
+    assert agent is None  # heuristic mode

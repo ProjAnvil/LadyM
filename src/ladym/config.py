@@ -86,6 +86,13 @@ class Config:
     embedding_query_cache_size: int = 0          # LRU cache for embed(); 0 = off
     llm_provider: str | None = None           # None = no LLM (offline mode)
     llm_model: str = "gpt-4o-mini"
+    # --- LLM/agent control-plane stubs (full schema lands in Task 2.1) ---
+    llm_base_url: str = ""
+    llm_max_tokens: int = 1024
+    llm_temperature: float = 0.2
+    llm_api_key_env: str = ""
+    llm_structured_method: str = "function_calling"
+    agents_overrides: dict = field(default_factory=dict)
     activation: ActivationWeights = field(default_factory=ActivationWeights)
     recall: RecallConfig = field(default_factory=RecallConfig)
     consolidate: ConsolidateConfig = field(default_factory=ConsolidateConfig)

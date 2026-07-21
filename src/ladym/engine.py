@@ -16,6 +16,7 @@ from .layers.procedural import ProceduralMemory
 from .layers.semantic import SemanticMemory
 from .layers.working import WorkingMemory
 from .operations.consolidate import (
+    Action,
     ConsolidationReport,
     LLMClassifier,
     consolidate,
@@ -76,12 +77,55 @@ class Engine:
         self.associative = AssociativeMemory(self.store)
 
         self._llm_classify: LLMClassifier | None = None
+        # Auto-wire the consolidate agent from config. With no LLM configured (offline
+        # default) ``make_agent`` returns None and this is a clean no-op, keeping the
+        # offline test suite green. With ``[agents.consolidate]`` (or ``[llm]`` globals)
+        # configured, the engine gets a working classifier with no extra glue.
+        self.attach_llm_classifier()
 
     # ----- wiring helpers -----
 
-    def attach_llm_classifier(self, fn: LLMClassifier) -> None:
-        """Wire in an LLM-backed ADD/UPDATE/DELETE/NOOP classifier for consolidation."""
-        self._llm_classify = fn
+    def attach_llm_classifier(self, fn: LLMClassifier | None = None) -> None:
+        """Wire an LLM classifier for consolidation.
+
+        Two modes (NFR-4 back-compat):
+
+        * ``fn`` supplied — stored verbatim. Existing callers/tests that pass a callable
+          keep working unchanged.
+        * ``fn`` is ``None`` — build the ``consolidate`` agent from config via
+          :func:`ladym.providers.make_agent`. Returns silently with ``_llm_classify``
+          set to ``None`` when no LLM is configured (offline / heuristic mode).
+        """
+        if fn is not None:
+            self._llm_classify = fn
+            return
+        from .providers import make_agent
+
+        provider = make_agent(self.config, "consolidate")
+        if provider is None:
+            self._llm_classify = None
+            return
+
+        def _classify(candidate: str, similar: list[str]):
+            from pydantic import BaseModel
+
+            class _Decision(BaseModel):
+                action: str
+                new_text: str | None = None
+
+            msgs = [
+                {"role": "system", "content": _consolidate_prompt()},
+                {
+                    "role": "user",
+                    "content": f"candidate: {candidate}\nsimilar: {similar}",
+                },
+            ]
+            d = provider.complete_structured(msgs, _Decision)
+            action_val = d["action"] if isinstance(d, dict) else d.action
+            new_text = d.get("new_text") if isinstance(d, dict) else d.new_text
+            return Action(action_val), new_text
+
+        self._llm_classify = _classify
 
     def close(self) -> None:
         self.store.close()
@@ -312,3 +356,18 @@ class Engine:
         for m in list(self.store.iter_memories()):
             vec = self.provider.embed(m.content)
             self.store.put_memory(m, vector=vec)
+
+
+def _consolidate_prompt() -> str:
+    """System prompt for the LLM-backed consolidation classifier.
+
+    Keeps the agent focused on the four candidate-fact decisions (ADD/UPDATE/DELETE/NOOP)
+    that mirror mem0's Algorithm 1 and the offline heuristic in
+    :mod:`ladym.operations.consolidate`.
+    """
+    return (
+        "You classify a candidate fact against similar existing facts. "
+        "Reply with JSON {action, new_text}. action in ADD|UPDATE|DELETE|NOOP. "
+        "ADD=brand new; UPDATE=refines an existing one (set new_text); "
+        "DELETE=existing is now wrong; NOOP=duplicate."
+    )
