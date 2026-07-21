@@ -35,8 +35,8 @@ uv pip install -e ".[dev]"            # core + test/lint tooling
 uv pip install -e ".[mcp]"            # MCP server (for Claude Code / Cursor)
 uv pip install -e ".[local]"          # sentence-transformers embeddings
 uv pip install -e ".[openai]"         # OpenAI embeddings
-uv pip install -e ".[llm]"           # LLM provider support (consolidation classifier)
-uv pip install -e ".[web]"            # web config editor (ladym config)
+uv pip install -e ".[llm]"            # LLM provider support (consolidation classifier)
+uv pip install -e ".[web]"            # reserved for the upcoming web config UI (Phase 5, not yet implemented)
 ```
 
 Requires Python ≥ 3.11 (uses `enum.StrEnum`). `sqlite-vec` ships as a wheel — no native
@@ -177,8 +177,8 @@ sqlite-vec-backed path has its own regression tests in
 
 | Command | What it does | Install |
 |---|---|---|
-| `ladym config` | Local web config editor (browser UI) | `pip install 'ladym[web]'` |
-| `ladym worker` | Background System2 consolidation daemon | core (use `--once` or `--interval`) |
+| `ladym config` | _(planned, Phase 5 — not yet implemented)_ Local web config editor (browser UI) | `pip install 'ladym[web]'` |
+| `ladym worker` | Background System2 consolidation daemon | core; flags: `--once`, `--interval N` |
 
 ## Status & roadmap
 
@@ -188,7 +188,7 @@ tests.
 
 🚧 Next: an LLM-backed classifier for consolidation (the offline heuristic is already wired and
 tested — see `Engine.attach_llm_classifier`), GraphRAG-style cross-file ref resolution,
-multi-modal episodes.
+multi-modal episodes, and a `ladym config` web editor (Phase 5 — not yet implemented).
 
 ## License
 

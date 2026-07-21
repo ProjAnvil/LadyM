@@ -33,8 +33,8 @@ def _reflect(query: str, hits: list[RecallResult], cfg: RecallConfig) -> _Reflec
     """Cheap self-check: did tier-1 surface enough high-signal context?
 
     Default heuristic: count distinct query tokens covered by the union of hit contents, and
-    the number of hits above a small similarity floor. Pluggable — ``Engine`` can substitute
-    an LLM judge when one is configured.
+    the number of hits above a small similarity floor. Per NFR-3, reflect is heuristic-only —
+    no LLM judge is ever invoked in the read path.
     """
     q_tokens = set(tokenize(query)) - {"the", "a", "an", "is", "are", "to", "of", "and", "or"}
     if not q_tokens:
