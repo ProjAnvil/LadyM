@@ -24,12 +24,12 @@ class CachedEmbedding(EmbeddingProvider):
     def embed(self, text: str) -> list[float]:
         if text in self._cache:
             self._cache.move_to_end(text)
-            return self._cache[text]
+            return list(self._cache[text])  # copy: never hand out the cached object
         v = self._inner.embed(text)
         self._cache[text] = v
         if len(self._cache) > self._size:
             self._cache.popitem(last=False)
-        return v
+        return list(v)
 
     def embed_batch(self, texts):
         return self._inner.embed_batch(texts)  # batches bypass the cache
