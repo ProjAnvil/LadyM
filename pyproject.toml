@@ -1,0 +1,78 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "ladym"
+version = "0.1.0"
+description = "LadyM — Layered Agent DYnamic Memory: a brain-inspired, multi-tier memory framework for LLM agents and codebase RAG."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "ladyM" }]
+keywords = ["memory", "llm", "agent", "rag", "codebase", "mcp", "tree-sitter"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+
+# Core deps are intentionally lean; heavyweight providers are optional extras.
+dependencies = [
+    "pydantic>=2.6",
+    "typer>=0.12",
+    "rich>=13.7",
+    "sqlite-vec>=0.1.6",
+    "tree-sitter>=0.23",
+    "tree-sitter-language-pack>=0.1",
+    "numpy>=1.26",
+    "sqlmodel>=0.0.16",
+]
+
+[project.optional-dependencies]
+local = ["sentence-transformers>=2.7"]
+openai = ["openai>=1.30"]
+anthropic = ["anthropic>=0.30"]
+mcp = ["mcp>=1.0"]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "pytest-cov>=5.0",
+    "ruff>=0.5",
+    "mypy>=1.10",
+]
+
+[project.scripts]
+ladym = "ladym.cli:app"
+
+[project.urls]
+Documentation = "https://github.com/projanvil/ladyM"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ladym"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+markers = [
+    "integration: end-to-end integration tests",
+    "slow: tests that take more than a second",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM", "C4"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["E501"]  # long lines are fine in test fixtures
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.mypy]
+python_version = "3.11"
+strict = false
+ignore_missing_imports = true

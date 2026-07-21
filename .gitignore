@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+build/
+dist/
+.eggs/
+
+# Virtual envs
+.venv/
+venv/
+env/
+
+# Test / coverage
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.mypy_cache/
+.ruff_cache/
+
+# LadyM runtime data
+*.ladym.db
+*.ladym.db-*
+.ladym/
+ladym_data/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# Superpowers SDD scratch (progress ledger — git-ignored)
+.superpowers/
