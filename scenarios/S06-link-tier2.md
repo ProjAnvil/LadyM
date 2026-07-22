@@ -10,7 +10,7 @@
 1. [MCP] `mcp__ladym__remember(content="scn-s06 锚点事实 xyzzy 含义模糊", workspace="scn-s06")` → `id_a`
 2. [MCP] `mcp__ladym__remember(content="scn-s06 xyzzy 的邻居阐述其真实含义", workspace="scn-s06")` → `id_b`
 3. [MCP] `mcp__ladym__link(src=id_a, dst=id_b, relation="elaborates")` → 记 edge id
-4. [MCP] `mcp__ladym__stats(workspace="scn-s06")` → 记 edges 数
+4. [CLI] `! ladym stats -w scn-s06 --db <db>` → 记该 ws 计数(用 CLI;MCP `stats(workspace=)` 返回全局,见 _conventions §8.2)
 5. [MCP] `mcp__ladym__recall(query="scn-s06 xyzzy", workspace="scn-s06")` → 看 `tier_reached` 与结果
 
 ## Then

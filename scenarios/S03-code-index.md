@@ -11,7 +11,7 @@
 2. [CLI] `! ladym index tests/fixtures/sample_repo -w scn-s03 --db <db>` → 增量,应跳过已索引文件
 3. [MCP] `mcp__ladym__search_code(query="verify password hash", workspace="scn-s03")` → 看结果
 4. [CLI] `! ladym recall "verify_password" -w scn-s03 --db <db> --code`
-5. [MCP] `mcp__ladym__stats(workspace="scn-s03")`
+5. [CLI] `! ladym stats -w scn-s03 --db <db>` → 记该 ws 计数(用 CLI;MCP `stats(workspace=)` 返回全局,见 _conventions §8.2)
 
 ## Then
 - [硬] 步骤1 `symbols_written > 0`

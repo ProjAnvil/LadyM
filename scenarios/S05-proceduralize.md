@@ -9,7 +9,7 @@
 ## When
 1. [MCP] 连续 3 次 `mcp__ladym__record_event(agent="claude", action="scn-s05 deploy to prod", observation="ran deploy.sh", outcome="success", workspace="scn-s05")`
 2. [CLI] `! ladym worker --once -w scn-s05 --db <db>`(触发 consolidate + proceduralize + L5/L6 skip + decay)
-3. [MCP] `mcp__ladym__stats(workspace="scn-s05")`
+3. [CLI] `! ladym stats -w scn-s05 --db <db>` → 记该 ws 计数(用 CLI;MCP `stats(workspace=)` 返回全局,见 _conventions §8.2)
 4. [MCP] `mcp__ladym__recall(query="scn-s05 deploy playbook", workspace="scn-s05")`
 
 ## Then

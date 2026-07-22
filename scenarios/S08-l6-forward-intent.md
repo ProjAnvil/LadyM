@@ -10,11 +10,11 @@
 1. [MCP] 连续 3 次 `mcp__ladym__record_event(agent="claude", action="scn-s08 edit auth", observation="...", outcome="success", workspace="scn-s08")`
 2. 前置确认:`! echo $LADYM_LLM_PROVIDER` 据此选分支
 3. [CLI] `! ladym worker --once -w scn-s08 --db <db>`
-4. [MCP] `mcp__ladym__stats(workspace="scn-s08")`
+4. [CLI] `! ladym stats -w scn-s08 --db <db>` → 记该 ws 计数(用 CLI;MCP `stats(workspace=)` 返回全局,见 _conventions §8.2)
 5. [MCP] `mcp__ladym__recall(query="scn-s08 predicted intent", workspace="scn-s08")`
 
 ## Then
-- **分支 A(provider 为空/none)**:[硬] 步骤3 worker 退出码 0;步骤4 无 `L6_predictive` 记忆(skip 契约)。
+- **分支 A(provider 为空/none)**:[硬] 步骤3 worker 退出码 0;步骤4 该 ws `L6_predictive` 计数 = 0(skip 契约;用 CLI stats -w,见 §8.2)。
 - **分支 B(配了 LLM)**:[硬] 步骤4 出现 `L6_predictive`/`type=forward_intent`;其 metadata `valid_to > now`(用 `! sqlite3 <db> "SELECT json_extract(metadata,'$.valid_to') FROM memories WHERE workspace='scn-s08' AND layer='L6_predictive'"` 验证)。
 
 ## Teardown

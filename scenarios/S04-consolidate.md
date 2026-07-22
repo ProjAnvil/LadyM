@@ -9,7 +9,7 @@
 ## When
 1. [MCP] 连续 3 次 `mcp__ladym__record_event(agent="claude", action="scn-s04 deploy to prod", observation="ran deploy.sh release N", outcome="success", workspace="scn-s04")`(N=1,2,3)
 2. [MCP] `mcp__ladym__consolidate(workspace="scn-s04")` → 记报告 JSON(`promoted_to_semantic`、`actions`)
-3. [MCP] `mcp__ladym__stats(workspace="scn-s04")`
+3. [CLI] `! ladym stats -w scn-s04 --db <db>` → 记该 ws 计数(用 CLI;MCP `stats(workspace=)` 返回全局,见 _conventions §8.2)
 4. [CLI] `! ladym consolidate -w scn-s04 --db <db>`(二次,应多为 NOOP)
 
 ## Then

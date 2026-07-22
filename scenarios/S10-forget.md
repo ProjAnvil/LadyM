@@ -7,10 +7,10 @@
 
 ## When
 1. [MCP] `mcp__ladym__remember(content="scn-s10 待删除的记忆 XYZ", workspace="scn-s10")` → `id_a`
-2. [MCP] `mcp__ladym__stats(workspace="scn-s10")` → 记 L2 计数 N
+2. [CLI] `! ladym stats -w scn-s10 --db <db>` → 记该 ws L2 计数 N(用 CLI;MCP `stats(workspace=)` 返回全局,见 _conventions §8.2)
 3. [MCP] `mcp__ladym__forget(memory_id=id_a)` → 看返回
 4. [MCP] `mcp__ladym__recall(query="scn-s10 待删除", workspace="scn-s10")`
-5. [MCP] `mcp__ladym__stats(workspace="scn-s10")`
+5. [CLI] `! ladym stats -w scn-s10 --db <db>` → 记该 ws 计数(用 CLI;MCP `stats(workspace=)` 返回全局,见 _conventions §8.2)
 
 ## Then
 - [硬] 步骤3 forget 返回 `{"forgotten": id_a}`
