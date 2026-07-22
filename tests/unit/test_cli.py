@@ -184,6 +184,46 @@ def test_config_command_missing_web_extra_errors(monkeypatch):
     assert "ladym[web]" in res.output
 
 
+def test_cli_remember_drop_too_short(db_arg):
+    """``ladym remember "hi"`` is below the attention gate's min_chars, so it
+    must be dropped — exit 0, output surfaces the drop reason, and the memory
+    is NOT persisted (the dropped Memory carries a non-existent fake id that we
+    must not leak as ``id=``)."""
+    from ladym.sdk import open_engine
+
+    r = runner.invoke(
+        app,
+        ["remember", "hi", "--db", db_arg, "--workspace", "wsdrop"],
+    )
+    assert r.exit_code == 0, r.output
+    assert "dropped" in r.output
+    assert "reason=too short" in r.output
+    # Red line: the non-persistent fake id must NOT be printed.
+    assert "id=" not in r.output
+
+    # The dropped content must not have been persisted (count returns a
+    # {layer/type: n} dict; an empty workspace is {}).
+    with open_engine(db_path=db_arg, workspace="wsdrop") as eng:
+        assert eng.store.count(workspace="wsdrop") == {}
+        assert not any(m.content == "hi" for m in eng.store.iter_memories())
+
+
+def test_cli_remember_pass_persists(db_arg):
+    """``ladym remember "<long fact>"`` clears the gate: output surfaces
+    ``remembered id=``, and the memory is actually in the store."""
+    from ladym.sdk import open_engine
+
+    content = "a reasonably long fact about the system"
+    r = runner.invoke(app, ["remember", content, "--db", db_arg])
+    assert r.exit_code == 0, r.output
+    assert "remembered" in r.output
+    assert "id=" in r.output
+    assert "dropped" not in r.output
+
+    with open_engine(db_path=db_arg) as eng:
+        assert any(m.content == content for m in eng.store.iter_memories())
+
+
 def test_cli_record_creates_l1_episodic_event(db_arg):
     """``ladym record`` writes an L1 episodic EVENT (not an L2 fact like ``remember``)."""
     from ladym.sdk import open_engine

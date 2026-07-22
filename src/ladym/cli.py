@@ -68,12 +68,28 @@ def remember(
     tags: str | None = typer.Option(None, "--tags", help="Comma-separated tags"),
     source: str = typer.Option("cli", "--source"),
 ):
-    """Write a semantic memory (fact)."""
+    """Write a semantic memory (fact).
+
+    Routes through ``eng.remember`` (not ``semantic.put_fact`` directly) so the
+    attention gate (SPEC §2.7 / C5) applies: too-short / noise / recent-duplicate
+    content is dropped before any long-term write. The gate's drop returns an
+    unpersisted ``Memory`` whose ``id`` is a non-existent fake UUID — we surface
+    the drop in the output WITHOUT printing that id (it would mislead users into
+    calling ``forget``/``link`` on a memory that was never stored).
+    """
     eng = _engine(db, workspace)
     try:
         tag_list = [t.strip() for t in tags.split(",")] if tags else []
-        m = eng.semantic.put_fact(content, tags=tag_list, source=source)
-        console.print(f"[green]remembered[/green] id={m.id} hash={m.content_hash[:8]}")
+        m = eng.remember(content, tags=tag_list, source=source)
+        if m.metadata.get("gated") == "dropped":
+            console.print(
+                f"[yellow]dropped[/yellow] reason={m.metadata.get('reason')} "
+                f"(gated; not persisted)"
+            )
+        else:
+            console.print(
+                f"[green]remembered[/green] id={m.id} hash={m.content_hash[:8]}"
+            )
     finally:
         eng.close()
 
