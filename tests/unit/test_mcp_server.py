@@ -128,7 +128,7 @@ def test_mcp_remember_drop_too_short(server_with_engine):
     assert out["hash"] is None
 
     # The dropped content must not have been persisted in any workspace.
-    assert not any(m.content == "hi" for m in eng.store.iter_memories())
+    assert not any(m.content == "hi" for m in eng.store.iter_memories(workspace="wsdrop"))
 
 
 def test_mcp_remember_pass_persists(server_with_engine):
@@ -141,4 +141,4 @@ def test_mcp_remember_pass_persists(server_with_engine):
     assert out["hash"]
     assert "gated" not in out
 
-    assert any(m.content == content for m in eng.store.iter_memories())
+    assert any(m.content == content for m in eng.store.iter_memories(workspace="wspass"))

@@ -205,7 +205,7 @@ def test_cli_remember_drop_too_short(db_arg):
     # {layer/type: n} dict; an empty workspace is {}).
     with open_engine(db_path=db_arg, workspace="wsdrop") as eng:
         assert eng.store.count(workspace="wsdrop") == {}
-        assert not any(m.content == "hi" for m in eng.store.iter_memories())
+        assert not any(m.content == "hi" for m in eng.store.iter_memories(workspace="wsdrop"))
 
 
 def test_cli_remember_pass_persists(db_arg):
@@ -218,10 +218,11 @@ def test_cli_remember_pass_persists(db_arg):
     assert r.exit_code == 0, r.output
     assert "remembered" in r.output
     assert "id=" in r.output
+    assert "hash=" in r.output  # pass 输出含 hash（cli.py:87）
     assert "dropped" not in r.output
 
     with open_engine(db_path=db_arg) as eng:
-        assert any(m.content == content for m in eng.store.iter_memories())
+        assert any(m.content == content for m in eng.store.iter_memories(workspace="default"))
 
 
 def test_cli_record_creates_l1_episodic_event(db_arg):
