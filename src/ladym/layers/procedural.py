@@ -10,6 +10,16 @@ from __future__ import annotations
 from ..schema import Layer, Memory, MemoryType
 from ..storage.embeddings import EmbeddingProvider
 from ..storage.store import SQLiteStore
+from .semantic import content_hash
+
+
+def _playbook_content(name: str, steps: list[str]) -> str:
+    """Canonical content string for a playbook — single source of truth.
+
+    Used by both ``put_playbook`` (when writing) and ``proceduralize`` (when computing a
+    candidate hash for dedup) so the two never drift.
+    """
+    return name + "\n" + "\n".join(f"{i+1}. {s}" for i, s in enumerate(steps))
 
 
 class ProceduralMemory:
@@ -29,7 +39,7 @@ class ProceduralMemory:
             "steps": steps,
             "expected_outcome": expected_outcome,
         }
-        content = name + "\n" + "\n".join(f"{i+1}. {s}" for i, s in enumerate(steps))
+        content = _playbook_content(name, steps)
         mem = Memory(
             layer=Layer.PROCEDURAL,
             type=MemoryType.PLAYBOOK,
@@ -39,6 +49,7 @@ class ProceduralMemory:
             metadata=body,
             source="proceduralize",
             workspace=self.workspace,
+            content_hash=content_hash(content),
         )
         self.store.put_memory(mem, vector=self.embedder.embed(content))
         return mem

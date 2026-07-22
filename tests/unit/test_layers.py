@@ -116,3 +116,18 @@ def test_associative_retire_edge(store, embedder):
     assert am.neighbors(a.id) == []
     # retired edges don't count towards activation boost
     assert am.neighbor_counts() == {}
+
+
+def test_playbook_content_helper_canonical():
+    from ladym.layers.procedural import _playbook_content
+
+    assert _playbook_content("Deploy", ["build", "ship"]) == "Deploy\n1. build\n2. ship"
+
+
+def test_put_playbook_sets_content_hash(store, embedder):
+    """put_playbook must set content_hash (was '' before — broke NOOP dedup)."""
+    from ladym.layers.procedural import ProceduralMemory
+
+    pm = ProceduralMemory(store, embedder, workspace="t")
+    pb = pm.put_playbook("Deploy", ["build", "ship"])
+    assert pb.content_hash, "content_hash must be non-empty for dedup"
