@@ -60,29 +60,34 @@ def _hash(s: str) -> str:
 def attention_gate(content: str, *, engine, layer: Layer) -> GateDecision:
     """Apply the attention gate to ``content`` destined for ``layer``.
 
-    Returns a :class:`GateDecision`. L0 working is always passed; otherwise the gate
-    consults the LLM agent bound to ``attention_gate`` if any, falling back to the
-    heuristic rules described in the module docstring.
+    Two layers:
+
+    1. **Heuristic prefix** (always runs, before any LLM call): deterministic
+       hard rules that need no semantics — content composed entirely of the
+       noise vocabulary, or a hash-exact duplicate of a recent L1 episodic event
+       (within ``dedup_window_s``). Both ``drop``.
+    2. **Semantic layer**: content that clears the prefix is delegated to the LLM
+       agent bound to ``attention_gate`` if one is configured (``pass`` /
+       ``rewrite`` / ``drop``); otherwise it ``pass``es.
+
+    Short content like ``"hi"`` reaches the semantic layer — with no LLM it
+    passes; with an LLM the prompt judges whether it is worth keeping. L0
+    working memory is never gated (ephemeral scratch).
     """
     cfg = engine.config
     if layer == Layer.WORKING:
         return GateDecision(action="pass", reason="working memory never gated")
 
-    agent = engine._get_agent("attention_gate")
-    if agent is not None:
-        return _llm_gate(agent, content)
-
-    # ----- heuristic mode -----
+    # ----- heuristic prefix: deterministic hard rules (run before the LLM) -----
     stripped = content.strip()
-    if len(stripped) < cfg.attention.min_chars:
-        return GateDecision(action="drop", reason="too short")
 
+    # noise: every token is in the noise vocabulary.
     tokens = {w.lower() for w in stripped.split()}
     noise = _BUILTIN_NOISE | set(cfg.attention.noise_words)
     if tokens and tokens <= noise:
         return GateDecision(action="drop", reason="noise")
 
-    # Recent-duplicate: same content hash inside the dedup window against L1 events.
+    # recent-duplicate: same content hash inside the dedup window against L1 events.
     # SPEC §2.7: keep the scan O(recent_rows) rather than O(all_episodes) by pushing the
     # time-window cut into SQL; hash-equality is then checked in Python (cheap, and stays
     # independent of the store's content_hash column which may be empty for legacy rows).
@@ -99,6 +104,10 @@ def attention_gate(content: str, *, engine, layer: Layer) -> GateDecision:
         if _hash(row["content"]) == needle:
             return GateDecision(action="drop", reason="recent duplicate")
 
+    # ----- semantic layer: delegate to the LLM if configured, else pass -----
+    agent = engine._get_agent("attention_gate")
+    if agent is not None:
+        return _llm_gate(agent, content)
     return GateDecision(action="pass")
 
 
@@ -115,10 +124,15 @@ def _llm_gate(provider, content: str) -> GateDecision:
         {
             "role": "system",
             "content": (
-                "Decide if the user content is worth storing long-term. "
-                "Reply JSON {action, content?, reason}. "
-                "action in pass|rewrite|drop. "
-                "rewrite returns the cleaned-up text in `content`."
+                "You are the attention gate. Decide if the user content is worth "
+                "storing as a long-term memory.\n"
+                "- pass: content with information value — facts, decisions, events, "
+                "preferences, code knowledge, etc.\n"
+                "- drop: content with no information value — greetings (hi/hey), "
+                "acknowledgements (ok/sure), small talk, fragments, pure emotion, etc.\n"
+                "- rewrite: content has value but is poorly worded; return the cleaned-up "
+                "text in `content`.\n"
+                "Reply JSON {action, content?, reason}. action in pass|rewrite|drop."
             ),
         },
         {"role": "user", "content": content},

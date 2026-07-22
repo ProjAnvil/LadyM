@@ -30,9 +30,11 @@ def engine(tmp_path):
 # ----- heuristic mode -----
 
 
-def test_gate_drops_too_short(engine):
+def test_gate_passes_short_when_no_llm(engine):
+    # too-short content is no longer a heuristic drop; with no LLM agent wired
+    # (Config.for_testing default), "hi" clears the heuristic prefix and passes.
     d = attention_gate("hi", engine=engine, layer=Layer.SEMANTIC)
-    assert d.action == "drop"
+    assert d.action == "pass"
 
 
 def test_gate_passes_normal_content(engine):
@@ -67,9 +69,10 @@ def test_gate_working_layer_never_gated(engine):
 
 
 def test_remember_drop_returns_unpersisted_memory(engine):
-    m = engine.remember("hi")  # too short -> drop
+    # pure-noise content is dropped by the heuristic prefix.
+    m = engine.remember("lol ok test asdf foo")  # noise -> drop
     assert m.metadata.get("gated") == "dropped"
-    assert m.metadata.get("reason") == "too short"
+    assert m.metadata.get("reason") == "noise"
     assert engine.store.get_memory(m.id) is None  # not persisted
 
 
@@ -80,11 +83,11 @@ def test_remember_pass_persists(engine):
 
 
 def test_remember_working_layer_skips_gate(tmp_path):
-    """L0 working memory is never gated even for short content."""
+    """L0 working memory is never gated even for content the gate would drop."""
     e = Engine(Config.for_testing(tmp_path))
     try:
-        # "hi" would be dropped on L1/L2/L3 but L0 bypasses the gate entirely.
-        m = e.remember("hi", layer=Layer.WORKING)
+        # noise content would be dropped on L1/L2/L3 but L0 bypasses the gate entirely.
+        m = e.remember("lol ok test asdf foo", layer=Layer.WORKING)
         assert m.metadata.get("gated") != "dropped"
     finally:
         e.close()
@@ -160,6 +163,29 @@ def test_remember_llm_pass(tmp_path):
         assert "gated" not in (m.metadata or {})
         assert e.store.get_memory(m.id) is not None
         assert called  # provider really was invoked
+    finally:
+        e.close()
+
+
+def test_llm_gate_receives_short_content(tmp_path):
+    """Short content ('hi') clears the heuristic prefix and reaches the LLM gate.
+
+    This is the design's point: 'hi' is no longer a deterministic drop — with
+    an LLM wired it is delegated to the semantic layer.
+    """
+    e = Engine(Config.for_testing(tmp_path))
+    try:
+        called: list[list[Message]] = []
+        e._agents["attention_gate"] = _fake_gate(
+            lambda msgs, schema: called.append(msgs) or {
+                "action": "pass",
+                "content": None,
+                "reason": "worth keeping",
+            }
+        )
+        d = attention_gate("hi", engine=e, layer=Layer.SEMANTIC)
+        assert called  # the LLM really was invoked
+        assert d.action == "pass"
     finally:
         e.close()
 

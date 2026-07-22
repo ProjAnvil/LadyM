@@ -141,7 +141,6 @@ class System2Config:
 class AttentionConfig:
     """Pre-write attention gate knobs."""
 
-    min_chars: int = 8
     dedup_window_s: float = 3600.0
     noise_words: list[str] = field(default_factory=list)
 

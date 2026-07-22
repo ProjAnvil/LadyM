@@ -72,7 +72,7 @@ top_k_tier1 = 5
 enabled = true
 interval_s = 99
 [attention]
-min_chars = 16
+dedup_window_s = 7200.0
 [agents.consolidate]
 provider = "openai"
 model = "gpt-4o"
@@ -82,7 +82,7 @@ model = "gpt-4o"
     assert cfg.recall.top_k_tier1 == 5
     assert cfg.system2.enabled is True
     assert cfg.system2.interval_s == 99
-    assert cfg.attention.min_chars == 16
+    assert cfg.attention.dedup_window_s == 7200.0
     assert cfg.agents_overrides["consolidate"]["provider"] == "openai"
     assert cfg.agents_overrides["consolidate"]["model"] == "gpt-4o"
 
