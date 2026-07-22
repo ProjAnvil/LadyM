@@ -76,9 +76,9 @@ def attention_gate(content: str, *, engine, layer: Layer) -> GateDecision:
 
 prompt 描述的是 heuristic **想表达但代码表达不了**的"语义噪声"判断。它与 heuristic 的 noise 词表**精神一致**(都过滤无信息量内容),但覆盖词表判不出的语义噪声(如 "hi there"、"嗯好的")。
 
-### `min_chars` 配置
+### `min_chars` 配置:删除
 
-从 gate 逻辑移除后,`attention.min_chars` 字段在 config 里**保留**(不删字段,避免破坏现有 toml / 兼容性),但 gate 不再使用它。LLM prompt 不引用 `min_chars`——语义判断不靠字符数。
+`too short` 规则移除后,`attention.min_chars`(`config.py:144` 的 `min_chars: int = 8`)是该规则专属配置——规则删了就是死字段,**一并删除**(字段定义、`test_config_load.py:75,85` 的加载断言、SPEC config 表的 min_chars 行)。当前 `ladym.toml` 未使用它,删除无影响。(若外部 toml 残留 `min_chars`,属过时配置;`from_file` 对未知字段的容忍度是独立健壮性问题,不影响本结论。)
 
 ## 配置无关性验证(scenario 两头通)
 
@@ -93,16 +93,16 @@ noise/dup 两头确定性 drop;"hi" 两头都"过测试"(none 是 pass、LLM 是
 
 ## 连带改动
 
-### 1. 代码 `src/ladym/operations/attention.py`
-- 移除 `too short` 分支;noise + recent-duplicate 移到 `_get_agent` / `_llm_gate` 调用之前。
-- 重写 `_llm_gate` 的 system prompt(如上)。
-- (可选)`recent-duplicate` 抽出 `_is_recent_duplicate` 小函数,便于单测。
+### 1. 代码
+- `src/ladym/operations/attention.py`:移除 `too short` 分支;noise + recent-duplicate 移到 `_get_agent` / `_llm_gate` 调用之前;重写 `_llm_gate` 的 system prompt(如上)。(可选)`recent-duplicate` 抽出 `_is_recent_duplicate` 小函数,便于单测。
+- `src/ladym/config.py:144`:删除 `min_chars: int = 8` 字段(too short 专属,规则删了即死字段)。
 
 ### 2. 单测 `tests/unit/test_attention_gate.py`
 - `test_gate_drops_too_short` → 改为 `test_gate_passes_short_when_no_llm`(none 模式 "hi" pass)。
 - `test_remember_drop_returns_unpersisted_memory`:不再用 "hi" 测 drop,改用 noise 或 dup 内容触发 drop。
 - 现有 `test_gate_drops_noise` / `test_gate_drops_recent_duplicate` / LLM 三个测试**不受影响**(验证通过)。
 - 新增:`test_llm_gate_receives_short_content`——配了 LLM 时 "hi" 进了 LLM(用 `FakeLLMProvider` 的 `called[]` 断言),证明"hi" 交给语义层。
+- `tests/unit/test_config_load.py:75,85`:删除 `[attention] min_chars = 16` 的 toml 行与 `assert cfg.attention.min_chars == 16`(字段已删)。
 
 ### 3. CLI / MCP 测试
 - `tests/unit/test_cli.py`:`test_cli_remember_drop_too_short`(load-bearing,证明 gate 接入 CLI)→ 改用 noise 内容证明 gate 接入。

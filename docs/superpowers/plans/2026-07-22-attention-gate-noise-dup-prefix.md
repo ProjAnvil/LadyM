@@ -14,7 +14,7 @@
 
 - **提交**:英文 conventional commits,结尾 `Co-Authored-By: Claude <noreply@anthropy.com>`;显式路径 `git add <files>`,**不用** `-A`/`.`。
 - **验证基线**:`uv run pytest tests/unit/test_attention_gate.py tests/unit/test_cli.py tests/unit/test_mcp_server.py -q` 全绿。(`test_mcp_index_code` 偶发受 test-ordering flaky,单独重跑即 pass——非本 plan 范围。)
-- **`min_chars` 字段保留**:`config.py:144` 的 `min_chars: int = 8` **不动**,`test_config_load.py:75,85`(测 toml 加载 `min_chars=16`)**不动**。gate 只是不再读它。
+- **`min_chars` 一并删除**:too short 规则移除后,`config.py:144` 的 `min_chars` 字段、`test_config_load.py:75,85` 的加载断言、SPEC config 表的 min_chars 行都删(YAGNI,死字段不留)。
 - **运行环境**:本地 ollama(11434)在跑;CLI 调用加 `LADYM_LLM_PROVIDER=none` 前缀可离线跑(单测用 `Config.for_testing` 默认 none,不需要)。
 
 ---
@@ -24,7 +24,9 @@
 | 文件 | 责任 | 本次动作 |
 |------|------|----------|
 | `src/ladym/operations/attention.py` | gate 函数 + `_llm_gate` + module docstring | 重构(Task 1) |
+| `src/ladym/config.py` | config dataclass | 删 `min_chars` 字段(Task 1) |
 | `tests/unit/test_attention_gate.py` | gate 单元测试 | 改 3 处 + 加 1 处(Task 1) |
+| `tests/unit/test_config_load.py` | config 加载测试 | 删 min_chars 断言(Task 1) |
 | `tests/unit/test_cli.py` | CLI 路径测试 | 改 `test_cli_remember_drop_too_short`(Task 2) |
 | `tests/unit/test_mcp_server.py` | MCP 路径测试 | 改 `test_mcp_remember_drop_too_short`(Task 3) |
 | `docs/superpowers/specs/2026-07-21-providers-config-control-plane-design.md` | SPEC §2.7 | 改 §2.7 措辞 + :267 表(Task 4) |
@@ -37,7 +39,9 @@
 
 **Files:**
 - Modify: `src/ladym/operations/attention.py:13-26`(docstring)、`:60-102`(`attention_gate`)、`:105-131`(`_llm_gate`)
+- Modify: `src/ladym/config.py:144`(删 `min_chars` 字段)
 - Test: `tests/unit/test_attention_gate.py`
+- Test: `tests/unit/test_config_load.py:75,85`(删 min_chars 断言)
 
 **Interfaces:**
 - Consumes: `engine.config.attention.noise_words` / `dedup_window_s`、`engine._get_agent("attention_gate")`、`engine.store.conn`、`Layer`、`_BUILTIN_NOISE`、`_hash`、`GateDecision`(均已存在,签名不变)
@@ -248,11 +252,24 @@ def test_llm_gate_receives_short_content(tmp_path):
 Run: `uv run pytest tests/unit/test_attention_gate.py -q`
 Expected: 13 passed(原 12 + 新增 `test_llm_gate_receives_short_content`)。
 
-- [ ] **Step 10: commit**
+- [ ] **Step 10: 删 `test_config_load.py` 的 min_chars 断言**
+
+打开 `tests/unit/test_config_load.py`,在 `test_from_file_loads_nested_sections` 里删掉 toml 的 `[attention]` / `min_chars = 16` 两行,以及断言 `assert cfg.attention.min_chars == 16`(字段即将删除)。
+
+- [ ] **Step 11: 删 `config.py` 的 `min_chars` 字段**
+
+打开 `src/ladym/config.py`,删掉 `AttentionConfig` dataclass 里的 `min_chars: int = 8`(`:144`)。
+
+- [ ] **Step 12: 运行 config 加载测试,确认无回归**
+
+Run: `uv run pytest tests/unit/test_config_load.py -q`
+Expected: 全绿(min_chars 断言已删、字段已删,其余 config 加载测试不受影响)。
+
+- [ ] **Step 13: commit**
 
 ```bash
-git add src/ladym/operations/attention.py tests/unit/test_attention_gate.py
-git commit -m "refactor(attention): noise/dup heuristic prefix, drop too-short rule" -m "Move noise + recent-duplicate ahead of the LLM call as a deterministic heuristic layer. Remove the too-short (min_chars) rule: short content like 'hi' now reaches the semantic layer (passes with no LLM, judged by the LLM prompt when configured). Rewrite the LLM system prompt with concrete pass/drop/rewrite criteria." -m "Co-Authored-By: Claude <noreply@anthropic.com>"
+git add src/ladym/operations/attention.py src/ladym/config.py tests/unit/test_attention_gate.py tests/unit/test_config_load.py
+git commit -m "refactor(attention): noise/dup heuristic prefix, drop too-short rule" -m "Move noise + recent-duplicate ahead of the LLM call as a deterministic heuristic layer. Remove the too-short (min_chars) rule: short content like 'hi' now reaches the semantic layer (passes with no LLM, judged by the LLM prompt when configured). Rewrite the LLM system prompt; delete the now-dead min_chars config field + its load test." -m "Co-Authored-By: Claude <noreply@anthropic.com>"
 ```
 
 ---
@@ -396,18 +413,12 @@ git commit -m "test(mcp): switch drop test from too-short to noise content" -m "
   (passes with no LLM; the LLM prompt judges it when configured).
 ```
 
-- [ ] **Step 2: 改 SPEC config 表的 min_chars 行**
+- [ ] **Step 2: 删 SPEC config 表的 min_chars 行**
 
-同文件 `:267` 附近,把:
+同文件 `:267` 附近,删掉整行(`min_chars` 字段已从 config 删除,SPEC 不再列):
 
 ```
 | `attention.min_chars` | int | `8` | — | heuristic gate only |
-```
-
-替换为:
-
-```
-| `attention.min_chars` | int | `8` | — | retained for compat; gate no longer uses it (too-short rule removed) |
 ```
 
 - [ ] **Step 3: 重写 S09 的 drop 矩阵**
