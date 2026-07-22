@@ -64,6 +64,23 @@ Documentation = "https://github.com/projanvil/ladyM"
 [tool.hatch.build.targets.wheel]
 packages = ["src/ladym"]
 
+[tool.hatch.build.targets.sdist]
+# Keep the sdist lean: ship source + README + ARCHITECTURE + tests, but exclude
+# local IDE/agent settings, lock files, and runtime databases.
+exclude = [
+    ".claude",
+    ".superpowers",
+    "uv.lock",
+    "docs/superpowers",
+    "*.ladym.db",
+    "*.ladym.db-*",
+    "ladym.db",
+    "ladym.db-*",
+    "e2e.ladym.db",
+    "e2e.ladym.db-*",
+    ".coverage",
+]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra --strict-markers"

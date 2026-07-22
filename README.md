@@ -27,20 +27,52 @@ Anthropic's context-engineering work — see **[ARCHITECTURE.md](ARCHITECTURE.md
 
 ## Install
 
+LadyM ships as a `uv`-installable CLI. The **default install is fully offline** — it uses
+the dependency-free `HashingEmbedding` and `provider="none"`, so `ladym` commands run the
+moment the install finishes, with no model downloads and no network.
+
+### As a global CLI (recommended)
+
+```bash
+# from a clone of this repo (offline default — no extras, no network at runtime)
+uv tool install .
+
+# with the LLM providers + the `ladym config` web editor
+uv tool install ".[web,llm]"
+
+# other extras compose the same way: [mcp] [local] [openai] [anthropic]
+```
+
+This drops a `ladym` executable on your PATH (`~/.local/bin/ladym`) and is isolated from
+your project venvs. Upgrade with `uv tool install . --force --reinstall` and remove with
+`uv tool uninstall ladym`.
+
+### One-off / try before you install
+
+```bash
+uvx --from . ladym stats
+uvx --from . ladym remember "auth uses JWT"
+uvx --from . ladym recall "auth"
+```
+
+`uvx` runs the CLI in a throwaway environment without touching your PATH.
+
+### For development
+
 ```bash
 git clone <this-repo> && cd ladyM
 uv venv --python 3.12
-uv pip install -e ".[dev]"            # core + test/lint tooling
-# optional extras:
+uv pip install -e ".[dev]"            # core + test/lint tooling, editable
+# optional extras stack on top:
 uv pip install -e ".[mcp]"            # MCP server (for Claude Code / Cursor)
 uv pip install -e ".[local]"          # sentence-transformers embeddings
 uv pip install -e ".[openai]"         # OpenAI embeddings
 uv pip install -e ".[llm]"            # LLM provider support (consolidation classifier)
-uv pip install -e ".[web]"            # reserved for the upcoming web config UI (Phase 5, not yet implemented)
+uv pip install -e ".[web]"            # FastAPI + HTMX `ladym config` editor
 ```
 
 Requires Python ≥ 3.11 (uses `enum.StrEnum`). `sqlite-vec` ships as a wheel — no native
-toolchain needed on macOS/Linux.
+toolchain needed on macOS/Linux/Windows.
 
 ## 30-second tour
 
@@ -145,7 +177,7 @@ See ARCHITECTURE.md §1–§4 for the cognitive-science and SOTA provenance of e
 ## Testing
 
 ```bash
-uv run pytest                  # 103 tests, ~1s, fully offline
+uv run pytest                  # 217 tests, ~3s, fully offline
 uv run pytest tests/integration -v
 uv run pytest --cov=ladym      # coverage report
 uv run ruff check src/ tests/  # lint
@@ -177,18 +209,19 @@ sqlite-vec-backed path has its own regression tests in
 
 | Command | What it does | Install |
 |---|---|---|
-| `ladym config` | _(planned, Phase 5 — not yet implemented)_ Local web config editor (browser UI) | `pip install 'ladym[web]'` |
+| `ladym config` | Local web config editor (FastAPI + HTMX, edits `ladym.toml`) | `pip install 'ladym[web]'` |
 | `ladym worker` | Background System2 consolidation daemon | core; flags: `--once`, `--interval N` |
 
 ## Status & roadmap
 
 ✅ Five-layer engine, two-tier recall, ADD/UPDATE/DELETE/NOOP consolidation, proceduralization,
-decay, tree-sitter indexer for Python/JS/TS/Go/Rust/Java/C/C++, MCP server, CLI, Skill, 103
-tests.
+decay, tree-sitter indexer for Python/JS/TS/Go/Rust/Java/C/C++, MCP server, CLI, Skill,
+pluggable providers + TOML config, System2 background worker, L5 mental-model / L6 forward-intent
+extraction, `ladym config` web editor, 217 tests.
 
 🚧 Next: an LLM-backed classifier for consolidation (the offline heuristic is already wired and
-tested — see `Engine.attach_llm_classifier`), GraphRAG-style cross-file ref resolution,
-multi-modal episodes, and a `ladym config` web editor (Phase 5 — not yet implemented).
+tested — see `Engine.attach_llm_classifier`), GraphRAG-style cross-file ref resolution, and
+multi-modal episodes.
 
 ## License
 
