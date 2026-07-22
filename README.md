@@ -40,8 +40,14 @@ uv tool install .
 # with the LLM providers + the `ladym config` web editor
 uv tool install ".[web,llm]"
 
+# everything (all user-facing extras in one shot)
+uv tool install ".[all]"
+
 # other extras compose the same way: [mcp] [local] [openai] [anthropic]
 ```
+
+`.` is the hermetic core (offline-only); `[all]` pulls in every user-facing
+extra (`web`, `llm`, `local`, `mcp`, `openai`, `anthropic`).
 
 This drops a `ladym` executable on your PATH (`~/.local/bin/ladym`) and is isolated from
 your project venvs. Upgrade with `uv tool install . --force --reinstall` and remove with

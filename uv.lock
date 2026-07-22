@@ -972,6 +972,21 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+all = [
+    { name = "anthropic" },
+    { name = "fastapi" },
+    { name = "httpx" },
+    { name = "jinja2" },
+    { name = "langchain-anthropic" },
+    { name = "langchain-core" },
+    { name = "langchain-ollama" },
+    { name = "langchain-openai" },
+    { name = "mcp" },
+    { name = "openai" },
+    { name = "python-multipart" },
+    { name = "sentence-transformers" },
+    { name = "uvicorn", extra = ["standard"] },
+]
 anthropic = [
     { name = "anthropic" },
 ]
@@ -1011,6 +1026,7 @@ requires-dist = [
     { name = "fastapi", marker = "extra == 'web'", specifier = ">=0.110" },
     { name = "httpx", marker = "extra == 'llm'", specifier = ">=0.27" },
     { name = "jinja2", marker = "extra == 'web'", specifier = ">=3.1" },
+    { name = "ladym", extras = ["web", "llm", "local", "mcp", "openai", "anthropic"], marker = "extra == 'all'" },
     { name = "langchain-anthropic", marker = "extra == 'llm'", specifier = ">=0.2" },
     { name = "langchain-core", marker = "extra == 'llm'", specifier = ">=0.3" },
     { name = "langchain-ollama", marker = "extra == 'llm'", specifier = ">=0.2" },
@@ -1034,7 +1050,7 @@ requires-dist = [
     { name = "typer", specifier = ">=0.12" },
     { name = "uvicorn", extras = ["standard"], marker = "extra == 'web'", specifier = ">=0.27" },
 ]
-provides-extras = ["local", "openai", "anthropic", "mcp", "llm", "web", "dev"]
+provides-extras = ["local", "openai", "anthropic", "mcp", "llm", "web", "all", "dev"]
 
 [[package]]
 name = "langchain-anthropic"

@@ -47,6 +47,9 @@ web = [
     "jinja2>=3.1",
     "python-multipart>=0.0.9",
 ]
+# Aggregate of every user-facing extra (excludes `dev`). Self-referential so the
+# individual extras remain the single source of truth.
+all = ["ladym[web,llm,local,mcp,openai,anthropic]"]
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
