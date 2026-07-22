@@ -7,24 +7,61 @@ library; Voyager's auto-skill authoring.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections import Counter
+from dataclasses import dataclass, field
 
 from ..config import Config
-from ..layers.procedural import ProceduralMemory
-from ..schema import Layer
+from ..layers.procedural import ProceduralMemory, _playbook_content
+from ..layers.semantic import content_hash
+from ..schema import Layer, Memory, MemoryType
 from ..storage.embeddings import EmbeddingProvider
 from ..storage.store import SQLiteStore
+from .consolidate import Action
 
 
 @dataclass
 class ProceduralizeReport:
     clusters_examined: int = 0
-    playbooks_created: int = 0
+    playbooks_created: int = 0  # = ADD count (kept for backward compat)
+    actions: dict[str, int] = field(
+        default_factory=lambda: {"ADD": 0, "UPDATE": 0, "NOOP": 0}
+    )
     details: list[dict] = None  # type: ignore[assignment]
 
     def __post_init__(self):
         if self.details is None:
             self.details = []
+
+
+def _retrieve_existing_playbooks(
+    store: SQLiteStore, candidate_vec: list[float], ws: str, top_k: int
+) -> list[tuple[Memory, float]]:
+    """Top similar existing L3 playbooks in this workspace (mirrors consolidate's L2 retrieval)."""
+    raw = store.vector_index.search(candidate_vec, top_k=top_k)
+    similar: list[tuple[Memory, float]] = []
+    for mid, sim in raw:
+        if sim < 0.1:
+            continue
+        m = store.get_memory(mid)
+        if m is None or m.workspace != ws:
+            continue
+        if m.layer != Layer.PROCEDURAL.value or m.type != MemoryType.PLAYBOOK.value:
+            continue
+        similar.append((m, sim))
+    similar.sort(key=lambda t: t[1], reverse=True)
+    return similar
+
+
+def _classify_playbook(
+    candidate_hash: str,
+    similar: list[tuple[Memory, float]],
+    threshold: float,
+) -> Action:
+    """ADD/NOOP for a candidate playbook vs existing L3 (UPDATE added in next task)."""
+    for existing, _sim in similar:
+        if existing.content_hash and existing.content_hash == candidate_hash:
+            return Action.NOOP
+    return Action.ADD
 
 
 def proceduralize(
@@ -67,20 +104,30 @@ def proceduralize(
         if len(cluster) >= min_cluster_size:
             assigned[i] = True
             report.clusters_examined += 1
-            # derive a playbook name from the most common action verb
             actions = [c.metadata.get("action", "do") for c in cluster]
-            from collections import Counter
             top_action = Counter(actions).most_common(1)[0][0]
             steps = _derive_steps(cluster)
-            proc.put_playbook(
-                name=f"How to {top_action} ({len(cluster)} episodes)",
-                steps=steps,
-                preconditions=list({c.metadata.get("agent", "agent") for c in cluster}),
-                expected_outcome="success",
-                tags=[top_action],
+            name = f"How to {top_action} ({len(cluster)} episodes)"
+            # idempotency: check existing L3 playbooks before writing
+            candidate_content = _playbook_content(name, steps)
+            candidate_hash = content_hash(candidate_content)
+            candidate_vec = embedder.embed(candidate_content)
+            similar = _retrieve_existing_playbooks(
+                store, candidate_vec, ws,
+                top_k=cfg.consolidate.min_episodes_to_trigger + 5,
             )
-            report.playbooks_created += 1
-            report.details.append({"action": top_action, "size": len(cluster)})
+            action = _classify_playbook(candidate_hash, similar, similarity_threshold)
+            report.actions[action.value] += 1
+            if action == Action.ADD:
+                proc.put_playbook(
+                    name=name, steps=steps,
+                    preconditions=list({c.metadata.get("agent", "agent") for c in cluster}),
+                    expected_outcome="success",
+                    tags=[top_action],
+                )
+                report.playbooks_created += 1
+            # NOOP: skip; UPDATE added in Task 3
+            report.details.append({"action": action.value, "action_verb": top_action, "size": len(cluster)})
     return report
 
 

@@ -91,3 +91,27 @@ def test_decay_never_touches_code_or_procedural(engine):
     report = engine.decay(max_age_s=1.0, activation_floor=0.99)
     # the L2/L3 items remain despite being very old
     assert report.forgotten == 0
+
+
+def test_proceduralize_idempotent_same_episodes(engine):
+    """Same batch of L1 → two proceduralize calls must not duplicate L3 (content_hash NOOP)."""
+    for _ in range(3):
+        engine.episodic.record(
+            agent="bot", action="deploy",
+            observation="ran deploy.sh",  # identical → identical cluster/playbook content
+            outcome="success",
+        )
+    r1 = engine.proceduralize(min_cluster_size=3)
+    assert r1.actions["ADD"] == 1
+    assert r1.playbooks_created == 1
+
+    # second call on the same L1 → NOOP, no new playbook
+    r2 = engine.proceduralize(min_cluster_size=3)
+    assert r2.actions["NOOP"] == 1
+    assert r2.actions["ADD"] == 0
+    assert r2.playbooks_created == 0
+
+    # exactly one L3 playbook in the store
+    resp = engine.recall("deploy", types=[MemoryType.PLAYBOOK])
+    playbooks = [r for r in resp.results if r.memory.layer == Layer.PROCEDURAL.value]
+    assert len(playbooks) == 1
