@@ -115,3 +115,37 @@ def test_proceduralize_idempotent_same_episodes(engine):
     resp = engine.recall("deploy", types=[MemoryType.PLAYBOOK])
     playbooks = [r for r in resp.results if r.memory.layer == Layer.PROCEDURAL.value]
     assert len(playbooks) == 1
+
+
+def test_proceduralize_update_on_cluster_evolution(engine):
+    """Cluster grows (3→4 episodes, name changes) → UPDATE existing playbook via supersedes."""
+    from ladym.operations.supersedes import is_retired
+
+    for _ in range(3):
+        engine.episodic.record(
+            agent="bot", action="deploy",
+            observation="ran deploy.sh", outcome="success",
+        )
+    r1 = engine.proceduralize(min_cluster_size=3)
+    assert r1.actions["ADD"] == 1
+    first = [r for r in engine.recall("deploy", types=[MemoryType.PLAYBOOK]).results
+             if r.memory.layer == Layer.PROCEDURAL.value][0].memory
+
+    # grow cluster: one more identical episode → name "(3 episodes)"→"(4 episodes)",
+    # content_hash differs but content is near-identical → UPDATE (not ADD, not NOOP)
+    engine.episodic.record(
+        agent="bot", action="deploy",
+        observation="ran deploy.sh", outcome="success",
+    )
+    r2 = engine.proceduralize(min_cluster_size=3)
+    assert r2.actions["UPDATE"] == 1
+    assert r2.actions["ADD"] == 0
+
+    # old playbook retired (supersedes chain), lineage preserved
+    assert is_retired(engine.store.get_memory(first.id))
+
+    # exactly one ACTIVE L3 playbook, and it's the updated "(4 episodes)" one
+    active = [r for r in engine.recall("deploy", types=[MemoryType.PLAYBOOK]).results
+              if r.memory.layer == Layer.PROCEDURAL.value and not is_retired(r.memory)]
+    assert len(active) == 1
+    assert "(4 episodes)" in active[0].memory.summary

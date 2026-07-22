@@ -17,6 +17,7 @@ from ..schema import Layer, Memory, MemoryType
 from ..storage.embeddings import EmbeddingProvider
 from ..storage.store import SQLiteStore
 from .consolidate import Action
+from .supersedes import retire as _retire
 
 
 @dataclass
@@ -57,10 +58,12 @@ def _classify_playbook(
     similar: list[tuple[Memory, float]],
     threshold: float,
 ) -> Action:
-    """ADD/NOOP for a candidate playbook vs existing L3 (UPDATE added in next task)."""
+    """ADD/UPDATE/NOOP for a candidate playbook vs existing L3."""
     for existing, _sim in similar:
         if existing.content_hash and existing.content_hash == candidate_hash:
             return Action.NOOP
+    if similar and similar[0][1] >= threshold:
+        return Action.UPDATE
     return Action.ADD
 
 
@@ -126,7 +129,15 @@ def proceduralize(
                     tags=[top_action],
                 )
                 report.playbooks_created += 1
-            # NOOP: skip; UPDATE added in Task 3
+            elif action == Action.UPDATE and similar:
+                new_mem = proc.put_playbook(
+                    name=name, steps=steps,
+                    preconditions=list({c.metadata.get("agent", "agent") for c in cluster}),
+                    expected_outcome="success",
+                    tags=[top_action],
+                )
+                _retire(store, similar[0][0], new_id=new_mem.id)
+            # NOOP: skip
             report.details.append({"action": action.value, "action_verb": top_action, "size": len(cluster)})
     return report
 
