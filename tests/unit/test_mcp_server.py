@@ -114,3 +114,31 @@ def test_mcp_index_code(server_with_engine):
     out = json.loads(tools["index_code"](str(fixture)))
     assert out["files_indexed"] >= 2
     assert out["symbols_written"] >= 4
+
+
+def test_mcp_remember_drop_too_short(server_with_engine):
+    """``remember("hi")`` is below the attention gate's min_chars, so it must be
+    dropped — the response carries ``{"gated":"dropped","reason":"too short"}``
+    with null id/hash (never the non-persistent fake id), and nothing is persisted."""
+    _, tools, eng = server_with_engine
+    out = json.loads(tools["remember"]("hi", workspace="wsdrop"))
+    assert out["gated"] == "dropped"
+    assert out["reason"] == "too short"
+    assert out["id"] is None
+    assert out["hash"] is None
+
+    # The dropped content must not have been persisted in any workspace.
+    assert not any(m.content == "hi" for m in eng.store.iter_memories())
+
+
+def test_mcp_remember_pass_persists(server_with_engine):
+    """``remember(<long fact>)`` clears the gate: response is the back-compat
+    ``{"id":..,"hash":..}`` shape with NO ``gated`` key, and the memory is in the store."""
+    _, tools, eng = server_with_engine
+    content = "a reasonably long fact about the system"
+    out = json.loads(tools["remember"](content, workspace="wspass"))
+    assert out["id"]
+    assert out["hash"]
+    assert "gated" not in out
+
+    assert any(m.content == content for m in eng.store.iter_memories())

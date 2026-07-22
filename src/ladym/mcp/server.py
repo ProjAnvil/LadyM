@@ -89,10 +89,22 @@ def build_server(config: Config | None = None, *, engine: Engine | None = None):
     @server.tool()
     def remember(content: str, tags: list[str] | None = None,
                  source: str = "", workspace: str | None = None) -> str:
-        """Write a semantic fact / note that future recall can retrieve."""
+        """Write a semantic fact / note that future recall can retrieve.
+
+        Routes through the attention gate (via ``eng.remember``): too-short / noise /
+        recent-duplicate content is dropped (not persisted); the response then
+        carries ``{"gated":"dropped","reason":...}`` with null id/hash so the caller
+        can tell the write was filtered.
+        """
         ws = workspace or eng.config.workspace
-        eng.semantic.workspace = ws
-        m = eng.semantic.put_fact(content, tags=tags or [], source=source or "mcp")
+        eng.config.workspace = ws        # drop case reads config.workspace
+        eng.semantic.workspace = ws      # pass case reads semantic.workspace
+        m = eng.remember(content, tags=tags or [], source=source or "mcp")
+        if m.metadata.get("gated") == "dropped":
+            return json.dumps({
+                "id": None, "hash": None,
+                "gated": "dropped", "reason": m.metadata.get("reason"),
+            })
         return json.dumps({"id": m.id, "hash": m.content_hash})
 
     @server.tool()
