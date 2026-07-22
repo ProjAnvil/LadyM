@@ -24,7 +24,7 @@
 | S06 | link + tier2 扩展 | L4 | MCP+CLI | 否 |
 | S07 | L5 mental model(条件) | L5 | CLI worker | 条件 |
 | S08 | L6 forward-intent(条件) | L6 | CLI worker | 条件 |
-| S09 | attention gate:agent 路径绕过 | gate | MCP+CLI+SDK | 否 |
+| S09 | attention gate:drop 矩阵 | gate | MCP+CLI+SDK | 否 |
 | S10 | forget 删除 | 维护 | MCP+CLI | 否 |
 | S11 | workspace 隔离 | 隔离 | MCP+CLI | 否 |
 | S12 | 增量索引 | L2(code) | MCP+CLI | 否 |
