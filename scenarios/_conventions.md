@@ -61,6 +61,12 @@ L5/L6 在 `llm is None` 时 `skipped`,不产出。执行前确认 provider:
 - 副作用:MCP `stats()` 现反映最近一次 `remember` 的 workspace(因 remember 改了 `eng.config.workspace`)——取某 ws 计数仍用 CLI `ladym stats -w`(§8.2)。S09 据此改回正向 drop 断言。
 - LLM 开销:gate 修复后,配了 LLM provider 的部署里 MCP/CLI `remember` 现会触发一次 attention_gate 的 LLM 调用(修复前绕过 gate 不调;SDK `eng.remember` 本就如此)。heuristic 模式(`llm_provider=none`)无此开销——S09 的 drop 矩阵只在 heuristic 下断言。
 
+### 8.1a gate 两层结构(2026-07-22 重构)
+- **heuristic 前置**(确定性,LLM 调用前):noise(纯噪声词表)、recent-duplicate(近期 L1 同 content hash)→ drop。
+- **语义层**:配了 LLM 交 LLM 判(pass/rewrite/drop);否则 pass。
+- `too short` 规则已移除——"hi" 这类短内容不再被确定性 drop(none 模式 pass;LLM 模式交 prompt 判)。
+- **对剧本的影响**:noise/dup 断言两种配置都成立(不再需要 `export LADYM_LLM_PROVIDER=none`);"hi" 类断言改为配置相关软断言。详见 S09。
+
 ### 8.2 MCP `stats(workspace=)` 仍不 honor workspace 参数
 - MCP `stats` 工具内部调 `eng.stats()`,用 `eng.config.workspace`;其 `workspace=` 参数**仍被忽略**。注意:自 §8.1 修复后,`remember` 会改动 `eng.config.workspace`,故 `stats()` 返回的是"最近一次 remember 的 ws"而非固定的 server 默认——值不确定。
 - 取**某 ws 的计数**一律用 CLI:`! ladym stats -w <ws> --db <db>`(会过滤),或 sqlite:

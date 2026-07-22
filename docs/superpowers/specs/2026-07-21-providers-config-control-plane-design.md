@@ -228,8 +228,8 @@ enabled = false                            # in-process worker thread (opt-in)
 interval_s = 300
 min_episodes_to_run = 3                    # threshold gate: skip LLM steps below this
 
-[attention]                                # heuristic-mode knobs (provider="none")
-min_chars = 8; dedup_window_s = 3600
+[attention]                                # heuristic-prefix knobs (noise/dup, config-agnostic)
+dedup_window_s = 3600
 noise_words = []                           # extend the built-in list
 ```
 
@@ -264,7 +264,6 @@ noise_words = []                           # extend the built-in list
 | `system2.enabled` | bool | `false` | — | opt-in in-process thread |
 | `system2.interval_s` | int | `300` | — | |
 | `system2.min_episodes_to_run` | int | `3` | — | threshold gate |
-| `attention.min_chars` | int | `8` | — | heuristic gate only |
 | `attention.dedup_window_s` | float | `3600` | — | heuristic gate only |
 | `attention.noise_words` | list | `[]` | — | extends built-in |
 
@@ -453,10 +452,13 @@ class GateDecision:
 def attention_gate(content: str, *, engine: "Engine", layer: Layer) -> GateDecision: ...
 ```
 
-- **Heuristic mode (default, `provider="none"`):** drop if `len(content) < attention.min_chars`,
-  or content hashes-equal to a recent L1 within `dedup_window_s`, or it matches the noise-word
-  list. Otherwise pass. Zero deps.
-- **LLM mode:** `complete_structured` returns `{action, content?, reason}`.
+- **Heuristic prefix (always runs, before any LLM call):** drop if content matches the
+  noise-word list, or hashes-equal to a recent L1 within `dedup_window_s`. These are
+  deterministic hard facts needing no semantics. Zero deps.
+- **Semantic layer:** content that clears the prefix is delegated to the LLM
+  (`complete_structured` → `{action, content?, reason}`) when `agents.attention_gate`
+  resolves to a provider; otherwise it passes. Short content like `"hi"` reaches this layer
+  (passes with no LLM; the LLM prompt judges it when configured).
 - Applies **only to L1/L2/L3 long-term writes**; L0 working memory is never gated (scratch).
 - `Engine.remember()` calls the gate before persisting. On `drop`: **do not persist**, but
   **return a `Memory`** with `metadata={"gated": "dropped", "reason": ...}` so the return-type
