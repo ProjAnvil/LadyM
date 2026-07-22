@@ -219,9 +219,7 @@ decay, tree-sitter indexer for Python/JS/TS/Go/Rust/Java/C/C++, MCP server, CLI,
 pluggable providers + TOML config, System2 background worker, L5 mental-model / L6 forward-intent
 extraction, `ladym config` web editor, 217 tests.
 
-🚧 Next: an LLM-backed classifier for consolidation (the offline heuristic is already wired and
-tested — see `Engine.attach_llm_classifier`), GraphRAG-style cross-file ref resolution, and
-multi-modal episodes.
+🚧 Next: GraphRAG-style cross-file ref resolution and multi-modal episodes.
 
 ## License
 
