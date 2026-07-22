@@ -38,3 +38,10 @@ ladym.toml
 
 # Superpowers SDD scratch (progress ledger — git-ignored)
 .superpowers/
+
+# MCP config
+.mcp.json
+
+# agnet config
+.claude*
+.codex*
