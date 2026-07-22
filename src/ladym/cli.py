@@ -71,7 +71,7 @@ def remember(
     """Write a semantic memory (fact).
 
     Routes through ``eng.remember`` (not ``semantic.put_fact`` directly) so the
-    attention gate (SPEC §2.7 / C5) applies: too-short / noise / recent-duplicate
+    attention gate (SPEC §2.7 / C5) applies: noise / recent-duplicate
     content is dropped before any long-term write. The gate's drop returns an
     unpersisted ``Memory`` whose ``id`` is a non-existent fake UUID — we surface
     the drop in the output WITHOUT printing that id (it would mislead users into

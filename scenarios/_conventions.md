@@ -55,7 +55,7 @@ L5/L6 在 `llm is None` 时 `skipped`,不产出。执行前确认 provider:
 - **已修复**(CLI commit b1647e9、MCP commit f717d64):MCP/CLI `remember` 改调 `eng.remember`,gate 在 agent 写路径上**生效**;drop 行为现三路径(SDK/MCP/CLI)一致,由 `tests/unit/test_attention_gate.py` + `test_cli.py` + `test_mcp_server.py` 覆盖。
 - `remember` 返回值契约(修复后):
   - **pass**:MCP `{"id","hash"}`、CLI `remembered id=<32hex> hash=<8hex>`(无 `gated` 键)。
-  - **drop**:MCP `{"id":null,"hash":null,"gated":"dropped","reason":<too short|noise|recent duplicate>}`、CLI 打印 `dropped reason=<reason> (gated; not persisted)`(不打印假 id——drop 返回的 Memory 未持久化,id 是生成的假 UUID)。
+  - **drop**:MCP `{"id":null,"hash":null,"gated":"dropped","reason":<noise|recent duplicate>}`、CLI 打印 `dropped reason=<reason> (gated; not persisted)`(不打印假 id——drop 返回的 Memory 未持久化,id 是生成的假 UUID)。
   - `layer`/`type` 仍不含——要确认须 `recall` 回查。
 - workspace 一致性:MCP `remember` 现同步设 `eng.config.workspace` 与 `eng.semantic.workspace`;CLI 经 `Config.load` 烤入(本就一致)。
 - 副作用:MCP `stats()` 现反映最近一次 `remember` 的 workspace(因 remember 改了 `eng.config.workspace`)——取某 ws 计数仍用 CLI `ladym stats -w`(§8.2)。S09 据此改回正向 drop 断言。

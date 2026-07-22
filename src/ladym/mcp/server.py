@@ -91,7 +91,7 @@ def build_server(config: Config | None = None, *, engine: Engine | None = None):
                  source: str = "", workspace: str | None = None) -> str:
         """Write a semantic fact / note that future recall can retrieve.
 
-        Routes through the attention gate (via ``eng.remember``): too-short / noise /
+        Routes through the attention gate (via ``eng.remember``): noise /
         recent-duplicate content is dropped (not persisted); the response then
         carries ``{"gated":"dropped","reason":...}`` with null id/hash so the caller
         can tell the write was filtered.

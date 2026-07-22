@@ -46,6 +46,7 @@ def test_gate_passes_normal_content(engine):
 
 def test_gate_drops_noise(engine):
     # pure-noise content composed entirely of `_BUILTIN_NOISE` tokens
+    # NOTE: all tokens here must stay in _BUILTIN_NOISE (attention.py) for this drop assertion to hold.
     d = attention_gate("ok ok ok lol", engine=engine, layer=Layer.SEMANTIC)
     assert d.action == "drop"
     assert d.reason == "noise"
