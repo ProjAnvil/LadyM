@@ -98,10 +98,14 @@ ladym recall "how does password verification work" --code
 # 3. store a fact for later
 ladym remember "auth uses JWT with 24h expiry" --tags auth,security
 
-# 4. recall works across code AND facts in one call
+# 4. log an episodic event — feeds the worker's L5/L6 extractors
+#    (record ~3+ and `ladym worker --once` will fire mental-model + forward-intent)
+ladym record --agent claude --action "fixed login bug" --outcome success --tags auth,bug
+
+# 5. recall works across code AND facts in one call
 ladym recall "auth"
 
-# 5. see what's in memory
+# 6. see what's in memory
 ladym stats
 ```
 
@@ -154,9 +158,11 @@ Add to your MCP client config:
 }
 ```
 
-The server exposes eight tools — `recall`, `remember`, `search_code`, `index_code`,
-`consolidate`, `stats`, `link`, `forget` — described in
-[src/ladym/mcp/server.py](src/ladym/mcp/server.py).
+The server exposes nine tools — `recall`, `remember`, `record_event`, `search_code`,
+`index_code`, `consolidate`, `stats`, `link`, `forget` — described in
+[src/ladym/mcp/server.py](src/ladym/mcp/server.py). `record_event` logs an L1
+episodic event that feeds the System2 worker's consolidation (L1 → L2) and the gated
+L5 mental-model / L6 forward-intent extractors (record ~3+ to arm those cycles).
 
 ## Claude Code Skill
 

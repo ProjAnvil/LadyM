@@ -11,6 +11,7 @@ grepping/reading files on every turn.
 Tools:
     recall(query, top_k?, code_only?)         → ranked memories
     remember(content, tags?, source?)         → write a fact
+    record_event(agent, action, …)            → write an L1 episodic event
     search_code(query, top_k?)                → code-only search
     index_code(root, force?, languages?)      → index/re-index a repo
     consolidate()                             → L1 → L2
@@ -93,6 +94,24 @@ def build_server(config: Config | None = None, *, engine: Engine | None = None):
         eng.semantic.workspace = ws
         m = eng.semantic.put_fact(content, tags=tags or [], source=source or "mcp")
         return json.dumps({"id": m.id, "hash": m.content_hash})
+
+    @server.tool()
+    def record_event(agent: str, action: str, observation: str = "",
+                     outcome: str = "", tags: list[str] | None = None,
+                     workspace: str | None = None) -> str:
+        """Record an L1 episodic event ``(agent, action, observation, outcome)``.
+
+        Episodic events feed the System2 worker's consolidation (L1 → L2) and the
+        gated L5 mental-model / L6 forward-intent extractors — record ~3+ to arm
+        those cycles. Note: this bypasses the attention gate (explicit event
+        logging), unlike ``remember`` which writes a consolidated L2 fact directly.
+        """
+        eng.episodic.workspace = workspace or eng.config.workspace
+        m = eng.record_event(
+            agent=agent, action=action, observation=observation,
+            outcome=outcome, tags=tags,
+        )
+        return json.dumps({"id": m.id, "layer": m.layer, "type": m.type})
 
     @server.tool()
     def search_code(query: str, top_k: int = 10, workspace: str | None = None) -> str:

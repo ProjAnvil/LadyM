@@ -79,6 +79,29 @@ def remember(
 
 
 @app.command()
+def record(
+    agent: str = typer.Option(..., "--agent", help="Who/what performed the action."),
+    action: str = typer.Option(..., "--action", help="What was done."),
+    observation: str = typer.Option("", "--observation", help="What was seen/learned."),
+    outcome: str = typer.Option("", "--outcome", help="Result of the action."),
+    tags: str = typer.Option(None, "--tags", help="Comma-separated tags"),
+    db: str | None = typer.Option(None, "--db"),
+    workspace: str | None = typer.Option(None, "--workspace", "-w"),
+):
+    """Record an L1 episodic event (feeds System2 consolidation + L5/L6 extraction)."""
+    eng = _engine(db, workspace)
+    try:
+        tag_list = [t.strip() for t in tags.split(",")] if tags else []
+        m = eng.record_event(
+            agent=agent, action=action, observation=observation,
+            outcome=outcome, tags=tag_list,
+        )
+        console.print(f"[green]recorded[/green] id={m.id} layer={m.layer} type={m.type}")
+    finally:
+        eng.close()
+
+
+@app.command()
 def recall(
     query: str = typer.Argument(..., help="Natural-language query."),
     db: str | None = typer.Option(None, "--db"),

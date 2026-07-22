@@ -80,6 +80,34 @@ def test_mcp_consolidate(server_with_engine):
     assert out["actions"]["ADD"] >= 1
 
 
+def test_mcp_record_event_creates_l1_episodic(server_with_engine):
+    """``record_event`` writes an L1 episodic EVENT (not an L2 fact like ``remember``)."""
+    _, tools, eng = server_with_engine
+    out = json.loads(
+        tools["record_event"](
+            agent="claude",
+            action="fixed login bug",
+            observation="rotated jwt secret",
+            outcome="success",
+            tags=["auth", "bug"],
+        )
+    )
+    assert out["layer"] == "L1_episodic"
+    assert out["type"] == "event"
+    assert "id" in out
+
+    # The row really is an L1 episodic event in the store.
+    episodic = list(eng.store.iter_memories(layer="L1_episodic"))
+    assert len(episodic) == 1
+    m = episodic[0]
+    assert m.type == "event"
+    assert m.metadata.get("agent") == "claude"
+    assert m.metadata.get("action") == "fixed login bug"
+    assert m.metadata.get("observation") == "rotated jwt secret"
+    assert m.metadata.get("outcome") == "success"
+    assert "auth" in m.tags and "bug" in m.tags
+
+
 def test_mcp_index_code(server_with_engine):
     _, tools, eng = server_with_engine
     fixture = __import__("pathlib").Path(__file__).resolve().parent.parent / "fixtures" / "sample_repo"
