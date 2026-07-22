@@ -10,14 +10,16 @@ outcomes:
 L0 (working) memory is never gated: it is ephemeral scratch and the gate would only
 add latency without value.
 
-Two modes:
+Two layers:
 
-* **Heuristic** (default, ``provider="none"``): cheap and deterministic. Drops content
-  that is too short, indistinguishable from a fixed noise vocabulary, or a near-clone
-  of an L1 episodic event written within ``dedup_window_s`` seconds. Passes everything
-  else.
-* **LLM** (when ``agents.attention_gate`` resolves to a real provider): defers to a
-  structured-output call that returns ``{action, content?, reason}``.
+* **Heuristic prefix** (always runs, before any LLM call): cheap and deterministic.
+  Drops content composed entirely of the noise vocabulary, or a hash-exact duplicate
+  of an L1 episodic event written within ``dedup_window_s`` seconds. These are hard
+  facts needing no semantics. Zero deps.
+* **Semantic layer** (content that clears the prefix): when ``agents.attention_gate``
+  resolves to a real provider, defers to a structured-output call that returns
+  ``{action, content?, reason}``; otherwise passes. Short content like ``"hi"``
+  reaches this layer (passes with no LLM; the LLM prompt judges it when wired).
 
 ``Engine.remember`` consumes the :class:`GateDecision` directly: on ``drop`` it returns
 an *unpersisted* :class:`~ladym.schema.Memory` tagged ``metadata={"gated": "dropped",

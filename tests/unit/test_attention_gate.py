@@ -1,10 +1,12 @@
 """Tests for the attention gate (SPEC §2.7).
 
 Covers:
-* Heuristic mode (default, ``provider="none"``): drop too-short / recent-duplicate /
-  noise; pass otherwise.
-* LLM mode (when ``engine._agents["attention_gate"]`` is wired): structured
-  pass / rewrite / drop decisions.
+* Heuristic prefix (always runs): noise (pure noise vocabulary) and recent-duplicate
+  (hash-exact L1 within ``dedup_window_s``) are dropped deterministically, regardless
+  of whether an LLM is wired.
+* Semantic layer: short content like ``"hi"`` clears the prefix and, with no LLM agent
+  wired (``Config.for_testing`` default), passes; with an LLM wired it is delegated to
+  the gate prompt (structured pass / rewrite / drop).
 * ``Engine.remember`` integration: drop returns an unpersisted ``Memory`` tagged
   ``metadata={"gated": "dropped"}`` (NFR-4), pass persists normally.
 """
@@ -43,7 +45,7 @@ def test_gate_passes_normal_content(engine):
 
 
 def test_gate_drops_noise(engine):
-    # content long enough to clear min_chars but composed entirely of noise tokens
+    # pure-noise content composed entirely of `_BUILTIN_NOISE` tokens
     d = attention_gate("ok ok ok lol", engine=engine, layer=Layer.SEMANTIC)
     assert d.action == "drop"
     assert d.reason == "noise"
