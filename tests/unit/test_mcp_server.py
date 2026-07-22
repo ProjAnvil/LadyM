@@ -142,3 +142,37 @@ def test_mcp_remember_pass_persists(server_with_engine):
     assert "gated" not in out
 
     assert any(m.content == content for m in eng.store.iter_memories(workspace="wspass"))
+
+
+def test_mcp_remember_drop_noise(server_with_engine):
+    """remember() of content composed entirely of noise tokens is dropped as noise."""
+    _, tools, eng = server_with_engine
+    out = json.loads(tools["remember"]("lol ok test asdf foo", workspace="wsnoise"))
+    assert out["gated"] == "dropped"
+    assert out["reason"] == "noise"
+    assert out["id"] is None
+    assert out["hash"] is None
+    # The noise content must not have been persisted in any workspace.
+    assert not any(
+        m.content == "lol ok test asdf foo"
+        for m in eng.store.iter_memories(workspace="wsnoise")
+    )
+
+
+def test_mcp_remember_drop_recent_duplicate(server_with_engine):
+    """remember() of content identical to a recent L1 episodic event is dropped
+    as a recent duplicate (same content hash within dedup_window_s)."""
+    _, tools, eng = server_with_engine
+    # Seed an L1 episodic event in wsdup; record_event(agent, action, observation)
+    # renders content as "agent=.. | action=.. | observation=.." (no outcome appended).
+    tools["record_event"](
+        agent="x", action="y", observation="exact dup content", workspace="wsdup"
+    )
+    dup = "agent=x | action=y | observation=exact dup content"
+    out = json.loads(tools["remember"](dup, workspace="wsdup"))
+    assert out["gated"] == "dropped"
+    assert out["reason"] == "recent duplicate"
+    assert out["id"] is None
+    assert out["hash"] is None
+    # The dropped remember must NOT have persisted an L2 fact (only the L1 event exists).
+    assert list(eng.store.iter_memories(workspace="wsdup", layer="L2_semantic")) == []
