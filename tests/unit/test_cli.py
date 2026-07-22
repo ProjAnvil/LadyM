@@ -184,20 +184,20 @@ def test_config_command_missing_web_extra_errors(monkeypatch):
     assert "ladym[web]" in res.output
 
 
-def test_cli_remember_drop_too_short(db_arg):
-    """``ladym remember "hi"`` is below the attention gate's min_chars, so it
-    must be dropped — exit 0, output surfaces the drop reason, and the memory
-    is NOT persisted (the dropped Memory carries a non-existent fake id that we
-    must not leak as ``id=``)."""
+def test_cli_remember_drop_noise(db_arg):
+    """``ladym remember`` with pure-noise content is dropped by the heuristic
+    prefix — exit 0, output surfaces the drop reason, and the memory is NOT
+    persisted (the dropped Memory carries a non-existent fake id that we must
+    not leak as ``id=``)."""
     from ladym.sdk import open_engine
 
     r = runner.invoke(
         app,
-        ["remember", "hi", "--db", db_arg, "--workspace", "wsdrop"],
+        ["remember", "lol ok test asdf foo", "--db", db_arg, "--workspace", "wsdrop"],
     )
     assert r.exit_code == 0, r.output
     assert "dropped" in r.output
-    assert "reason=too short" in r.output
+    assert "reason=noise" in r.output
     # Red line: the non-persistent fake id must NOT be printed.
     assert "id=" not in r.output
 
@@ -205,7 +205,7 @@ def test_cli_remember_drop_too_short(db_arg):
     # {layer/type: n} dict; an empty workspace is {}).
     with open_engine(db_path=db_arg, workspace="wsdrop") as eng:
         assert eng.store.count(workspace="wsdrop") == {}
-        assert not any(m.content == "hi" for m in eng.store.iter_memories(workspace="wsdrop"))
+        assert not any(m.content == "lol ok test asdf foo" for m in eng.store.iter_memories(workspace="wsdrop"))
 
 
 def test_cli_remember_pass_persists(db_arg):
