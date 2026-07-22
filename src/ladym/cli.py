@@ -270,7 +270,10 @@ def serve(
     from .mcp.server import build_server
 
     server = build_server(cfg)
-    console.print(f"[bold]LadyM MCP server[/bold] starting (db={cfg.db_path}, ws={cfg.workspace})")
+    # MCP stdio: stdout must carry ONLY JSON-RPC frames — diagnostics go to stderr.
+    Console(stderr=True).print(
+        f"[bold]LadyM MCP server[/bold] starting (db={cfg.db_path}, ws={cfg.workspace})"
+    )
     server.run()
 
 
