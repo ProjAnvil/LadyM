@@ -230,10 +230,7 @@ ladym config rm DEEPSEEK_API_KEY         # remove
 ladym config reset-master-key <newpass>  # rotate master key; all secrets re-encrypted in place
 ```
 
-Key resolution order (LLM and embedding providers alike): process env var named by `api_key_env`
-→ secret store → `Config.api_key` field. If none is set, commands fail fast with a one-line
-`ConfigError` naming the env var and the fix command (exit 1; MCP tools return a structured error
-instead of a traceback).
+Key resolution order — **LLM** providers: `Config.api_key` plaintext field (dev escape hatch, off by default) → secret store (`~/.ladyM/secrets.enc`) → process env var named by `api_key_env`. **Embedding** providers skip the plaintext tier (there is no `embedding_api_key` field), so they resolve: secret store → env var. If none is set, commands fail fast with a one-line `ConfigError` naming the env var and the fix command (exit 1; MCP tools return a structured error instead of a traceback).
 
 **Security boundary:** the store guarantees *encryption at rest* — it prevents plaintext leaking
 via `cat secrets.enc`, shoulder-surfing, or accidental paste into chat/logs/commits. It does **not**
