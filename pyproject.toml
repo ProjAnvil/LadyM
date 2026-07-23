@@ -27,6 +27,7 @@ dependencies = [
     "tree-sitter-language-pack>=0.1",
     "numpy>=1.26",
     "sqlmodel>=0.0.16",
+    "cryptography>=42.0",
 ]
 
 [project.optional-dependencies]
