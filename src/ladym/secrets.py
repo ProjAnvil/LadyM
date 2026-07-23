@@ -86,13 +86,20 @@ class SecretStore:
         for name, enc in old_kv.items():
             nonce, ct = self._split(enc)
             plain[name] = AESGCM(old_aes).decrypt(nonce, ct, None).decode()
-        # re-encrypt under new key
+        # re-encrypt under new key — compute BOTH file payloads in memory first
         new_aes = _derive_aes_key(new_key) if new_key is not None else _py_secrets.token_bytes(32)
         new_kv: dict[str, str] = {}
         for name, value in plain.items():
             new_kv[name] = self._encrypt_value(new_aes, value)
-        self._write_master(new_aes)
-        self._write_all(new_kv)
+        master_bytes = base64.b64encode(new_aes)
+        secrets_bytes = "".join(f"{k} = {v}\n" for k, v in sorted(new_kv.items())).encode()
+        # write both temp files, then replace back-to-back to minimize the
+        # inconsistency window (spec §1: 任一步失败则不变 — if any step below
+        # raises, both on-disk files still hold the OLD contents).
+        self._atomic_write_pair(
+            (self._master, master_bytes, 0o600),
+            (self._secrets, secrets_bytes, 0o600),
+        )
         self._cache = {}
 
     # ----- kv -----
@@ -176,6 +183,40 @@ class SecretStore:
         except OSError:
             pass
         os.replace(tmp, path)
+
+    @staticmethod
+    def _atomic_write_pair(*targets: tuple[Path, bytes, int]) -> None:
+        """Write multiple files "together" (spec §1 cross-file atomicity).
+
+        Both temp files are fully written and chmod'd BEFORE any ``os.replace``
+        fires. If writing or chmod'ing either temp file raises, neither target
+        is touched. The two ``os.replace`` calls then run back-to-back, so any
+        *Python-level* exception leaves on-disk state unchanged; only a hard
+        crash between the two syscalls can produce the (new master.key, old
+        secrets.enc) window, which is the smallest window achievable on POSIX
+        without a directory-rename trick.
+        """
+        tmps: list[Path] = []
+        try:
+            for path, data, mode in targets:
+                tmp = path.with_suffix(path.suffix + ".tmp")
+                tmp.write_bytes(data)
+                try:
+                    os.chmod(tmp, mode)
+                except OSError:
+                    pass
+                tmps.append(tmp)
+            # both temps staged — swap them in consecutively
+            for (path, _data, _mode), tmp in zip(targets, tmps):
+                os.replace(tmp, path)
+        except BaseException:
+            # clean up any staged temp file so a retry starts clean
+            for tmp in tmps:
+                try:
+                    tmp.unlink()
+                except OSError:
+                    pass
+            raise
 
 
 def get_store() -> SecretStore:
