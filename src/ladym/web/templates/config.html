@@ -87,16 +87,28 @@ async function refreshKv() {
   if (!tbody) return;
   const r = await fetch('/api/secrets');
   const data = await r.json();
-  tbody.innerHTML = (data.names || []).map(name =>
-    '<tr><td>' + name + '</td>' +
-    '<td><button type="button" data-rm="' + name + '">remove</button></td></tr>'
-  ).join('');
-  tbody.querySelectorAll('[data-rm]').forEach(btn => {
+  // Build rows with DOM APIs (textContent), NOT innerHTML string concat, so a
+  // secret name containing HTML (e.g. "<b>x</b>") is treated as text, not
+  // markup — closes a self-XSS vector from the operator's own key-name input.
+  tbody.replaceChildren();
+  for (const name of (data.names || [])) {
+    const tr = document.createElement('tr');
+    const tdName = document.createElement('td');
+    tdName.textContent = name;  // escaped by the DOM, not interpreted
+    const tdAction = document.createElement('td');
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.textContent = 'remove';
+    btn.dataset.rm = name;      // attribute set via DOM — also escaped
     btn.addEventListener('click', async () => {
-      await fetch('/api/secrets/' + encodeURIComponent(btn.dataset.rm), {method: 'DELETE'});
+      await fetch('/api/secrets/' + encodeURIComponent(name), {method: 'DELETE'});
       refreshKv();
     });
-  });
+    tdAction.appendChild(btn);
+    tr.appendChild(tdName);
+    tr.appendChild(tdAction);
+    tbody.appendChild(tr);
+  }
 }
 document.getElementById('kv-add')?.addEventListener('click', async () => {
   const name = document.getElementById('kv-name').value;

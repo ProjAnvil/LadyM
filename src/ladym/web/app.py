@@ -254,9 +254,18 @@ def build_app(config_path: pathlib.Path | None = None) -> FastAPI:
     @app.post("/api/secrets")
     async def api_secrets_set(request: Request) -> dict:
         payload = await request.json()
+        name = payload.get("name")
+        value = payload.get("value")
+        # Validate before touching the store: a missing/empty name or value is a
+        # client error (4xx), not a server bug. Direct [] access would KeyError
+        # into a FastAPI 500 here.
+        if not name or value is None or value == "":
+            raise HTTPException(
+                status_code=400, detail="name and value are required"
+            )
         s = get_store()
         try:
-            s.set(payload["name"], payload["value"])
+            s.set(name, value)
         except ConfigError as e:
             # require_master_key() — no master key set yet
             raise HTTPException(status_code=400, detail=str(e)) from e
