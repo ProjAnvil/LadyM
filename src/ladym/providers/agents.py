@@ -12,6 +12,8 @@ import os
 from dataclasses import dataclass
 
 from ..config import Config
+from ..errors import ConfigError
+from ..secrets import get_store
 from .llm import LLMProvider, make_llm_provider
 
 NAMED_OPS = (
@@ -81,17 +83,41 @@ class AgentRegistry:
         )
 
 
+def _missing_key_msg(provider: str, env_name: str) -> str:
+    return (
+        f'LLM provider "{provider}" needs an API key but "{env_name}" is neither '
+        f"registered in the secret store nor set as an environment variable. "
+        f"Run `ladym config set-master-key` then `ladym config set {env_name} "
+        f"<value>`, or set llm.provider=\"none\" in ladym.toml for offline mode."
+    )
+
+
+def _resolve_api_key(plaintext: str, env_name: str, store) -> str:
+    """Three-tier: allow_plaintext > secret store mapping > env var."""
+    if plaintext:
+        return plaintext
+    if env_name:
+        v = store.get(env_name)
+        if v:
+            return v
+        return os.environ.get(env_name, "")
+    return ""
+
+
 def make_agent(cfg: Config, op: str) -> LLMProvider | None:
     """Build (or skip) the LLM provider bound to one operation.
 
-    Returns ``None`` for heuristic mode (``provider`` not configured / set to ``"none"``),
-    so callers can treat a ``None`` return as "no LLM — use the deterministic path".
+    Returns ``None`` for heuristic mode (``provider == "none"``). For any other
+    provider, the API key is resolved three-tier (allow_plaintext > secret store
+    > env var); if all three are empty, raises :class:`ConfigError` — fail-fast,
+    NOT a silent fallback to offline.
     """
     ac = AgentRegistry(cfg).get(op)
     if ac.provider == "none":
         return None
-    # Plaintext key (allow_plaintext_secrets=true) wins; else env-var lookup.
-    api_key = ac.api_key or (os.environ.get(ac.api_key_env, "") if ac.api_key_env else "")
+    api_key = _resolve_api_key(ac.api_key, ac.api_key_env, get_store())
+    if not api_key:
+        raise ConfigError(_missing_key_msg(ac.provider, ac.api_key_env))
     return make_llm_provider(
         provider=ac.provider,
         base_url=ac.base_url,
