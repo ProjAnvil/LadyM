@@ -14,6 +14,7 @@ from rich.table import Table
 from .config import Config
 from .engine import Engine
 from .errors import ConfigError
+from .secrets import SecretStore, get_store
 
 app = typer.Typer(
     name="ladym",
@@ -347,24 +348,31 @@ def worker(
         eng.close()
 
 
-@app.command()
-def config(
-    port: int = typer.Option(8765, "--port", help="Port to serve the editor on."),
-    no_browser: bool = typer.Option(
-        False, "--no-browser", help="Don't auto-open the browser."
-    ),
+config_app = typer.Typer(
+    name="config",
+    help="Manage ladym.toml (web editor) and the encrypted secret store.",
+    no_args_is_help=False,
+)
+
+
+@config_app.callback(invoke_without_command=True)
+def config_main(
+    ctx: typer.Context,
+    port: int = typer.Option(8765, "--port"),
+    no_browser: bool = typer.Option(False, "--no-browser"),
 ):
-    """Open the local web config editor (needs the optional web extra).
+    """With no subcommand: launch the local web config editor (needs web extra).
 
     Serves a FastAPI + HTMX form on 127.0.0.1 that edits embedding/llm/activation
     and writes the result to ./ladym.toml. Imports are lazy so the rest of the
     CLI works without the extra; importing fastapi is checked explicitly so the
     guard fires even if ladym.web.app is already cached in the process.
     """
+    if ctx.invoked_subcommand is not None:
+        return
     try:
         import fastapi  # noqa: F401 — explicit dependency guard (order-independent)
         import uvicorn
-
         from .web.app import build_app
     except ImportError:
         console.print(
@@ -380,6 +388,73 @@ def config(
         threading.Timer(1.0, lambda: webbrowser.open(f"http://127.0.0.1:{port}/")).start()
     console.print(f"[bold]LadyM config[/bold] on http://127.0.0.1:{port}/")
     uvicorn.run(app_obj, host="127.0.0.1", port=port, log_level="warning")
+
+
+def _store() -> SecretStore:
+    return get_store()
+
+
+@config_app.command("set")
+def config_set(
+    key: str = typer.Argument(..., help="KEY_NAME (same value as api_key_env in ladym.toml)."),
+    value: str = typer.Argument(..., help="Secret value (plaintext; encrypted at rest)."),
+):
+    """Store KEY=VALUE in the encrypted secret store."""
+    _store().set(key, value)
+    console.print(f"[green]stored[/green] {key}")
+
+
+@config_app.command("set-master-key")
+def config_set_master_key(
+    key: str | None = typer.Argument(
+        None, help="Master key string; omit to generate a strong random key."
+    ),
+):
+    """Initialize the master key (required before storing any secret)."""
+    store = _store()
+    store.set_master_key(key)
+    if key is None:
+        console.print(
+            "[green]generated[/green] a random master key at "
+            f"{store._master} — back it up; losing it makes secrets unrecoverable."
+        )
+    else:
+        console.print("[green]master key set[/green]")
+
+
+@config_app.command("reset-master-key")
+def config_reset_master_key(
+    key: str | None = typer.Argument(None, help="New master key; omit for random."),
+):
+    """Re-encrypt every secret under a new master key."""
+    _store().reset_master_key(key)
+    console.print("[green]master key reset[/green]; all secrets re-encrypted")
+
+
+@config_app.command("list")
+def config_list():
+    """List stored KEY_NAMEs (values are never printed)."""
+    names = _store().list_names()
+    if not names:
+        console.print("[yellow]no secrets stored[/yellow]")
+        return
+    for n in names:
+        console.print(n)
+
+
+@config_app.command("rm")
+def config_rm(
+    key: str = typer.Argument(...),
+):
+    """Remove a stored secret."""
+    if _store().remove(key):
+        console.print(f"[green]removed[/green] {key}")
+    else:
+        console.print(f"[yellow]no such key[/yellow] {key}")
+        raise typer.Exit(1)
+
+
+app.add_typer(config_app)
 
 
 def main() -> None:

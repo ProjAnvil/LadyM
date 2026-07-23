@@ -47,8 +47,11 @@ def _derive_aes_key(user_key: str) -> bytes:
 
 
 class SecretStore:
-    def __init__(self, dir: Path = LADYM_DIR):
-        self._dir = Path(dir)
+    def __init__(self, dir: Path | None = None):
+        # Resolve HOME at construction time (NOT at module import) so tests that
+        # monkeypatch HOME get an isolated ~/.ladyM. Sentinel ``None`` keeps the
+        # docstring promise ("resolves Path.home() at call time").
+        self._dir = Path(dir) if dir is not None else Path.home() / ".ladyM"
         self._master = self._dir / "master.key"
         self._secrets = self._dir / "secrets.enc"
         self._cache: dict[str, str] = {}

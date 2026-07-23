@@ -429,3 +429,48 @@ def test_debug_shows_traceback(tmp_path, monkeypatch):
     assert proc.returncode == 1, proc.stderr
     combined = proc.stdout + proc.stderr
     assert "Traceback" in combined
+
+
+# --- Task 6: config command group (set/set-master-key/reset-master-key/list/rm) ---
+
+
+def test_config_set_requires_master_key(tmp_path, monkeypatch):
+    # _isolate_config is autouse → HOME=tmp_path → empty ~/.ladyM
+    # ``runner.invoke(app, ...)`` calls the typer app directly and bypasses
+    # ``main()`` (where the friendly ConfigError→one-line message handler lives,
+    # mirroring ``test_config_error_surfaces_friendly_not_traceback``). So we
+    # exercise the production entry via ``_run_main_in_process`` to observe the
+    # real stdout users see.
+    exit_code, stdout, exc_type = _run_main_in_process(
+        ["config", "set", "DEEPSEEK_API_KEY", "sk-x"]
+    )
+    assert exit_code == 1
+    assert exc_type is None  # friendly path: no exception escapes
+    assert "set-master-key" in stdout
+    assert "Traceback (most recent call last)" not in stdout
+
+
+def test_config_set_and_list_roundtrip(tmp_path, monkeypatch):
+    assert runner.invoke(app, ["config", "set-master-key", "pass"]).exit_code == 0
+    assert runner.invoke(app, ["config", "set", "K1", "v1"]).exit_code == 0
+    r = runner.invoke(app, ["config", "list"])
+    assert "K1" in r.output
+    assert "v1" not in r.output  # value not printed
+
+
+def test_config_reset_master_key_reencrypts(tmp_path, monkeypatch):
+    runner.invoke(app, ["config", "set-master-key", "old"])
+    runner.invoke(app, ["config", "set", "K", "secret"])
+    assert runner.invoke(app, ["config", "reset-master-key", "new"]).exit_code == 0
+    # value still resolvable after re-encryption (verified via get in a py call below)
+    from ladym.secrets import SecretStore
+    s = SecretStore(dir=tmp_path / ".ladyM")
+    assert s.get("K") == "secret"
+
+
+def test_config_rm(tmp_path, monkeypatch):
+    runner.invoke(app, ["config", "set-master-key", "p"])
+    runner.invoke(app, ["config", "set", "K", "v"])
+    assert runner.invoke(app, ["config", "rm", "K"]).exit_code == 0
+    r = runner.invoke(app, ["config", "list"])
+    assert "K" not in r.output
