@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import sys
 from pathlib import Path
 
 import typer
@@ -12,6 +13,7 @@ from rich.table import Table
 
 from .config import Config
 from .engine import Engine
+from .errors import ConfigError
 
 app = typer.Typer(
     name="ladym",
@@ -23,8 +25,10 @@ app = typer.Typer(
 console = Console()
 logger = logging.getLogger("ladym.system2")
 
-# Set by the callback when ``--config`` is passed; honoured by ``_engine``.
+# Set by the callback when ``--config`` / ``--debug`` are passed; honoured by
+# ``_engine`` and ``main`` respectively.
 _config_path: str | None = None
+_debug: bool = False
 
 
 @app.callback()
@@ -32,10 +36,14 @@ def _main(
     config: str | None = typer.Option(  # noqa: B008 - typer idiom
         None, "--config", help="Path to a ladym.toml to load on top of defaults/env."
     ),
+    debug: bool = typer.Option(  # noqa: B008 - typer idiom
+        False, "--debug", help="Show full Python tracebacks on error."
+    ),
 ) -> None:
     """LadyM — global options live here (parsed BEFORE the subcommand)."""
-    global _config_path
+    global _config_path, _debug
     _config_path = config
+    _debug = debug
 
 
 def _load_config(db: str | None, workspace: str | None) -> Config:
@@ -374,5 +382,22 @@ def config(
     uvicorn.run(app_obj, host="127.0.0.1", port=port, log_level="warning")
 
 
+def main() -> None:
+    """Entry point: run the Typer app, converting ConfigError (and other
+    provider errors, when not --debug) into a one-line message + exit 1."""
+    try:
+        app()
+    except ConfigError as e:
+        if _debug:
+            raise
+        console.print(f"[red]ladym:[/red] {e}")
+        sys.exit(1)
+    except Exception as e:  # noqa: BLE001 — top-level friendly handler
+        if _debug:
+            raise
+        console.print(f"[red]ladym:[/red] {type(e).__name__}: {e}")
+        sys.exit(1)
+
+
 if __name__ == "__main__":  # pragma: no cover
-    app()
+    main()

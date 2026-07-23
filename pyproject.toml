@@ -60,7 +60,7 @@ dev = [
 ]
 
 [project.scripts]
-ladym = "ladym.cli:app"
+ladym = "ladym.cli:main"
 
 [project.urls]
 Documentation = "https://github.com/projanvil/ladyM"

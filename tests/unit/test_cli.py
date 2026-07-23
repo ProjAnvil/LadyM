@@ -329,3 +329,103 @@ def test_cli_record_feeds_system2_l5_l6(db_arg):
             m.layer == Layer.L6_PREDICTIVE.value
             for m in eng.store.iter_memories()
         )
+
+
+# --- Task 5: top-level friendly errors + --debug (entry point = ladym.cli:main) ---
+#
+# The friendly handler lives in ``ladym.cli.main()``, which wraps ``app()`` and
+# is wired as the ``[project.scripts]`` entry point. Typer's ``CliRunner`` calls
+# the typer app directly and bypasses ``main()``, so to exercise the production
+# entry we invoke ``main()`` ourselves:
+#   - friendly path: in-process — capture stdout, catch SystemExit(1).
+#   - --debug path: subprocess — the re-raised exception must reach Python's
+#     top level so typer's excepthook prints the traceback to stderr (this
+#     cannot be observed in-process without re-implementing the excepthook).
+
+
+def _run_main_in_process(argv):
+    """Call ladym.cli.main(argv) in this process; capture stdout.
+
+    Returns (exit_code_or_None, stdout_str, exc_type_or_None). When ``main``
+    raises SystemExit (friendly path) we report its code; any other exception
+    is reported via ``exc_type`` (the --debug path re-raises).
+    """
+    import io
+    import sys as _sys
+
+    from ladym import cli as cli_mod
+
+    old_argv = _sys.argv
+    old_stdout = _sys.stdout
+    _sys.argv = ["ladym", *argv]
+    captured = io.StringIO()
+    _sys.stdout = captured
+    exit_code = None
+    exc_type = None
+    try:
+        cli_mod.main()
+    except SystemExit as e:
+        exit_code = e.code
+    except BaseException as e:  # re-raised by --debug
+        exc_type = type(e)
+    finally:
+        _sys.stdout = old_stdout
+        _sys.argv = old_argv
+    # restore _debug after each run (the callback mutates the module global)
+    cli_mod._debug = False
+    return exit_code, captured.getvalue(), exc_type
+
+
+def test_config_error_surfaces_friendly_not_traceback(tmp_path, monkeypatch):
+    # provider=openai but no key anywhere → make_agent raises ConfigError on
+    # remember → main() prints a one-line message + sys.exit(1), no traceback.
+    db = str(tmp_path / "x.ladym.db")
+    monkeypatch.setenv("LADYM_LLM_PROVIDER", "openai")
+    monkeypatch.setenv("LADYM_LLM_API_KEY_ENV", "NO_SUCH_KEY")
+    monkeypatch.delenv("NO_SUCH_KEY", raising=False)
+
+    exit_code, stdout, exc_type = _run_main_in_process(
+        ["remember", "x", "--db", db]
+    )
+    assert exit_code == 1
+    assert exc_type is None  # friendly path: no exception escapes
+    assert "NO_SUCH_KEY" in stdout
+    assert "set-master-key" in stdout
+    assert "Traceback (most recent call last)" not in stdout
+
+
+def test_debug_shows_traceback(tmp_path, monkeypatch):
+    # --debug makes main() re-raise → typer's excepthook prints the full
+    # traceback to stderr (observed via a real subprocess, since the excepthook
+    # only fires at the process top level).
+    db = str(tmp_path / "x.ladym.db")
+    env = {
+        **os.environ,
+        "HOME": str(tmp_path),
+        # wipe any operator LADYM_* config from this machine
+        **{k: "" for k in list(os.environ) if k.startswith("LADYM_")},
+        "LADYM_LLM_PROVIDER": "openai",
+        "LADYM_LLM_API_KEY_ENV": "NO_SUCH_KEY",
+    }
+    env.pop("NO_SUCH_KEY", None)
+    import sys
+    import subprocess
+
+    repo_src = str(Path(__file__).resolve().parents[2] / "src")
+    env["PYTHONPATH"] = repo_src + os.pathsep + env.get("PYTHONPATH", "")
+    py = sys.executable
+    proc = subprocess.run(
+        [
+            py,
+            "-c",
+            "import sys; sys.argv=['ladym','--debug','remember','x',"
+            f"'--db','{db}']; from ladym.cli import main; main()",
+        ],
+        cwd=str(tmp_path),
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    assert proc.returncode == 1, proc.stderr
+    combined = proc.stdout + proc.stderr
+    assert "Traceback" in combined
