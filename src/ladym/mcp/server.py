@@ -27,6 +27,7 @@ from typing import Any
 
 from ..config import Config
 from ..engine import Engine
+from ..errors import ConfigError
 
 
 def _to_payload(memory) -> dict[str, Any]:  # type: ignore[no-untyped-def]
@@ -96,10 +97,16 @@ def build_server(config: Config | None = None, *, engine: Engine | None = None):
         carries ``{"gated":"dropped","reason":...}`` with null id/hash so the caller
         can tell the write was filtered.
         """
-        ws = workspace or eng.config.workspace
-        eng.config.workspace = ws        # drop case reads config.workspace
-        eng.semantic.workspace = ws      # pass case reads semantic.workspace
-        m = eng.remember(content, tags=tags or [], source=source or "mcp")
+        try:
+            ws = workspace or eng.config.workspace
+            eng.config.workspace = ws        # drop case reads config.workspace
+            eng.semantic.workspace = ws      # pass case reads semantic.workspace
+            m = eng.remember(content, tags=tags or [], source=source or "mcp")
+        except ConfigError as e:
+            # make_agent raised: surface the actionable message verbatim as a
+            # structured JSON error instead of a traceback. Non-ConfigError
+            # exceptions still propagate (don't mask real bugs). Spec §4.
+            return json.dumps({"error": str(e)})
         if m.metadata.get("gated") == "dropped":
             return json.dumps({
                 "id": None, "hash": None,
@@ -154,7 +161,12 @@ def build_server(config: Config | None = None, *, engine: Engine | None = None):
     @server.tool()
     def consolidate(workspace: str | None = None) -> str:
         """Promote episodic events into consolidated semantic facts (L1 → L2)."""
-        report = eng.consolidate(workspace=workspace)
+        try:
+            report = eng.consolidate(workspace=workspace)
+        except ConfigError as e:
+            # consolidate routes through make_agent; surface the actionable key
+            # message as a structured JSON error instead of a traceback. Spec §4.
+            return json.dumps({"error": str(e)})
         return json.dumps({
             "kept_episodes": report.kept_episodes,
             "promoted_to_semantic": report.promoted_to_semantic,

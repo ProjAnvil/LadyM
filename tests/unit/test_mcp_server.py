@@ -161,3 +161,54 @@ def test_mcp_remember_drop_recent_duplicate(server_with_engine):
     assert out["hash"] is None
     # The dropped remember must NOT have persisted an L2 fact (only the L1 event exists).
     assert list(eng.store.iter_memories(workspace="wsdup", layer="L2_semantic")) == []
+
+
+def test_remember_returns_structured_error_when_key_missing(tmp_path, monkeypatch):
+    """``remember`` routes through ``make_agent`` (via the attention gate). When the
+    configured provider's API key is missing everywhere (no plaintext, no secret
+    store entry, no env var), ``make_agent`` raises :class:`ConfigError`. The MCP
+    tool MUST catch it and return a structured JSON error string (carrying the key
+    name + ``set-master-key`` guidance), NOT bubble the traceback to the client.
+
+    Regression for Task 7 of the secret-store plan (spec §4).
+    """
+    # An empty HOME ⇒ SecretStore dir is empty (no master.key, no secrets.enc),
+    # so the secret-store tier returns nothing for any key name.
+    monkeypatch.setenv("HOME", str(tmp_path))
+    # provider=openai forces make_agent out of the heuristic branch; the named
+    # env var is unset so the env tier is also empty.
+    monkeypatch.delenv("NO_SUCH_KEY", raising=False)
+    cfg = Config.for_testing(tmp_path)
+    cfg.llm_provider = "openai"
+    cfg.llm_api_key_env = "NO_SUCH_KEY"
+    eng = Engine(cfg)
+    try:
+        server = build_server(engine=eng)
+        tools = _tools(server)
+        out = json.loads(tools["remember"]("a reasonably long fact to clear noise"))
+        assert out.get("error")
+        assert "NO_SUCH_KEY" in out["error"]
+        assert "set-master-key" in out["error"]
+    finally:
+        eng.close()
+
+
+def test_consolidate_returns_structured_error_when_key_missing(tmp_path, monkeypatch):
+    """``consolidate`` also routes through ``make_agent`` (the consolidate op).
+    Same contract as ``remember``: a missing key MUST surface as a structured
+    JSON error, not a raised traceback."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.delenv("NO_SUCH_KEY", raising=False)
+    cfg = Config.for_testing(tmp_path)
+    cfg.llm_provider = "openai"
+    cfg.llm_api_key_env = "NO_SUCH_KEY"
+    eng = Engine(cfg)
+    try:
+        server = build_server(engine=eng)
+        tools = _tools(server)
+        out = json.loads(tools["consolidate"]())
+        assert out.get("error")
+        assert "NO_SUCH_KEY" in out["error"]
+        assert "set-master-key" in out["error"]
+    finally:
+        eng.close()
