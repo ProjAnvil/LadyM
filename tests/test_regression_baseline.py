@@ -32,6 +32,8 @@ def test_engine_survives_configured_llm_without_extra(tmp_path, monkeypatch):
 
     cfg = Config.for_testing(tmp_path)
     cfg.llm_provider = "openai"  # configured...
+    cfg.llm_api_key = "sk-test"  # satisfy make_agent's key check so we reach the
+    # simulated ImportError (missing-EXTRA path, not missing-key fail-fast).
 
     # ...but simulate the [llm] extra being missing.
     def _boom(**kw):
