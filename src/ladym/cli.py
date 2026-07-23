@@ -416,7 +416,7 @@ def config_set_master_key(
     if key is None:
         console.print(
             "[green]generated[/green] a random master key at "
-            f"{store._master} — back it up; losing it makes secrets unrecoverable."
+            f"{store.master_key_path} — back it up; losing it makes secrets unrecoverable."
         )
     else:
         console.print("[green]master key set[/green]")

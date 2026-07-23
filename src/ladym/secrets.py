@@ -57,6 +57,11 @@ class SecretStore:
         self._cache: dict[str, str] = {}
 
     # ----- master key -----
+    @property
+    def master_key_path(self) -> Path:
+        """Path to ``master.key`` (read-only; for display/diagnostics only)."""
+        return self._master
+
     def has_master_key(self) -> bool:
         return self._master.exists()
 
