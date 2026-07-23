@@ -35,4 +35,84 @@
   <button type="submit">Save</button>
   <button type="reset">Reset</button>
 </form>
+
+<hr>
+
+<section id="secrets">
+  <h2>Secret store</h2>
+  <p><small>Encrypted at rest in <code>~/.ladyM</code>; shared with the <code>ladym config</code> CLI. Values are never sent back to the browser.</small></p>
+
+  <h3>Master key</h3>
+  <p>Status: <span id="mk-status">{% if master_key_set %}set{% else %}<strong>not set</strong>{% endif %}</span></p>
+  <label>master key string
+    <input id="mk-key" placeholder="leave blank to generate a random key">
+  </label>
+  <button type="button" id="mk-set">Set master key</button>
+  <button type="button" id="mk-reset">Reset master key</button>
+
+  <h3>Keys{% if not master_key_set %} <small>(set a master key first)</small>{% endif %}</h3>
+  <fieldset id="kv-fieldset" {% if not master_key_set %}disabled{% endif %}>
+    <table>
+      <thead><tr><th>Name</th><th></th></tr></thead>
+      <tbody id="kv-list"></tbody>
+    </table>
+
+    <label>name <input id="kv-name" placeholder="DEEPSEEK_API_KEY"></label>
+    <label>value <input id="kv-value" type="password" placeholder="secret"></label>
+    <button type="button" id="kv-add">Add / update</button>
+  </fieldset>
+</section>
+
+<script>
+// Secret store panel: master-key set/reset + kv list/add/rm. The API is
+// JSON-only (spec §6), so this uses plain fetch (the toml editor above keeps
+// the HTMX hx-* style for its probe buttons; JSON APIs don't fit hx-vals well
+// without extra fragment endpoints, so fetch is the lighter touch here).
+async function postMasterKey(reset) {
+  const key = document.getElementById('mk-key').value || null;
+  if (reset && !confirm('Re-encrypt ALL secrets under the new key?')) return;
+  const r = await fetch('/api/master-key', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(reset ? {key, reset: true} : {key}),
+  });
+  if (r.ok) location.reload();
+  else alert((await r.json()).detail || 'master-key operation failed');
+}
+document.getElementById('mk-set')?.addEventListener('click', () => postMasterKey(false));
+document.getElementById('mk-reset')?.addEventListener('click', () => postMasterKey(true));
+
+async function refreshKv() {
+  const tbody = document.getElementById('kv-list');
+  if (!tbody) return;
+  const r = await fetch('/api/secrets');
+  const data = await r.json();
+  tbody.innerHTML = (data.names || []).map(name =>
+    '<tr><td>' + name + '</td>' +
+    '<td><button type="button" data-rm="' + name + '">remove</button></td></tr>'
+  ).join('');
+  tbody.querySelectorAll('[data-rm]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      await fetch('/api/secrets/' + encodeURIComponent(btn.dataset.rm), {method: 'DELETE'});
+      refreshKv();
+    });
+  });
+}
+document.getElementById('kv-add')?.addEventListener('click', async () => {
+  const name = document.getElementById('kv-name').value;
+  const value = document.getElementById('kv-value').value;
+  if (!name) return;
+  const r = await fetch('/api/secrets', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({name, value}),
+  });
+  if (r.ok) {
+    document.getElementById('kv-name').value = '';
+    document.getElementById('kv-value').value = '';
+    refreshKv();
+  }
+});
+refreshKv();
+</script>
 {% endblock %}

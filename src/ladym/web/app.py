@@ -12,12 +12,14 @@ import pathlib
 import time
 from typing import get_type_hints
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from ..config import _NESTED_DATACLASS_SECTIONS, Config, _is_secret
+from ..errors import ConfigError
+from ..secrets import get_store
 
 _STATIC = pathlib.Path(__file__).parent / "static"
 _TEMPLATES = Jinja2Templates(directory=str(pathlib.Path(__file__).parent / "templates"))
@@ -187,7 +189,11 @@ def build_app(config_path: pathlib.Path | None = None) -> FastAPI:
     @app.get("/", response_class=HTMLResponse)
     def index(request: Request) -> HTMLResponse:
         cfg = Config.load(config_path=config_path)
-        return _TEMPLATES.TemplateResponse(request, "config.html", {"cfg": cfg})
+        return _TEMPLATES.TemplateResponse(
+            request,
+            "config.html",
+            {"cfg": cfg, "master_key_set": get_store().has_master_key()},
+        )
 
     @app.post("/save", response_class=HTMLResponse)
     async def save(request: Request) -> HTMLResponse:
@@ -233,5 +239,46 @@ def build_app(config_path: pathlib.Path | None = None) -> FastAPI:
             f"{rows}"
             "</table>"
         )
+
+    # ------------------------------------------------------------------
+    # Secret store API (Task 9, spec §6) — shares ~/.ladyM with the CLI.
+    # Values are NEVER returned: GET lists names only, so the response body
+    # can't leak a secret through the browser or chat/logs.
+    # ------------------------------------------------------------------
+
+    @app.get("/api/secrets")
+    def api_secrets() -> dict:
+        s = get_store()
+        return {"master_key_set": s.has_master_key(), "names": s.list_names()}
+
+    @app.post("/api/secrets")
+    async def api_secrets_set(request: Request) -> dict:
+        payload = await request.json()
+        s = get_store()
+        try:
+            s.set(payload["name"], payload["value"])
+        except ConfigError as e:
+            # require_master_key() — no master key set yet
+            raise HTTPException(status_code=400, detail=str(e))
+        return {"ok": True}
+
+    @app.delete("/api/secrets/{name}")
+    def api_secrets_rm(name: str) -> dict:
+        get_store().remove(name)
+        return {"ok": True}
+
+    @app.post("/api/master-key")
+    async def api_master_key(request: Request) -> dict:
+        payload = await request.json()
+        s = get_store()
+        try:
+            if payload.get("reset"):
+                s.reset_master_key(payload.get("key"))
+            else:
+                s.set_master_key(payload.get("key"))
+        except ConfigError as e:
+            # e.g. set_master_key refused because secrets.enc already has entries
+            raise HTTPException(status_code=400, detail=str(e))
+        return {"ok": True, "master_key_set": True}
 
     return app
