@@ -17,7 +17,7 @@ from ..schema import Layer, Memory, MemoryType
 from ..storage.embeddings import EmbeddingProvider
 from ..storage.store import SQLiteStore
 from .consolidate import Action
-from .supersedes import retire as _retire
+from .supersedes import is_retired, retire as _retire
 
 
 @dataclass
@@ -47,6 +47,12 @@ def _retrieve_existing_playbooks(
         if m is None or m.workspace != ws:
             continue
         if m.layer != Layer.PROCEDURAL.value or m.type != MemoryType.PLAYBOOK.value:
+            continue
+        # the vector index does not distinguish retired from active, so a previous
+        # UPDATE's dead playbook can outrank the current head and cause ``_retire`` to
+        # re-retire an already-dead entry (leaving the real head as an orphan active).
+        # Skip retired entries → ``similar[0]`` is always the live head.
+        if is_retired(m):
             continue
         similar.append((m, sim))
     similar.sort(key=lambda t: t[1], reverse=True)

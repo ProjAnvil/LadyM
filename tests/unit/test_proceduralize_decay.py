@@ -149,3 +149,62 @@ def test_proceduralize_update_on_cluster_evolution(engine):
               if r.memory.layer == Layer.PROCEDURAL.value and not is_retired(r.memory)]
     assert len(active) == 1
     assert "(4 episodes)" in active[0].memory.summary
+
+
+def test_proceduralize_multi_round_update_no_orphan_active(engine):
+    """Cluster grows 3→4→5 episodes over three proceduralize calls (each an UPDATE).
+
+    Regression: ``_retrieve_existing_playbooks`` used to return BOTH retired and active
+    L3 playbooks from the vector index, so on the third call ``similar[0]`` could land on
+    the already-retired R1 playbook. ``_retire(similar[0])`` then re-retired the dead
+    playbook instead of the R2 active head, leaving R2 alive — an orphan active.
+
+    Fix: retrieval skips retired entries, so ``similar[0]`` is always the current active
+    head and the only active L3 after N rounds of UPDATE is the newest playbook.
+    """
+    from ladym.operations.supersedes import is_retired
+
+    def all_playbooks():
+        return list(
+            engine.store.iter_memories(
+                layer=Layer.PROCEDURAL.value,
+                type_=MemoryType.PLAYBOOK.value,
+            )
+        )
+
+    # round 1: 3 identical successes → ADD "(3 episodes)"
+    for _ in range(3):
+        engine.episodic.record(
+            agent="bot", action="deploy",
+            observation="ran deploy.sh", outcome="success",
+        )
+    r1 = engine.proceduralize(min_cluster_size=3)
+    assert r1.actions["ADD"] == 1
+    assert len(all_playbooks()) == 1
+
+    # round 2: +1 identical episode → cluster=4 → UPDATE (name "(4 episodes)")
+    engine.episodic.record(
+        agent="bot", action="deploy",
+        observation="ran deploy.sh", outcome="success",
+    )
+    r2 = engine.proceduralize(min_cluster_size=3)
+    assert r2.actions["UPDATE"] == 1
+
+    # round 3: +1 identical episode → cluster=5 → UPDATE (name "(5 episodes)")
+    engine.episodic.record(
+        agent="bot", action="deploy",
+        observation="ran deploy.sh", outcome="success",
+    )
+    r3 = engine.proceduralize(min_cluster_size=3)
+    assert r3.actions["UPDATE"] == 1
+
+    # after three rounds, exactly ONE active L3 playbook (the newest head);
+    # before the fix, R2's playbook stayed active alongside R3's → 2 active.
+    playbooks = all_playbooks()
+    active = [m for m in playbooks if not is_retired(m)]
+    assert len(active) == 1, (
+        f"expected exactly 1 active playbook, got {len(active)} "
+        f"(total L3 rows={len(playbooks)}); summaries="
+        f"{[m.summary for m in playbooks]}"
+    )
+    assert "(5 episodes)" in active[0].summary
