@@ -103,8 +103,8 @@ def test_make_provider_openai_missing_key_raises(tmp_path, monkeypatch):
     ``make_provider`` must fail fast with ConfigError naming the env var + fix cmd.
     """
     from ladym.config import Config
-    from ladym.storage.embeddings import make_provider
     from ladym.errors import ConfigError
+    from ladym.storage.embeddings import make_provider
     c = Config()
     c.embedding_provider = "openai"
     c.embedding_api_key_env = "NO_SUCH_KEY"

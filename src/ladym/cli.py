@@ -373,6 +373,7 @@ def config_main(
     try:
         import fastapi  # noqa: F401 — explicit dependency guard (order-independent)
         import uvicorn
+
         from .web.app import build_app
     except ImportError:
         console.print(

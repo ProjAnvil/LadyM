@@ -259,7 +259,7 @@ def build_app(config_path: pathlib.Path | None = None) -> FastAPI:
             s.set(payload["name"], payload["value"])
         except ConfigError as e:
             # require_master_key() — no master key set yet
-            raise HTTPException(status_code=400, detail=str(e))
+            raise HTTPException(status_code=400, detail=str(e)) from e
         return {"ok": True}
 
     @app.delete("/api/secrets/{name}")
@@ -278,7 +278,7 @@ def build_app(config_path: pathlib.Path | None = None) -> FastAPI:
                 s.set_master_key(payload.get("key"))
         except ConfigError as e:
             # e.g. set_master_key refused because secrets.enc already has entries
-            raise HTTPException(status_code=400, detail=str(e))
+            raise HTTPException(status_code=400, detail=str(e)) from e
         return {"ok": True, "master_key_set": True}
 
     return app

@@ -217,6 +217,32 @@ sqlite-vec-backed path has its own regression tests in
 (e.g. vLLM, LiteLLM, local Ollama). All values are also overridable on the `Config` dataclass — see
 [src/ladym/config.py](src/ladym/config.py).
 
+### Secret store (encrypted keys at rest)
+
+Provider API keys can be stored encrypted (AES-256-GCM) under `~/.ladyM/` instead of being pasted
+into your shell rc or CI secrets:
+
+```
+ladym config set-master-key              # first time: generate random master key
+ladym config set DEEPSEEK_API_KEY sk-... # store a key (encrypted)
+ladym config list                        # list names (values never echoed)
+ladym config rm DEEPSEEK_API_KEY         # remove
+ladym config reset-master-key <newpass>  # rotate master key; all secrets re-encrypted in place
+```
+
+Key resolution order (LLM and embedding providers alike): process env var named by `api_key_env`
+→ secret store → `Config.api_key` field. If none is set, commands fail fast with a one-line
+`ConfigError` naming the env var and the fix command (exit 1; MCP tools return a structured error
+instead of a traceback).
+
+**Security boundary:** the store guarantees *encryption at rest* — it prevents plaintext leaking
+via `cat secrets.enc`, shoulder-surfing, or accidental paste into chat/logs/commits. It does **not**
+protect against full `~/.ladyM/` exfiltration: the master key and ciphertext live in the same
+directory (the trade-off for non-interactive MCP / background workers that must decrypt without a
+passphrase prompt). For stronger isolation, keep `~/.ladyM/` on encrypted storage and rely on OS
+file permissions (dir `0700`, files `0600`). **Losing `master.key` makes all secrets unrecoverable**
+— back it up.
+
 **CLI extras:**
 
 | Command | What it does | Install |
@@ -229,7 +255,7 @@ sqlite-vec-backed path has its own regression tests in
 ✅ Five-layer engine, two-tier recall, ADD/UPDATE/DELETE/NOOP consolidation, proceduralization,
 decay, tree-sitter indexer for Python/JS/TS/Go/Rust/Java/C/C++, MCP server, CLI, Skill,
 pluggable providers + TOML config, System2 background worker, L5 mental-model / L6 forward-intent
-extraction, `ladym config` web editor, 217 tests.
+extraction, `ladym config` web editor, encrypted secret store, 265 tests.
 
 🚧 Next: GraphRAG-style cross-file ref resolution and multi-modal episodes.
 

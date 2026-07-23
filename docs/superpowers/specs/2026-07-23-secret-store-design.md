@@ -1,7 +1,7 @@
 # Secret Store + 缺 key 友好报错 — 设计
 
 - **日期**: 2026-07-23
-- **状态**: 设计完成，待实现
+- **状态**: 已实现（见 plan `2026-07-23-secret-store.md`）
 - **相关**: `2026-07-21-providers-config-control-plane-design.md`（provider/api_key_env 机制）、`2026-07-22-attention-gate-noise-dup-prefix-design.md`（gate）
 
 ## 背景与动机

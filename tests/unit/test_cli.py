@@ -408,8 +408,8 @@ def test_debug_shows_traceback(tmp_path, monkeypatch):
         "LADYM_LLM_API_KEY_ENV": "NO_SUCH_KEY",
     }
     env.pop("NO_SUCH_KEY", None)
-    import sys
     import subprocess
+    import sys
 
     repo_src = str(Path(__file__).resolve().parents[2] / "src")
     env["PYTHONPATH"] = repo_src + os.pathsep + env.get("PYTHONPATH", "")

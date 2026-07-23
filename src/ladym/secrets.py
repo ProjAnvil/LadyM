@@ -15,6 +15,7 @@ Security boundary (READ BEFORE TRUSTING THIS):
 from __future__ import annotations
 
 import base64
+import contextlib
 import os
 import secrets as _py_secrets
 from pathlib import Path
@@ -177,19 +178,15 @@ class SecretStore:
 
     def _ensure_dir(self) -> None:
         self._dir.mkdir(parents=True, exist_ok=True)
-        try:
+        with contextlib.suppress(OSError):  # non-POSIX FS best-effort
             os.chmod(self._dir, 0o700)
-        except OSError:
-            pass  # non-POSIX FS best-effort
 
     @staticmethod
     def _atomic_write(path: Path, data: bytes, mode: int) -> None:
         tmp = path.with_suffix(path.suffix + ".tmp")
         tmp.write_bytes(data)
-        try:
+        with contextlib.suppress(OSError):
             os.chmod(tmp, mode)
-        except OSError:
-            pass
         os.replace(tmp, path)
 
     @staticmethod
@@ -209,21 +206,17 @@ class SecretStore:
             for path, data, mode in targets:
                 tmp = path.with_suffix(path.suffix + ".tmp")
                 tmp.write_bytes(data)
-                try:
+                with contextlib.suppress(OSError):
                     os.chmod(tmp, mode)
-                except OSError:
-                    pass
                 tmps.append(tmp)
             # both temps staged — swap them in consecutively
-            for (path, _data, _mode), tmp in zip(targets, tmps):
+            for (path, _data, _mode), tmp in zip(targets, tmps, strict=True):
                 os.replace(tmp, path)
         except BaseException:
             # clean up any staged temp file so a retry starts clean
             for tmp in tmps:
-                try:
+                with contextlib.suppress(OSError):
                     tmp.unlink()
-                except OSError:
-                    pass
             raise
 
 
