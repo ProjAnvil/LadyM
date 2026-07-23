@@ -81,3 +81,39 @@ def test_health_check_failure_branch_returns_false_with_exception_name():
     assert ok is False
     assert "RuntimeError" in msg
     assert "boom" in msg
+
+
+# ---------- Task 8: OpenAI embedding secret-store support ----------
+
+
+def test_openai_embedding_accepts_api_key():
+    """OpenAIEmbedding must accept an explicit ``api_key`` and forward it to OpenAI().
+
+    Symmetric to the LLM make_agent path (Task 4): when a user later configures an
+    OpenAI embedding, the key resolved three-tier by ``make_provider`` should reach
+    the underlying client rather than rely solely on the openai lib's env default.
+    """
+    from ladym.storage.embeddings import OpenAIEmbedding
+    emb = OpenAIEmbedding(model="text-embedding-3-small", base_url=None, api_key="sk-x")
+    assert emb._model == "text-embedding-3-small"
+
+
+def test_make_provider_openai_missing_key_raises(tmp_path, monkeypatch):
+    """When the openai embedding provider has no key in any of the three tiers,
+    ``make_provider`` must fail fast with ConfigError naming the env var + fix cmd.
+    """
+    from ladym.config import Config
+    from ladym.storage.embeddings import make_provider
+    from ladym.errors import ConfigError
+    c = Config()
+    c.embedding_provider = "openai"
+    c.embedding_api_key_env = "NO_SUCH_KEY"
+    monkeypatch.delenv("NO_SUCH_KEY", raising=False)
+    monkeypatch.setattr("ladym.storage.embeddings.get_store", lambda: _Empty())
+    with pytest.raises(ConfigError, match="NO_SUCH_KEY"):
+        make_provider(c)
+
+
+class _Empty:
+    def get(self, name):
+        return None

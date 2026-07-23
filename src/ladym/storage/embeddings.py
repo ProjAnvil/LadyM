@@ -9,11 +9,14 @@ from __future__ import annotations
 
 import hashlib
 import math
+import os
 import re
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 
 from ..config import Config
+from ..errors import ConfigError
+from ..secrets import get_store
 
 _TOKEN_RE = re.compile(r"[A-Za-z0-9_]+|[\.\,\;\:\(\)\[\]\{\}]")
 
@@ -112,17 +115,24 @@ class OpenAIEmbedding(EmbeddingProvider):
 
     ``base_url`` lets the same class target any OpenAI-compatible third party (vLLM, Together,
     Groq, local LM Studio, …) per SPEC AC-1.6. Defaults to ``None`` → OpenAI's own endpoint.
+
+    ``api_key`` is optional: when provided it is forwarded to ``OpenAI(...)`` so the
+    client does not rely solely on the openai lib's ``OPENAI_API_KEY`` env default.
+    Mirrors the three-tier key resolution in :func:`make_provider` (Task 8).
     """
 
     def __init__(self, model: str = "text-embedding-3-small", dim: int = 1536,
-                 base_url: str | None = None):
+                 base_url: str | None = None, api_key: str | None = None):
         try:
             from openai import OpenAI  # type: ignore
         except ImportError as e:  # pragma: no cover - optional dep
             raise ImportError(
                 "openai is not installed. Install with: pip install 'ladym[openai]'"
             ) from e
-        self._client = OpenAI(base_url=base_url) if base_url else OpenAI()
+        kw: dict = {"base_url": base_url} if base_url else {}
+        if api_key:
+            kw["api_key"] = api_key
+        self._client = OpenAI(**kw)
         self._model = model
         self.dim = dim
 
@@ -186,6 +196,33 @@ def register_callable(name: str, fn: Callable[[str], list[float]]) -> None:
     _callable_registry[name] = fn
 
 
+def _missing_embedding_key_msg(env_name: str) -> str:
+    return (
+        f'embedding provider "openai" needs an API key but "{env_name}" is neither '
+        f"registered in the secret store nor set as an environment variable. "
+        f"Run `ladym config set-master-key` then `ladym config set {env_name} "
+        f"<value>`, or switch embedding.provider in ladym.toml to an offline option "
+        f"(hashing/ollama) if you don't need hosted embeddings."
+    )
+
+
+def _resolve_embedding_key(config: Config) -> str:
+    """Three-tier embedding API-key resolution (Task 8): secret store > env var.
+
+    Unlike :func:`ladym.providers.agents._resolve_api_key` the embedding path has no
+    ``allow_plaintext`` tier (there is no ``embedding_api_key`` plaintext field on
+    Config), so the order is: secret-store ``get(embedding_api_key_env)`` > env var.
+    Returns ``""`` if nothing resolves.
+    """
+    env_name = config.embedding_api_key_env
+    if not env_name:
+        return ""
+    v = get_store().get(env_name)
+    if v:
+        return v
+    return os.environ.get(env_name, "") or ""
+
+
 def make_provider(config: Config) -> EmbeddingProvider:
     """Factory that resolves the configured provider.
 
@@ -201,9 +238,15 @@ def make_provider(config: Config) -> EmbeddingProvider:
     elif name in ("st", "sentence-transformer", "sentence_transformers"):
         provider = SentenceTransformerEmbedding(config.embedding_model or None)  # type: ignore[arg-type]
     elif name == "openai":
+        api_key = _resolve_embedding_key(config)
+        if not api_key and not os.environ.get(config.embedding_api_key_env, ""):
+            # neither secret store nor env (nor plaintext — no such tier here)
+            # resolved a key — fail fast, mirroring make_agent (Task 4).
+            raise ConfigError(_missing_embedding_key_msg(config.embedding_api_key_env))
         provider = OpenAIEmbedding(
             config.embedding_model or "text-embedding-3-small",
             base_url=config.embedding_base_url or None,
+            api_key=api_key,
         )
     elif name == "ollama":
         from ..providers.embeddings_http import OllamaEmbedding
