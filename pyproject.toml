@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "ladym"
 version = "0.1.0"
-description = "LadyM — Layered Agent DYnamic Memory: a brain-inspired, multi-tier memory framework for LLM agents and codebase RAG."
+description = "LadyM — a brain-inspired, multi-tier memory framework for LLM agents and codebase RAG."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
@@ -63,7 +63,7 @@ dev = [
 ladym = "ladym.cli:main"
 
 [project.urls]
-Documentation = "https://github.com/projanvil/ladyM"
+Documentation = "https://github.com/ProjAnvil/LadyM"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/ladym"]

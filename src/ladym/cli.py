@@ -19,7 +19,7 @@ from .secrets import SecretStore, get_store
 app = typer.Typer(
     name="ladym",
     help=(
-        "LadyM — Layered Agent DYnamic Memory: brain-inspired memory for LLM agents & codebase RAG."
+        "LadyM — brain-inspired memory for LLM agents & codebase RAG."
     ),
     no_args_is_help=True,
 )

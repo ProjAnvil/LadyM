@@ -1,4 +1,4 @@
-# LadyM — Layered Agent DYnamic Memory
+# LadyM
 
 > A brain-inspired, multi-tier memory framework for LLM agents and codebase RAG.
 > Implemented in Python 3.11+ with `uv`, local-first storage, MCP/Skill/SDK/CLI front-ends.

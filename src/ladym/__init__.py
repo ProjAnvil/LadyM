@@ -1,4 +1,4 @@
-"""LadyM — Layered Agent DYnamic Memory.
+"""LadyM — a brain-inspired memory framework for LLM agents and codebase RAG.
 
 Public surface:
 
