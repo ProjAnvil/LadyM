@@ -218,7 +218,7 @@ def test_cli_remember_pass_persists(db_arg):
     assert r.exit_code == 0, r.output
     assert "remembered" in r.output
     assert "id=" in r.output
-    assert "hash=" in r.output  # pass 输出含 hash（cli.py:87）
+    assert "hash=" in r.output  # gate-passed output includes hash (see cli.py:87)
     assert "dropped" not in r.output
 
     with open_engine(db_path=db_arg) as eng:

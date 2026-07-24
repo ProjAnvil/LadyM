@@ -87,7 +87,7 @@ def test_ciphertext_is_not_plaintext(store):
 
 
 def test_reset_master_key_is_cross_file_atomic_on_failure(monkeypatch, store):
-    """Spec §1: 任一步失败则不变 — if any staging/replace step fails BEFORE
+    """Spec §1: atomicity, no change on any failure — if any staging/replace step fails BEFORE
     the first on-disk target is touched, BOTH files must still hold the OLD
     contents (old master key still decrypts the old secrets).
 

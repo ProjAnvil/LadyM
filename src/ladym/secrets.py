@@ -103,7 +103,7 @@ class SecretStore:
         master_bytes = base64.b64encode(new_aes)
         secrets_bytes = "".join(f"{k} = {v}\n" for k, v in sorted(new_kv.items())).encode()
         # write both temp files, then replace back-to-back to minimize the
-        # inconsistency window (spec §1: 任一步失败则不变 — if any step below
+        # inconsistency window (spec §1: atomicity, no change on any failure — if any step below
         # raises, both on-disk files still hold the OLD contents).
         self._atomic_write_pair(
             (self._master, master_bytes, 0o600),
