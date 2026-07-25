@@ -262,7 +262,7 @@ what saves the agent from re-reading.
 | `LADYM_EMBEDDING` | `hashing` | `hashing` / `st` / `openai` |
 | `LADYM_EMBEDDING_MODEL` | (provider default) | Model name for `st` or `openai` |
 | `LADYM_EMBEDDING_BASE_URL` | (provider default) | Override embedding API base URL (OpenAI/Ollama-compatible) |
-| `LADYM_LLM_PROVIDER` | (none) | LLM provider name (e.g. `openai`, `ollama`) — enable via `pip install 'ladym[llm]'` |
+| `LADYM_LLM_PROVIDER` | (none) | LLM provider name (e.g. `openai`, `ollama`) — enable via `uv pip install "git+https://github.com/ProjAnvil/LadyM.git[llm]"` |
 | `LADYM_LLM_BASE_URL` | (provider default) | Override LLM API base URL (OpenAI/Ollama-compatible) |
 | `LADYM_LLM_MODEL` | (provider default) | LLM model name for consolidation classifier |
 
@@ -302,7 +302,7 @@ encrypted storage and rely on OS file permissions (dir `0700`, files `0600`). **
 
 | Command | What it does | Install |
 |---|---|---|
-| `ladym config` | Local web config editor (FastAPI + HTMX, edits `ladym.toml`) | `pip install 'ladym[web]'` |
+| `ladym config` | Local web config editor (FastAPI + HTMX, edits `ladym.toml`) | `uv pip install "git+https://github.com/ProjAnvil/LadyM.git[web]"` |
 | `ladym worker` | Background System 2 consolidation daemon | core; flags: `--once`, `--interval N` |
 
 ## Testing

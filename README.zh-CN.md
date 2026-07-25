@@ -250,7 +250,7 @@ ladym stats                             # 查看记忆里有什么
 | `LADYM_EMBEDDING` | `hashing` | `hashing` / `st` / `openai` |
 | `LADYM_EMBEDDING_MODEL` | （provider 默认） | `st` 或 `openai` 的模型名 |
 | `LADYM_EMBEDDING_BASE_URL` | （provider 默认） | 覆盖向量 API base URL（OpenAI/Ollama 兼容） |
-| `LADYM_LLM_PROVIDER` | （无） | LLM provider 名（如 `openai`、`ollama`）——需 `pip install 'ladym[llm]'` |
+| `LADYM_LLM_PROVIDER` | （无） | LLM provider 名（如 `openai`、`ollama`）——需 `uv pip install "git+https://github.com/ProjAnvil/LadyM.git[llm]"` |
 | `LADYM_LLM_BASE_URL` | （provider 默认） | 覆盖 LLM API base URL（OpenAI/Ollama 兼容） |
 | `LADYM_LLM_MODEL` | （provider 默认） | 合并分类器的 LLM 模型名 |
 
@@ -284,7 +284,7 @@ chat/log/commit 泄露。它**不**防御 `~/.ladyM/` 整目录被窃：master k
 
 | 命令 | 功能 | 安装 |
 |---|---|---|
-| `ladym config` | 本地网页配置编辑器（FastAPI + HTMX，编辑 `ladym.toml`） | `pip install 'ladym[web]'` |
+| `ladym config` | 本地网页配置编辑器（FastAPI + HTMX，编辑 `ladym.toml`） | `uv pip install "git+https://github.com/ProjAnvil/LadyM.git[web]"` |
 | `ladym worker` | 后台 System 2 合并守护进程 | 核心；flags：`--once`、`--interval N` |
 
 ## 测试
