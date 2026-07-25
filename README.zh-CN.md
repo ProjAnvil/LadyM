@@ -213,6 +213,19 @@ eng.decay(dry_run=True)   # ACT-R 基础级遗忘
 eng.link(a_id, b_id, "depends_on")  # Zettelkasten 边
 ```
 
+### LangGraph
+
+LadyM 提供可选的 LangGraph 集成（安装：`pip install 'ladym[langgraph]'`），把 ladyM
+作为 LangGraph / LangChain agent 的长期记忆层。两条等价路径：
+
+- **Tools（工具）** — `create_ladym_tools(engine)` 返回 LangChain 工具（`recall_memory`、
+  `remember_fact`、`search_code`），适合 LLM 自主决定何时存取的 ReAct 型 agent。
+- **Nodes（节点）** — `create_recall_node(engine)` / `create_retain_node(engine)` 返回图节点，
+  每轮自动把相关记忆作为 SystemMessage 注入、并自动存下本轮对话（通过
+  `config["configurable"]["user_id"]` 支持按用户隔离 workspace）。
+
+完整示例见 [`docs/langgraph-integration.md`](docs/langgraph-integration.md)。
+
 ### CLI
 
 ```bash

@@ -222,6 +222,21 @@ eng.decay(dry_run=True)   # ACT-R base-level forgetting
 eng.link(a_id, b_id, "depends_on")  # Zettelkasten edge
 ```
 
+### LangGraph
+
+LadyM ships an optional LangGraph integration (install with `pip install 'ladym[langgraph]'`)
+that exposes LadyM as a long-term memory layer for LangGraph / LangChain agents.
+Two equivalent paths:
+
+- **Tools** — `create_ladym_tools(engine)` returns LangChain tools (`recall_memory`,
+  `remember_fact`, `search_code`) for ReAct-style agents where the LLM decides when
+  to recall/remember.
+- **Nodes** — `create_recall_node(engine)` / `create_retain_node(engine)` return graph
+  nodes that inject recalled memory as a SystemMessage every turn and store the latest
+  turn automatically (with per-user workspace isolation via `config["configurable"]["user_id"]`).
+
+See [`docs/langgraph-integration.md`](docs/langgraph-integration.md) for full quickstarts.
+
 ### CLI
 
 ```bash
