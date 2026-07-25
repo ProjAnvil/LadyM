@@ -215,7 +215,7 @@ eng.link(a_id, b_id, "depends_on")  # Zettelkasten 边
 
 ### LangGraph
 
-LadyM 提供可选的 LangGraph 集成（安装：`pip install 'ladym[langgraph]'`），把 ladyM
+LadyM 提供可选的 LangGraph 集成（安装：`uv pip install "git+https://github.com/ProjAnvil/LadyM.git[langgraph]"`），把 ladyM
 作为 LangGraph / LangChain agent 的长期记忆层。两条等价路径：
 
 - **Tools（工具）** — `create_ladym_tools(engine)` 返回 LangChain 工具（`recall_memory`、

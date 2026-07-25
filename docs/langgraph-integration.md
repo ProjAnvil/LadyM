@@ -4,7 +4,7 @@ Use LadyM as the long-term memory layer for [LangGraph](https://www.langchain.co
 LangChain agents. Install the optional extra:
 
 ```bash
-pip install 'ladym[langgraph]'
+uv pip install "git+https://github.com/ProjAnvil/LadyM.git[langgraph]"
 ```
 
 Two equivalent paths — pick by agent shape, not by fashion.

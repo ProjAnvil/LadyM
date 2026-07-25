@@ -224,7 +224,7 @@ eng.link(a_id, b_id, "depends_on")  # Zettelkasten edge
 
 ### LangGraph
 
-LadyM ships an optional LangGraph integration (install with `pip install 'ladym[langgraph]'`)
+LadyM ships an optional LangGraph integration (install with `uv pip install "git+https://github.com/ProjAnvil/LadyM.git[langgraph]"`)
 that exposes LadyM as a long-term memory layer for LangGraph / LangChain agents.
 Two equivalent paths:
 
