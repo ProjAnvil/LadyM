@@ -2,7 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/)
-[![Tests](https://img.shields.io/badge/tests-267-green.svg)](#测试)
+[![Tests](https://img.shields.io/badge/tests-299-green.svg)](#测试)
 [![MCP](https://img.shields.io/badge/MCP-compatible-purple.svg)](#mcp-服务器claude-codecursor-等)
 [![Storage](https://img.shields.io/badge/storage-local--first%20SQLite-success.svg)](#架构)
 
@@ -15,6 +15,13 @@ LadyM 把工作区的*理解*——代码分析、决策、技能、事件——
 记忆，任何 Agent 都能通过单个关键词召回。基于 **uv + Python 3.11+**、**本地优先的 SQLite +
 sqlite-vec**、以及用于代码索引的 **tree-sitter** 构建。通过 **MCP**、**Claude Code Skill**、
 **Python SDK**、**CLI** 四种方式暴露——全部调用同一个引擎，行为处处一致。
+
+---
+
+## 0.2.1 更新
+
+- **默认精简安装** —— tree-sitter 代码索引改为可选的 `[codeindex]` extra。裸 `pip install` 只含记忆核心，不带原生解析器；需要 `index_code` / `search_code` 时加装 `'ladym[codeindex]'`。
+- **注入你自己的 langchain 模型** —— 通过新增的 `ModelRouting`（类型化 per-op 字段），把已配好的 `ChatOpenAI` / `OpenAIEmbeddings` 直接交给 `Engine`，无需在 ladyM 配置里重复声明 API key 和端点。详见[注入你自己的 langchain 模型](#注入你自己的-langchain-模型)。
 
 ---
 

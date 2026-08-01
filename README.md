@@ -2,7 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/)
-[![Tests](https://img.shields.io/badge/tests-267-green.svg)](#testing)
+[![Tests](https://img.shields.io/badge/tests-299-green.svg)](#testing)
 [![MCP](https://img.shields.io/badge/MCP-compatible-purple.svg)](#mcp-server-claude-code-cursor-)
 [![Storage](https://img.shields.io/badge/storage-local--first%20SQLite-success.svg)](#architecture)
 
@@ -18,6 +18,17 @@ through a single keyword. Built with **uv + Python 3.11+**, **local-first SQLite
 sqlite-vec**, and **tree-sitter** for code indexing. Exposed via **MCP**, **Claude Code
 Skill**, **Python SDK**, and **CLI** — all calling the same engine so behaviour is
 identical everywhere.
+
+---
+
+## What's New in 0.2.1
+
+- **Lean default install** — tree-sitter code indexing is now an optional `[codeindex]` extra.
+  A bare `pip install` gives you the memory core with no native-parser baggage; add
+  `'ladym[codeindex]'` only when you need `index_code` / `search_code`.
+- **Inject your own langchain models** — pass already-configured `ChatOpenAI` / `OpenAIEmbeddings`
+  straight to `Engine` via the new `ModelRouting` (typed per-op fields). No need to re-declare API
+  keys and endpoints in ladyM's config. See [Injecting your own langchain models](#injecting-your-own-langchain-models).
 
 ---
 
