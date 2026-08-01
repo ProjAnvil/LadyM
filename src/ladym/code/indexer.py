@@ -61,6 +61,13 @@ def index_codebase(
     language_filter: list[str] | None = None,
 ) -> IndexReport:
     """Walk ``root`` and index every supported source file."""
+    try:
+        import tree_sitter  # noqa: F401  — guard: [codeindex] extra check
+    except ImportError as e:
+        raise ImportError(
+            "code indexing requires the [codeindex] extra. "
+            "Install with: pip install 'ladym[codeindex]'"
+        ) from e
     start = time.time()
     ws = workspace or cfg.workspace
     root = Path(root).resolve()

@@ -1,5 +1,6 @@
 """Tests for the tree-sitter code indexer."""
 
+import sys
 from pathlib import Path
 
 import pytest
@@ -112,3 +113,18 @@ def test_intrfile_refs_extracted(engine):
     assert len(rows) >= 1
     srcs = {r["src_symbol"] for r in rows}
     assert any("login" in s for s in srcs) or any("AuthService" in s for s in srcs)
+
+
+def test_index_code_without_codeindex_raises_guidance(monkeypatch, tmp_path):
+    """Without the [codeindex] extra, index_code raises a helpful ImportError
+    instead of silently degrading every file to chunk fallback."""
+    # simulate tree-sitter not installed: None in sys.modules => import raises
+    monkeypatch.setitem(sys.modules, "tree_sitter", None)
+    monkeypatch.setitem(sys.modules, "tree_sitter_language_pack", None)
+
+    eng = Engine(Config.for_testing(tmp_path))
+    try:
+        with pytest.raises(ImportError, match=r"\[codeindex\]"):
+            eng.index_code(tmp_path)  # empty dir; guard fires before the walk
+    finally:
+        eng.close()
