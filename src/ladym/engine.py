@@ -50,11 +50,20 @@ logger = logging.getLogger("ladym.system2")
 class Engine:
     """Top-level LadyM orchestrator. Owns the store + provider + operations."""
 
-    def __init__(self, config: Config | None = None, *, config_obj: Config | None = None):
+    def __init__(self, config: Config | None = None, *, config_obj: Config | None = None,
+                 models=None):
         # ``config_obj`` is accepted for naming clarity; ``config`` wins if both passed.
         cfg = config or config_obj or Config()
         self.config = cfg
-        self.provider: EmbeddingProvider = make_provider(cfg)
+        # Routing injection MUST be set before the provider line below so the
+        # embedding-injection branch can read ``self._routing.embedding``.
+        from .adapter import ModelRouting
+        self._routing: ModelRouting = models if isinstance(models, ModelRouting) else ModelRouting()
+        if self._routing.embedding is not None:
+            from .adapter import LangChainEmbeddingAdapter
+            self.provider: EmbeddingProvider = LangChainEmbeddingAdapter(self._routing.embedding)
+        else:
+            self.provider: EmbeddingProvider = make_provider(cfg)
         # Some providers (e.g. OllamaEmbedding) keep ``dim=None`` until the first embed()
         # call so construction doesn't hit the network and ``health_check`` can run without
         # a working endpoint. But SQLiteStore needs a concrete dim, and the dim-probe below
@@ -111,7 +120,7 @@ class Engine:
             return
         from .providers import make_agent
 
-        provider = make_agent(self.config, "consolidate")
+        provider = self._make_agent("consolidate")
         if provider is None:
             self._llm_classify = None
             return
@@ -168,7 +177,7 @@ class Engine:
             return self._agents[op]
         from .providers import make_agent
         try:
-            agent = make_agent(self.config, op)
+            agent = self._make_agent(op)
         except ImportError as e:  # pragma: no cover - depends on an optional extra
             import logging
             logging.getLogger("ladym").warning(
@@ -177,6 +186,21 @@ class Engine:
             agent = None
         self._agents[op] = agent
         return agent
+
+    def _make_agent(self, op: str):
+        """Build the LLM provider for one op — injected model wins over config.
+
+        If ``self._routing`` carries a host-owned langchain model for this op,
+        wrap it in :class:`LangChainLLMProvider`; otherwise fall back to the
+        config-driven :func:`make_agent` (which returns ``None`` when no LLM is
+        configured — offline / heuristic mode).
+        """
+        model = getattr(self._routing, op, None)
+        if model is not None:
+            from .adapter import LangChainLLMProvider
+            return LangChainLLMProvider(model)
+        from .providers import make_agent
+        return make_agent(self.config, op)
 
     def close(self) -> None:
         self.store.close()
