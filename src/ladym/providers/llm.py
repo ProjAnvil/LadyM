@@ -68,42 +68,6 @@ class FakeLLMProvider(LLMProvider):
         return self._structured(messages, schema)
 
 
-def _to_lc(msg: Message):
-    from langchain_core.messages import (  # local import keeps ABC light
-        AIMessage,
-        HumanMessage,
-        SystemMessage,
-    )
-    if msg["role"] == "system":
-        return SystemMessage(content=msg["content"])
-    if msg["role"] == "assistant":
-        return AIMessage(content=msg["content"])
-    return HumanMessage(content=msg["content"])
-
-
-class LangChainLLMProvider(LLMProvider):
-    name = "langchain"
-
-    def __init__(self, chat_model, structured_method: str = "function_calling"):
-        self._cm = chat_model
-        self._sm = structured_method
-
-    def complete(self, messages, **params):
-        return self._cm.invoke([_to_lc(m) for m in messages]).content
-
-    def complete_structured(self, messages, schema, **params):
-        runner = self._cm.with_structured_output(schema, method=self._sm)
-        out = runner.invoke([_to_lc(m) for m in messages])
-        # pydantic v2 deprecates ``.dict()`` in favour of ``.model_dump()``; the
-        # ``isinstance(out, dict)`` short-circuit stays first because some
-        # langchain structured-output paths already return a plain dict.
-        return (
-            out
-            if isinstance(out, dict)
-            else (out.model_dump() if hasattr(out, "model_dump") else dict(out))
-        )
-
-
 def make_llm_provider(*, provider: str, base_url: str, model: str, api_key: str,
                       structured_method: str = "function_calling",
                       max_tokens: int = 1024, temperature: float = 0.2,
@@ -129,4 +93,5 @@ def make_llm_provider(*, provider: str, base_url: str, model: str, api_key: str,
         raise ImportError(
             f"LLM provider {provider!r} needs langchain extras: pip install 'ladym[llm]'"
         ) from e
+    from ..adapter import LangChainLLMProvider  # lazy: breaks adapter↔providers.llm cycle
     return LangChainLLMProvider(cm, structured_method)

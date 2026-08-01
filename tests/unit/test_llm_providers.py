@@ -47,7 +47,8 @@ def test_make_llm_provider_none_returns_none():
 def test_langchain_provider_built_when_importable():
     import pytest
 
-    from ladym.providers.llm import LangChainLLMProvider, make_llm_provider
+    from ladym.adapter import LangChainLLMProvider
+    from ladym.providers.llm import make_llm_provider
     pytest.importorskip("langchain_openai")
     p = make_llm_provider(provider="openai", base_url="https://example.test/v1",
                           model="m", api_key="k", structured_method="function_calling",
