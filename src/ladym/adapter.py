@@ -8,6 +8,7 @@ so importing this module needs no langchain at runtime.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from .providers.llm import LLMProvider
@@ -49,3 +50,41 @@ class LangChainLLMProvider(LLMProvider):
             if isinstance(out, dict)
             else (out.model_dump() if hasattr(out, "model_dump") else dict(out))
         )
+
+
+class LangChainEmbeddingAdapter(EmbeddingProvider):
+    """Bridge a langchain ``Embeddings`` into ladyM's ``EmbeddingProvider``.
+
+    ``dim`` starts ``None`` and is probed on the first :meth:`embed` call —
+    same pattern as ``OllamaEmbedding``, so Engine's ``_ensure_provider_dim``
+    handles it without special-casing.
+    """
+
+    def __init__(self, embeddings: Embeddings):
+        self._lc = embeddings
+        self.dim: int | None = None
+
+    def embed(self, text: str) -> list[float]:
+        vec = self._lc.embed_query(text)
+        if self.dim is None:
+            self.dim = len(vec)
+        return vec
+
+    def embed_batch(self, texts: list[str]) -> list[list[float]]:
+        return self._lc.embed_documents(texts)
+
+
+@dataclass
+class ModelRouting:
+    """Inject host-owned langchain models, bypassing ladyM's own LLM/embedding config.
+
+    Unset fields fall back to Config / heuristic. Field names mirror ``NAMED_OPS``
+    so ``getattr(routing, op, None)`` resolves each cognitive operation.
+    """
+
+    consolidate: BaseChatModel | None = None
+    proceduralize: BaseChatModel | None = None
+    attention_gate: BaseChatModel | None = None
+    l5_mental_model: BaseChatModel | None = None
+    l6_forward_intent: BaseChatModel | None = None
+    embedding: Embeddings | None = None
