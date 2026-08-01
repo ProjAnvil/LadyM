@@ -224,6 +224,27 @@ eng.decay(dry_run=True)   # ACT-R base-level forgetting
 eng.link(a_id, b_id, "depends_on")  # Zettelkasten edge
 ```
 
+### Injecting your own langchain models
+
+If your app already configures langchain `ChatOpenAI` / `OpenAIEmbeddings`
+(with api_key, base_url, model), pass them straight to Engine via
+`ModelRouting` — no need to re-declare credentials in ladyM's config:
+
+```python
+from ladym import Engine, Config, ModelRouting
+from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+
+eng = Engine(Config(db_path="mem.db"), models=ModelRouting(
+    consolidate=ChatOpenAI(model="gpt-4o", api_key=sk, base_url=url),
+    attention_gate=ChatOpenAI(model="gpt-4o-mini", api_key=sk, base_url=url),
+    embedding=OpenAIEmbeddings(model="text-embedding-3-small", api_key=sk),
+))
+```
+
+Each of the five cognitive ops (`consolidate`, `proceduralize`,
+`attention_gate`, `l5_mental_model`, `l6_forward_intent`) can take a
+different model; unset ops fall back to Config.
+
 ### LangGraph
 
 LadyM ships an optional LangGraph integration (install with `uv pip install "git+https://github.com/ProjAnvil/LadyM.git[langgraph]"`)

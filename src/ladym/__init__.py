@@ -31,6 +31,8 @@ from .schema import (
     RecallResult,
     Stats,
 )
+from .adapter import ModelRouting
+from .providers.agents import NAMED_OPS
 
 __all__ = [
     "ActivationWeights",
@@ -47,6 +49,8 @@ __all__ = [
     "RecallResponse",
     "RecallResult",
     "Stats",
+    "ModelRouting",
+    "NAMED_OPS",
 ]
 
 __version__ = "0.2.0"

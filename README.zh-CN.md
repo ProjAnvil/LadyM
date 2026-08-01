@@ -214,6 +214,27 @@ eng.decay(dry_run=True)   # ACT-R 基础级遗忘
 eng.link(a_id, b_id, "depends_on")  # Zettelkasten 边
 ```
 
+### 注入你自己的 langchain 模型
+
+如果你的应用已经配好了 langchain 的 `ChatOpenAI` / `OpenAIEmbeddings`
+（含 api_key、base_url、model），可以直接通过 `ModelRouting` 把它们交给 Engine——
+无需在 ladyM 的配置里重复声明凭证：
+
+```python
+from ladym import Engine, Config, ModelRouting
+from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+
+eng = Engine(Config(db_path="mem.db"), models=ModelRouting(
+    consolidate=ChatOpenAI(model="gpt-4o", api_key=sk, base_url=url),
+    attention_gate=ChatOpenAI(model="gpt-4o-mini", api_key=sk, base_url=url),
+    embedding=OpenAIEmbeddings(model="text-embedding-3-small", api_key=sk),
+))
+```
+
+五个认知操作（`consolidate`、`proceduralize`、`attention_gate`、
+`l5_mental_model`、`l6_forward_intent`）各自可以绑定不同模型；
+未设置的操作回退到 Config。
+
 ### LangGraph
 
 LadyM 提供可选的 LangGraph 集成（安装：`uv pip install "git+https://github.com/ProjAnvil/LadyM.git[langgraph]"`），把 ladyM

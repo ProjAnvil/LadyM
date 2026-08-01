@@ -52,6 +52,17 @@ class Engine:
 
     def __init__(self, config: Config | None = None, *, config_obj: Config | None = None,
                  models=None):
+        """Construct the Engine and wire all layers + the embedding provider.
+
+        ``models`` (:class:`~ladym.adapter.ModelRouting` | None): inject host-owned
+        langchain models — per-op ``BaseChatModel`` fields bypass Config's credential
+        rebuild, and ``embedding`` (a langchain ``Embeddings``) takes over the
+        embedding provider. Unset fields fall back to Config. Example::
+
+            from ladym import Engine, Config, ModelRouting
+            eng = Engine(Config(db_path="m.db"), models=ModelRouting(
+                consolidate=my_chat_model, embedding=my_embeddings))
+        """
         # ``config_obj`` is accepted for naming clarity; ``config`` wins if both passed.
         cfg = config or config_obj or Config()
         self.config = cfg
@@ -118,7 +129,6 @@ class Engine:
         if fn is not None:
             self._llm_classify = fn
             return
-        from .providers import make_agent
 
         provider = self._make_agent("consolidate")
         if provider is None:
@@ -175,7 +185,6 @@ class Engine:
         """
         if op in self._agents:
             return self._agents[op]
-        from .providers import make_agent
         try:
             agent = self._make_agent(op)
         except ImportError as e:  # pragma: no cover - depends on an optional extra
