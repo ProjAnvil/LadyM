@@ -118,9 +118,10 @@ uv tool install "git+https://github.com/ProjAnvil/LadyM.git[all]"
 ### 作为全局 CLI（推荐）
 
 ```bash
-uv tool install .                # 离线默认——无需 extras、运行时无需网络
+uv tool install .                # 离线默认——仅记忆核心，不含代码索引
+uv tool install ".[codeindex]"   # + tree-sitter 代码索引（index_code / search_code）
 uv tool install ".[web,llm]"     # LLM provider + `ladym config` 网页编辑器
-# 其他 extras 同样可组合：[mcp] [local] [openai] [anthropic]
+# 其他 extras 同样可组合：[mcp] [local] [openai] [anthropic] [codeindex]
 ```
 
 `.` 是密封的核心（仅离线）。它会在你的 PATH（`~/.local/bin/ladym`）上放一个 `ladym` 可执行
@@ -142,7 +143,7 @@ uvx --from . ladym recall "auth"
 ```bash
 git clone https://github.com/ProjAnvil/LadyM.git && cd ladyM
 uv venv --python 3.12
-uv pip install -e ".[dev]"            # 核心 + 测试/lint 工具，可编辑安装
+uv pip install -e ".[dev]"            # 核心 + 测试/lint 工具，可编辑安装（已含 [codeindex]）
 # 可选 extras 叠加：
 uv pip install -e ".[mcp]"            # MCP server（用于 Claude Code / Cursor）
 uv pip install -e ".[local]"          # sentence-transformers 向量
@@ -152,7 +153,7 @@ uv pip install -e ".[web]"            # FastAPI + HTMX 的 `ladym config` 编辑
 ```
 
 要求 Python ≥ 3.11（用到 `enum.StrEnum`）。`sqlite-vec` 以 wheel 形式分发——macOS/Linux/Windows
-都无需原生工具链。
+都无需原生工具链。`tree-sitter` 经 `[codeindex]` extra 可选安装；默认安装仅含记忆核心。
 
 ## 集成
 

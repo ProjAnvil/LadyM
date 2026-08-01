@@ -125,9 +125,10 @@ uv tool install "git+https://github.com/ProjAnvil/LadyM.git[all]"
 ### As a global CLI (recommended)
 
 ```bash
-uv tool install .                # offline default — no extras, no network at runtime
+uv tool install .                # offline default — memory core only, no code indexing
+uv tool install ".[codeindex]"   # + tree-sitter code indexing (index_code / search_code)
 uv tool install ".[web,llm]"     # LLM providers + the `ladym config` web editor
-# other extras compose the same way: [mcp] [local] [openai] [anthropic]
+# other extras compose the same way: [mcp] [local] [openai] [anthropic] [codeindex]
 ```
 
 `.` is the hermetic core (offline-only). This drops a `ladym` executable on your PATH
@@ -149,7 +150,7 @@ uvx --from . ladym recall "auth"
 ```bash
 git clone https://github.com/ProjAnvil/LadyM.git && cd ladyM
 uv venv --python 3.12
-uv pip install -e ".[dev]"            # core + test/lint tooling, editable
+uv pip install -e ".[dev]"            # core + test/lint tooling, editable (incl. [codeindex])
 # optional extras stack on top:
 uv pip install -e ".[mcp]"            # MCP server (for Claude Code / Cursor)
 uv pip install -e ".[local]"          # sentence-transformers embeddings
@@ -159,7 +160,8 @@ uv pip install -e ".[web]"            # FastAPI + HTMX `ladym config` editor
 ```
 
 Requires Python ≥ 3.11 (uses `enum.StrEnum`). `sqlite-vec` ships as a wheel — no native
-toolchain needed on macOS/Linux/Windows.
+toolchain needed on macOS/Linux/Windows. `tree-sitter` is optional via the `[codeindex]`
+extra; the default install is memory-only.
 
 ## Integration
 
