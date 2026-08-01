@@ -39,18 +39,35 @@ eng = Engine(
 # proceduralize / l6 未填 → 回退 Config;provider/endpoint/key 零重复声明
 ```
 
-### Part A —— `ModelRouting` dataclass
+### Part A —— `adapter` 模块(统一 langchain 桥接层)
 
-新建 `src/ladym/routing.py`(顶层模块,匹配其用户可见的公开 API 角色),导出:
+新建 `src/ladym/adapter.py`,**三个 langchain→ladyM 桥接件齐聚一堂**:
+
+1. `LangChainLLMProvider`(**从 `providers/llm.py` 搬来**——既有,LLM 桥)
+2. `LangChainEmbeddingAdapter`(**新增**——embedding 桥)
+3. `ModelRouting`(**新增**——注入配置 dataclass)
 
 ```python
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from .providers.llm import LLMProvider          # 基类
+from .storage.embeddings import EmbeddingProvider  # 基类
+
 if TYPE_CHECKING:
     from langchain_core.language_models import BaseChatModel
     from langchain_core.embeddings import Embeddings
 
+
+# ---- 1. LLM 桥(从 providers/llm.py 搬来,实现不变)----
+# class LangChainLLMProvider(LLMProvider): ...   # 原样搬迁
+
+
+# ---- 2. Embedding 桥(新增)----
+# class LangChainEmbeddingAdapter(EmbeddingProvider): ...  # 见 Part C
+
+
+# ---- 3. 注入配置 ----
 @dataclass
 class ModelRouting:
     """注入宿主已有的 langchain 模型,绕过 ladyM 自己的 LLM/embedding 配置。
@@ -64,6 +81,10 @@ class ModelRouting:
     l6_forward_intent: "BaseChatModel | None" = None
     embedding:         "Embeddings | None" = None
 ```
+
+**循环 import 处理**:`adapter.py` 顶层 import `LLMProvider`(from `providers/llm.py`)和 `EmbeddingProvider`(from `storage/embeddings.py`)。反向——`providers/llm.py` 的 `make_llm_provider` 需要 `LangChainLLMProvider`(已搬到 adapter)——用**函数内懒 import** 打断环:`from ..adapter import LangChainLLMProvider` 写在 `make_llm_provider` 函数体里(它本就是懒调用,不触发模块加载期的环)。`engine.py` 的 `_make_agent` 同理懒 import `from .adapter import LangChainLLMProvider`。
+
+**搬动影响面(4 处,计划须全覆盖)**:`providers/llm.py:84`(类定义搬走)、`providers/llm.py:132`(`make_llm_provider` 改懒 import)、`providers/__init__.py:10,22`(re-export 改从 `..adapter` 取,**保 `from ladym.providers import LangChainLLMProvider` 向后兼容**)、`tests/unit/test_llm_providers.py:50`(测试 import 可改走 `ladym.adapter` 新规范路径,或经 re-export 保持原样)。
 
 - 字段名 = `NAMED_OPS` 字符串(`"consolidate"` 等),`_make_agent` 用 `getattr(routing, op, None)` 取值 —— **类型安全,字段名即 op 名,无游离 string key**。
 - langchain 类型只在 `TYPE_CHECKING` 下引用(字符串注解),避免 ladyM 核心硬依赖 langchain —— 与现有 `LangChainLLMProvider` 的 import 策略一致。
@@ -87,9 +108,9 @@ def _make_agent(self, op):
     """Build the LLM provider for one op — injected model wins over config."""
     model = getattr(self._routing, op, None)
     if model is not None:
-        from .providers.llm import LangChainLLMProvider
-        return LangChainLLMProvider(model)        # 桥已存在,一行包好
-    return make_agent(self.config, op)             # 未注入 → 走老路
+        from .adapter import LangChainLLMProvider      # 懒 import,避开环
+        return LangChainLLMProvider(model)              # 桥已存在,一行包好
+    return make_agent(self.config, op)                  # 未注入 → 走老路
 ```
 
 - `engine.py:114` `make_agent(self.config, "consolidate")` → `self._make_agent("consolidate")`
@@ -99,7 +120,7 @@ def _make_agent(self, op):
 
 ### Part C —— Embedding 注入 + 适配器
 
-**新增 `LangChainEmbeddingAdapter`**(放 `src/ladym/storage/embeddings.py`,与 `EmbeddingProvider`/`make_provider` 同居),类比 `LangChainLLMProvider`:
+**新增 `LangChainEmbeddingAdapter`**(放 `src/ladym/adapter.py`,与 `LangChainLLMProvider`/`ModelRouting` 同居),类比 `LangChainLLMProvider`:
 
 ```python
 class LangChainEmbeddingAdapter(EmbeddingProvider):
@@ -130,7 +151,7 @@ class LangChainEmbeddingAdapter(EmbeddingProvider):
 
 ```python
 if self._routing.embedding is not None:
-    from .storage.embeddings import LangChainEmbeddingAdapter
+    from .adapter import LangChainEmbeddingAdapter
     self.provider = LangChainEmbeddingAdapter(self._routing.embedding)
 else:
     self.provider = make_provider(cfg)
@@ -149,7 +170,7 @@ from ladym import NAMED_OPS
 
 ## 范围与非目标
 
-- ✅ **本次做**:`ModelRouting` dataclass;Engine `models=` 参数;LLM per-op 注入(`_make_agent`);`LangChainEmbeddingAdapter` + embedding 注入;`NAMED_OPS`/`ModelRouting` 导出;测试;README/docstring 文档。
+- ✅ **本次做**:新建 `src/ladym/adapter.py`;`LangChainLLMProvider` 从 `providers/llm.py` 搬入(`make_llm_provider` 改懒 import);`LangChainEmbeddingAdapter` 新增;`ModelRouting` dataclass;Engine `models=` 参数 + LLM per-op 注入(`_make_agent`)+ embedding 注入;循环 import 用函数内懒 import 打断;`NAMED_OPS`/`ModelRouting` 在 `__init__` 导出;测试;README/docstring 文档。
 - ⏸️ **非目标**:
   - per-op `structured_method` 自定义 —— 注入路径固定 `"function_calling"`(覆盖 99% 场景);需要 json_mode 再放开。
   - 每次 API 调用时动态换 model(方案②)—— 本次只做构造时一次性绑定。
