@@ -69,6 +69,11 @@ class Engine:
         # Routing injection MUST be set before the provider line below so the
         # embedding-injection branch can read ``self._routing.embedding``.
         from .adapter import ModelRouting
+        if models is not None and not isinstance(models, ModelRouting):
+            raise TypeError(
+                f"models must be a ModelRouting instance or None, "
+                f"got {type(models).__name__}"
+            )
         self._routing: ModelRouting = models if isinstance(models, ModelRouting) else ModelRouting()
         if self._routing.embedding is not None:
             from .adapter import LangChainEmbeddingAdapter
@@ -545,10 +550,13 @@ class Engine:
         """
         stored = self.store.get_meta("embedding_dim")
         actual = self.provider.dim
+        # Reflect the *effective* provider in DB metadata: an injected langchain
+        # Embeddings is recorded as "langchain", not the Config default.
+        provider_name = "langchain" if self._routing.embedding is not None else self.config.embedding_provider
         if stored is None:
             # fresh DB: probe & persist
             self.store.set_meta("embedding_dim", str(actual))
-            self.store.set_meta("embedding_provider", self.config.embedding_provider)
+            self.store.set_meta("embedding_provider", provider_name)
             return
         if int(stored) != actual:
             if self.config.embedding_allow_dim_change:
@@ -558,7 +566,7 @@ class Engine:
                 self.store.rebuild_vector_index(actual)
                 self._reembed_all()
                 self.store.set_meta("embedding_dim", str(actual))
-                self.store.set_meta("embedding_provider", self.config.embedding_provider)
+                self.store.set_meta("embedding_provider", provider_name)
             else:
                 _assert_dim_matches(stored=int(stored), configured=actual)
 

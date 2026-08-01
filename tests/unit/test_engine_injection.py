@@ -1,5 +1,7 @@
 """Tests for Engine's ModelRouting injection (LLM per-op + embedding)."""
 
+import pytest
+
 from ladym.adapter import LangChainEmbeddingAdapter, LangChainLLMProvider, ModelRouting
 from ladym.config import Config
 from ladym.engine import Engine
@@ -56,3 +58,28 @@ def test_uninjected_op_falls_back(tmp_path):
         assert eng._make_agent("proceduralize") is None
     finally:
         eng.close()
+
+
+def test_injected_embedding_records_langchain_provider_meta(tmp_path):
+    """M3: an injected embedding records 'langchain' as the provider in DB meta,
+    not the Config default ('hashing')."""
+    eng = Engine(Config.for_testing(tmp_path), models=ModelRouting(embedding=FakeEmbeddings()))
+    try:
+        assert eng.store.get_meta("embedding_provider") == "langchain"
+    finally:
+        eng.close()
+
+
+def test_config_embedding_records_config_provider_meta(tmp_path):
+    """Non-injected embedding records Config.embedding_provider in DB meta (back-compat)."""
+    eng = Engine(Config.for_testing(tmp_path))
+    try:
+        assert eng.store.get_meta("embedding_provider") == eng.config.embedding_provider
+    finally:
+        eng.close()
+
+
+def test_non_modelrouting_models_raises_typeerror(tmp_path):
+    """M4: a non-ModelRouting models= value raises TypeError instead of silent coercion."""
+    with pytest.raises(TypeError, match="ModelRouting"):
+        Engine(Config.for_testing(tmp_path), models={"consolidate": object()})
