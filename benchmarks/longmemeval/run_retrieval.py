@@ -4,11 +4,7 @@ import json
 from pathlib import Path
 from .config import BenchConfig
 from .metrics import build_metric_dict
-
-
-def _default_engine_factory(db_path, workspace):
-    from ladym import Engine, Config
-    return Engine(Config(db_path=str(db_path), workspace=workspace))
+from ._runtime import make_engine as _default_engine_factory
 
 
 def run_retrieval(dataset: list[dict], cfg: BenchConfig, *,

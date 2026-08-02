@@ -5,25 +5,21 @@ import json
 from pathlib import Path
 
 from .config import BenchConfig
+from ._runtime import make_engine as _default_engine_factory, load_cfg
 
 ABSTAIN_SCORE_FLOOR = 0.05
 
 
-def _default_engine_factory(db_path, workspace):
-    from ladym import Engine, Config
-    return Engine(Config(db_path=str(db_path), workspace=workspace))
-
-
 def _default_answer_llm():
-    """Build answer-LLM from ladyM config provider (ModelRouting-injectable).
+    """Build answer-LLM from the ladyM config provider (ModelRouting-injectable).
 
-    Returns a callable ``(system, user) -> str``. Verified against the real
-    ``LangChainLLMProvider.complete(messages, **params) -> str`` (adapter.py:42)
-    which is the abstract ``LLMProvider.complete`` contract (providers/llm.py:29).
+    Uses ``load_cfg()`` so the provider comes from ``ladym.toml`` + Secret Store
+    (NOT the offline ``Config()`` defaults). Returns a callable ``(system, user) -> str``.
+    Verified against the real ``LangChainLLMProvider.complete(messages, **params) -> str``
+    (adapter.py:42), the abstract ``LLMProvider.complete`` contract (providers/llm.py:29).
     """
-    from ladym import Config
     from ladym.providers import make_agent
-    cfg = Config()
+    cfg = load_cfg()
     agent = make_agent(cfg, "consolidate")  # reuse the same op/provider as consolidate
     if agent is None:
         raise RuntimeError(

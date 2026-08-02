@@ -2,11 +2,7 @@
 from __future__ import annotations
 from pathlib import Path
 from .config import BenchConfig
-
-
-def _default_engine_factory(db_path, workspace):
-    from ladym import Engine, Config
-    return Engine(Config(db_path=str(db_path), workspace=workspace))
+from ._runtime import make_engine as _default_engine_factory
 
 
 def _expected_turn_count(instance: dict) -> int:
