@@ -45,3 +45,6 @@ ladym.toml
 # agnet config
 .claude*
 .codex*
+
+# Benchmarks
+benchmarks/.cache/
