@@ -142,3 +142,36 @@ def test_consolidated_failure_clears_done_marker(tmp_path):
     ingest.ingest_instance(inst, cfg, engine_factory=lambda **kw: fake)
     assert fake.consolidated is True
     assert done_marker.exists()
+
+
+def test_ingest_raw_auto_rebuilds_on_embedding_dim_mismatch(tmp_path):
+    """A stale DB built under another embedding dim auto-rebuilds (no --force needed).
+
+    Simulates switching the embedding provider (e.g. hashing→ollama): the existing DB
+    holds vectors of a different dim, so probing it via _count_memories raises
+    EmbeddingDimensionMismatch. ingest must treat that as stale → rebuild, not fail.
+    """
+    from ladym.storage.embeddings import EmbeddingDimensionMismatch
+
+    cfg = BenchConfig(difficulty="oracle", variant="raw", base_dir=tmp_path)
+    inst = make_mini_instance()
+    # pre-create a stale DB so the skip-check probes _count_memories on it
+    db_path = cfg.db_path_for(inst["question_id"])
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    db_path.write_bytes(b"stale")
+
+    calls = {"n": 0}
+    fake = _FakeEngine()
+
+    def factory(**kw):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            # probing the stale DB raises (Engine reopen sees wrong dim)
+            raise EmbeddingDimensionMismatch(256, 1024)
+        return fake  # rebuild path uses a fresh engine
+
+    ingest.ingest_instance(inst, cfg, engine_factory=factory)
+
+    assert calls["n"] == 2          # probe (raised) then rebuild (succeeded)
+    assert len(fake.recorded) == 4  # all turns re-ingested into the fresh engine
+

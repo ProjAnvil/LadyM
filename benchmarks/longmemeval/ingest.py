@@ -31,9 +31,16 @@ def ingest_instance(instance: dict, cfg: BenchConfig, *,
     if not force:
         if cfg.variant == "consolidated" and done_marker.exists():
             return db_path
-        if cfg.variant == "raw" and db_path.exists() \
-                and _count_memories(engine_factory, db_path, qid) == expected:
-            return db_path
+        if cfg.variant == "raw" and db_path.exists():
+            from ladym.storage.embeddings import EmbeddingDimensionMismatch
+            try:
+                if _count_memories(engine_factory, db_path, qid) == expected:
+                    return db_path
+            except EmbeddingDimensionMismatch:
+                # Stale DB built under a different embedding provider/dim
+                # (e.g. hashing→ollama). Fall through to unlink + rebuild so a
+                # provider switch doesn't require --force-ingest.
+                pass
     if db_path.exists():
         db_path.unlink(missing_ok=True)
     # Also clear any stale completion marker so a failed rebuild (e.g.
