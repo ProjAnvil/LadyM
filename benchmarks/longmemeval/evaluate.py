@@ -25,37 +25,65 @@ _HERE = Path(__file__).parent / "upstream_eval"
 _PY = sys.executable
 
 
+def _run(cmd: list[str], *, timeout: float, label: str) -> str:
+    """Run a vendored eval subprocess; surface a clear error on timeout or failure.
+
+    The vendored judge (evaluate_qa.py) retries RateLimitError/APIError with
+    exponential backoff and **no max_tries**, so a non-transient 429 (e.g.
+    exhausted OpenAI quota) makes it loop forever. The timeout turns that hang
+    into a fast, loud failure carrying a diagnosis instead of a silent stall.
+    """
+    try:
+        proc = subprocess.run(
+            cmd, capture_output=True, text=True, check=True, timeout=timeout
+        )
+    except subprocess.TimeoutExpired as e:
+        partial = e.stderr or ""
+        if isinstance(partial, bytes):
+            partial = partial.decode(errors="replace")
+        raise RuntimeError(
+            f"{label} did not finish within {int(timeout)}s — likely a 429 "
+            f"quota/rate-limit infinite-retry or a network stall "
+            f"(check your OpenAI billing/credits). Partial stderr:\n"
+            f"{partial.strip()[:2000]}"
+        ) from e
+    except subprocess.CalledProcessError as e:
+        raise RuntimeError(
+            f"{label} failed (exit {e.returncode}). stderr:\n"
+            f"{(e.stderr or '').strip()[:2000]}"
+        ) from e
+    return proc.stdout
+
+
 def run_retrieval_metrics(cfg: BenchConfig) -> str:
     """Run print_retrieval_metrics.py on retrieval.jsonl; return captured stdout."""
     retrieval = cfg.results_dir / "retrieval.jsonl"
-    proc = subprocess.run(
+    return _run(
         [_PY, str(_HERE / "print_retrieval_metrics.py"), str(retrieval)],
-        capture_output=True,
-        text=True,
-        check=True,
+        timeout=120, label="print_retrieval_metrics.py",
     )
-    return proc.stdout
 
 
 def run_qa_metrics(cfg: BenchConfig, dataset_path: Path, judge_model: str) -> str:
     """evaluate_qa.py then print_qa_metrics.py; return aggregated stdout."""
     hyp = cfg.results_dir / "hypothesis.jsonl"
+    # Per-question budget: a normal judge call is ~3-10s, an occasional single
+    # retry ~30s, so 45s/question is safe headroom. Floor 120s so even a
+    # 1-question run tolerates one slow call. A quota-429 hangs every question,
+    # so this still trips fast on small (smoke) runs — the typical first signal.
+    n_questions = sum(1 for _ in hyp.open()) if hyp.exists() else 0
+    timeout = max(120, n_questions * 45)
     # 1. judge — writes <hyp>.eval-results-<judge_model> (see module docstring).
-    subprocess.run(
+    _run(
         [_PY, str(_HERE / "evaluate_qa.py"), judge_model, str(hyp), str(dataset_path)],
-        capture_output=True,
-        text=True,
-        check=True,
+        timeout=timeout, label="evaluate_qa.py (GPT-4o judge)",
     )
     eval_log = Path(str(hyp) + f".eval-results-{judge_model}")
     # 2. aggregate
-    proc = subprocess.run(
+    return _run(
         [_PY, str(_HERE / "print_qa_metrics.py"), str(eval_log), str(dataset_path)],
-        capture_output=True,
-        text=True,
-        check=True,
+        timeout=120, label="print_qa_metrics.py",
     )
-    return proc.stdout
 
 
 def evaluate(cfg: BenchConfig, dataset_path: Path, *, judge_model: str = "gpt-4o") -> Path:

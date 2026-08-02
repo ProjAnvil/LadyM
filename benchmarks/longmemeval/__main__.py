@@ -2,7 +2,6 @@
 from __future__ import annotations
 import argparse
 import json
-import subprocess
 import sys
 from .config import BenchConfig
 
@@ -69,13 +68,12 @@ def main(argv: list[str] | None = None) -> None:
         from .evaluate import evaluate
         try:
             out = evaluate(cfg, dataset_path)
-        except subprocess.CalledProcessError as e:
-            # evaluate() uses capture_output=True+check=True internally; surface
-            # the captured stderr so operators can see why the vendored judge /
-            # metrics script failed instead of a bare non-zero exit.
-            sys.stderr.write(e.stderr or "")
-            sys.stderr.write(f"\n[evaluate] {e}\n")
-            sys.exit(e.returncode)
+        except RuntimeError as e:
+            # evaluate._run() wraps subprocess timeout / non-zero-exit (incl. the
+            # vendored judge's 429 infinite-retry) into a RuntimeError with a
+            # diagnosis. Surface it instead of a bare traceback + exit non-zero.
+            sys.stderr.write(f"[evaluate] {e}\n")
+            sys.exit(1)
         print(f"wrote {out}")
 
 

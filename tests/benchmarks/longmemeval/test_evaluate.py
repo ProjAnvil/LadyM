@@ -77,3 +77,48 @@ def test_eval_log_path_matches_vendored_short_name(tmp_path, monkeypatch):
     # Vendored writes <hyp>.eval-results-<metric_model_short> where short == argv[1]
     # of evaluate_qa.py == "gpt-4o" (NOT "gpt4o")
     assert eval_log_arg.endswith("hypothesis.jsonl.eval-results-gpt-4o")
+
+
+def test_run_qa_metrics_surfaces_timeout_as_runtime_error(tmp_path, monkeypatch):
+    """A hung judge (e.g. 429 infinite-retry) must fail fast with a diagnosis."""
+    import subprocess
+
+    cfg = BenchConfig(difficulty="oracle", variant="raw", base_dir=tmp_path)
+    cfg.results_dir.mkdir(parents=True, exist_ok=True)
+    (cfg.results_dir / "hypothesis.jsonl").write_text(
+        '{"question_id":"a","hypothesis":"x"}\n{"question_id":"b","hypothesis":"y"}\n'
+    )
+
+    def fake_run(cmd, **kw):
+        raise subprocess.TimeoutExpired(cmd=cmd, timeout=kw.get("timeout", 1))
+
+    monkeypatch.setattr(evaluate.subprocess, "run", fake_run)
+    try:
+        evaluate.run_qa_metrics(cfg, tmp_path / "data.json", "gpt-4o")
+        assert False, "should have raised RuntimeError"
+    except RuntimeError as e:
+        msg = str(e)
+        assert "did not finish" in msg
+        assert "429" in msg or "quota" in msg  # diagnosis points at the likely cause
+
+
+def test_run_qa_metrics_surfaces_nonzero_exit_stderr(tmp_path, monkeypatch):
+    """A failing judge must surface its stderr, not a bare exit code."""
+    import subprocess
+
+    cfg = BenchConfig(difficulty="oracle", variant="raw", base_dir=tmp_path)
+    cfg.results_dir.mkdir(parents=True, exist_ok=True)
+    (cfg.results_dir / "hypothesis.jsonl").write_text(
+        '{"question_id":"a","hypothesis":"x"}\n'
+    )
+
+    def fake_run(cmd, **kw):
+        raise subprocess.CalledProcessError(returncode=2, cmd=cmd, stderr="boom: auth error")
+
+    monkeypatch.setattr(evaluate.subprocess, "run", fake_run)
+    try:
+        evaluate.run_qa_metrics(cfg, tmp_path / "data.json", "gpt-4o")
+        assert False, "should have raised RuntimeError"
+    except RuntimeError as e:
+        assert "boom: auth error" in str(e)
+        assert "exit 2" in str(e)
