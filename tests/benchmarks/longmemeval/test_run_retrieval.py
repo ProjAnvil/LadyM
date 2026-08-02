@@ -4,9 +4,17 @@ from benchmarks.longmemeval import run_retrieval
 from tests.benchmarks.longmemeval.fixtures import make_mini_dataset
 
 
-class _FakeResult:
+class _FakeMemory:
+    """Mirrors ladym.schema.Memory — only the .metadata field is exercised."""
     def __init__(self, metadata):
         self.metadata = metadata
+
+
+class _FakeResult:
+    """Faithful to ladym.schema.RecallResult: exposes .memory + .score, NOT .metadata."""
+    def __init__(self, metadata, score=0.0):
+        self.memory = _FakeMemory(metadata)
+        self.score = score
 
 
 class _FakeRecallResp:

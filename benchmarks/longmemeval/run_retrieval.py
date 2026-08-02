@@ -26,7 +26,7 @@ def run_retrieval(dataset: list[dict], cfg: BenchConfig, *,
                 resp = eng.recall(instance["question"], top_k=cfg.top_k)
             finally:
                 eng.close()
-            recalled = [r.metadata for r in resp.results]
+            recalled = [r.memory.metadata for r in resp.results]
             recalled_turn_doc_ids = [m.get("doc_id", "") for m in recalled]
             # session ids in first-encounter order (dedup, preserve rank)
             seen = set()
