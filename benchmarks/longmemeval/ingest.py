@@ -17,18 +17,28 @@ def ingest_instance(instance: dict, cfg: BenchConfig, *,
                     engine_factory=_default_engine_factory, force: bool = False) -> Path:
     """Write every haystack turn as an episodic memory. Returns the DB path.
 
-    Skips if the DB already holds the expected turn count (unless force).
-    variant=='consolidated' runs eng.consolidate() after ingest.
+    Skip policy (unless ``force``):
+      * ``variant=='raw'``: skip if the DB already holds the expected turn count.
+      * ``variant=='consolidated'``: skip iff a ``<db>.done`` marker exists —
+        consolidation changes memory count post-ingest, so the raw count-check
+        would be wrong here.
+
+    ``variant=='consolidated'`` runs ``eng.consolidate()`` after ingest and
+    writes the ``.done`` marker on success.
     """
     qid = instance["question_id"]
     db_path = cfg.db_path_for(qid)
     db_path.parent.mkdir(parents=True, exist_ok=True)
     expected = _expected_turn_count(instance)
+    done_marker = db_path.with_suffix(".done")
 
-    if db_path.exists() and not force:
-        if _count_memories(engine_factory, db_path, qid) == expected:
+    if not force:
+        if cfg.variant == "consolidated" and done_marker.exists():
             return db_path
-        # stale/partial -> rebuild by removing
+        if cfg.variant == "raw" and db_path.exists() \
+                and _count_memories(engine_factory, db_path, qid) == expected:
+            return db_path
+    if db_path.exists():
         db_path.unlink(missing_ok=True)
 
     eng = engine_factory(db_path=db_path, workspace=f"lme-{qid}")
@@ -56,6 +66,8 @@ def ingest_instance(instance: dict, cfg: BenchConfig, *,
             eng.consolidate()
     finally:
         eng.close()
+    if cfg.variant == "consolidated":
+        done_marker.touch()
     return db_path
 
 
