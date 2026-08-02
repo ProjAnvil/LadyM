@@ -31,6 +31,11 @@ python -m benchmarks.longmemeval evaluate --difficulty oracle --variant raw
 
 `--limit 5` during development to cap cost. `--difficulty s` for the main 500-question run.
 
+## Notes for operators
+
+- **`--top-k` only affects the retrieval phase** (`run_retrieval`). `run_qa` uses its own `top_k_context=10` and does not read `cfg.top_k`.
+- **Consolidated-variant retrieval caveat.** Consolidation emits semantic facts that carry no `doc_id`/`session_id`. These facts can occupy top-k slots but never match gold turns/sessions, which can artificially lower `recall_all@k` vs the raw variant. This is expected — the consolidated variant's payoff shows up in QA accuracy (Phase B), not in Phase A retrieval recall. Don't read a lower consolidated `recall_all@k` as "consolidation hurts memory".
+
 ## Vendored eval scripts
 
 `upstream_eval/` holds 4 files pinned to a specific LongMemEval commit (SHA in each header).

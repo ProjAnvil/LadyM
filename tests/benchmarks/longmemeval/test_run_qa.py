@@ -73,3 +73,45 @@ def test_run_qa_abstention_when_low_score(tmp_path):
         for l in out.read_text().splitlines()
     }
     assert lines["mini_2_abs"] == "I don't know."
+    # Empty failures list -> run_report.json still emitted.
+    report = json.loads((cfg.results_dir / "run_report.json").read_text())
+    assert report == {"failures": []}
+
+
+def test_run_qa_per_instance_fault_tolerance(tmp_path):
+    """Important #2: per-instance try/except. One bad instance must not kill
+    the whole run — the OTHER instance still emits a hypothesis line, and
+    the failure is recorded in run_report.json (spec requirement)."""
+    import copy
+    cfg = BenchConfig(difficulty="oracle", variant="raw", base_dir=tmp_path)
+    good = make_mini_dataset()[0]                      # mini_1
+    bad = copy.deepcopy(good)
+    bad["question_id"] = "bad_qid"                     # non-abstention
+    dataset = [good, bad]
+
+    res = [_FakeResult("user said blue", 0.9, {"date": "d", "session_id": "s"})]
+
+    class _RoutingFactory:
+        def __init__(self):
+            self.calls = 0
+
+        def __call__(self, **kw):
+            self.calls += 1
+            if self.calls == 2:
+                raise RuntimeError("recall blew up for bad_qid")
+            return _FakeEngine(res)
+
+    out = run_qa.run_qa(
+        dataset, cfg, engine_factory=_RoutingFactory(),
+        answer_llm=lambda s, u: "blue",
+    )
+    lines = [json.loads(l) for l in out.read_text().splitlines()]
+    ids = [l["question_id"] for l in lines]
+    # bad_qid is dropped; mini_1 still produced a line.
+    assert ids == ["mini_1"]
+    assert "bad_qid" not in ids
+
+    report = json.loads((cfg.results_dir / "run_report.json").read_text())
+    assert len(report["failures"]) == 1
+    assert report["failures"][0]["question_id"] == "bad_qid"
+    assert "recall blew up" in report["failures"][0]["error"]

@@ -14,6 +14,11 @@ class BenchConfig:
     top_k: int = 50                   # retrieval-eval needs @50; QA uses 10 via override
     base_dir: Path = Path("benchmarks/.cache")
 
+    def __post_init__(self):
+        # Coerce str -> Path so callers (CLI / JSON / tests) can pass either
+        # without crashing downstream Path-only operations (mkdir, /, etc.).
+        self.base_dir = Path(self.base_dir)
+
     @property
     def data_dir(self) -> Path:
         return self.base_dir / "data"

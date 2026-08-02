@@ -40,6 +40,13 @@ def ingest_instance(instance: dict, cfg: BenchConfig, *,
             return db_path
     if db_path.exists():
         db_path.unlink(missing_ok=True)
+    # Also clear any stale completion marker so a failed rebuild (e.g.
+    # consolidate() raising below) doesn't leave a marker pointing at a
+    # missing DB — the next non-force call would otherwise skip and return
+    # a path to nothing, yielding silent all-zero recall. Critical for
+    # force=True on the consolidated variant; harmless on raw (no marker
+    # is ever written there).
+    done_marker.unlink(missing_ok=True)
 
     eng = engine_factory(db_path=db_path, workspace=f"lme-{qid}")
     try:

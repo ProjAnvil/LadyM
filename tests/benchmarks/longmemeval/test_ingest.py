@@ -98,3 +98,47 @@ def test_force_reruns_ingest_even_when_marker_exists(tmp_path):
     ingest.ingest_instance(inst, cfg, engine_factory=lambda **kw: fake2, force=True)
     assert len(fake2.recorded) == 4
     assert fake2.consolidated is True
+
+
+class _BoomEngine(_FakeEngine):
+    """Engine whose consolidate() always raises — simulates LLM write-path failure."""
+    def consolidate(self, **kw):
+        raise RuntimeError("consolidate blew up")
+
+
+def test_consolidated_failure_clears_done_marker(tmp_path):
+    """Important #1: if consolidate() raises during a rebuild, the `.done`
+    marker must NOT be left behind pointing at a missing/empty DB. Otherwise
+    the next non-force call would skip ingest and return a path to nothing,
+    silently yielding empty recall (all-zero scores).
+    """
+    cfg = BenchConfig(difficulty="oracle", variant="consolidated", base_dir=tmp_path)
+    inst = make_mini_instance()
+    qid = inst["question_id"]
+    db_path = cfg.db_path_for(qid)
+    done_marker = db_path.with_suffix(".done")
+
+    # Pre-place a stale marker + DB to model a prior successful run, then
+    # force a rebuild that fails inside consolidate().
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    db_path.write_bytes(b"old")
+    done_marker.touch()
+    assert done_marker.exists()
+
+    try:
+        ingest.ingest_instance(
+            inst, cfg, engine_factory=lambda **kw: _BoomEngine(), force=True,
+        )
+    except RuntimeError:
+        pass
+
+    # The marker MUST be gone — otherwise the next non-force call would skip.
+    assert not done_marker.exists(), (
+        "stale .done marker survived a failed rebuild -> next call returns "
+        "a path to a missing DB -> silent all-zero recall"
+    )
+    # And the next non-force call must rebuild (not skip via the marker).
+    fake = _FakeEngine()
+    ingest.ingest_instance(inst, cfg, engine_factory=lambda **kw: fake)
+    assert fake.consolidated is True
+    assert done_marker.exists()

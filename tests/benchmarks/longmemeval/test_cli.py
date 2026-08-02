@@ -1,4 +1,3 @@
-import subprocess, sys
 from benchmarks.longmemeval import __main__ as cli
 
 

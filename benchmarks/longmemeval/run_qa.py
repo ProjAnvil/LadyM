@@ -63,28 +63,42 @@ def run_qa(
         answer_llm = _default_answer_llm()
     cfg.results_dir.mkdir(parents=True, exist_ok=True)
     out = cfg.results_dir / "hypothesis.jsonl"
+    report_path = cfg.results_dir / "run_report.json"
+    failures: list[dict] = []
     with out.open("w") as f:
         for instance in dataset:
             qid = instance["question_id"]
-            eng = engine_factory(db_path=cfg.db_path_for(qid), workspace=f"lme-{qid}")
             try:
-                resp = eng.recall(instance["question"], top_k=top_k_context)
-            finally:
-                eng.close()
-            results = resp.results or []
-            best_score = results[0].score if results else 0.0
-            if "_abs" in qid and best_score < ABSTAIN_SCORE_FLOOR:
-                hypothesis = _ABSTAIN
-            else:
-                context = "\n".join(
-                    f"[{r.memory.metadata.get('date', '')}] "
-                    f"{r.memory.metadata.get('session_id', '')}: {r.memory.content}"
-                    for r in results
-                ) or "(no relevant memories)"
-                user = (
-                    f"Memory context:\n{context}\n\n"
-                    f"Question: {instance['question']}"
-                )
-                hypothesis = answer_llm(_SYSTEM, user)
-            f.write(json.dumps({"question_id": qid, "hypothesis": hypothesis}) + "\n")
+                eng = engine_factory(db_path=cfg.db_path_for(qid), workspace=f"lme-{qid}")
+                try:
+                    resp = eng.recall(instance["question"], top_k=top_k_context)
+                finally:
+                    eng.close()
+                results = resp.results or []
+                best_score = results[0].score if results else 0.0
+                if "_abs" in qid and best_score < ABSTAIN_SCORE_FLOOR:
+                    hypothesis = _ABSTAIN
+                else:
+                    context = "\n".join(
+                        f"[{r.memory.metadata.get('date', '')}] "
+                        f"{r.memory.metadata.get('session_id', '')}: {r.memory.content}"
+                        for r in results
+                    ) or "(no relevant memories)"
+                    user = (
+                        f"Memory context:\n{context}\n\n"
+                        f"Question: {instance['question']}"
+                    )
+                    hypothesis = answer_llm(_SYSTEM, user)
+                f.write(json.dumps({"question_id": qid, "hypothesis": hypothesis}) + "\n")
+            except Exception as e:
+                # Per-instance fault tolerance (spec requirement): 1 bad
+                # instance must not kill a 500-question run — record the
+                # failure and continue. No hypothesis.jsonl line is emitted
+                # for this instance.
+                failures.append({
+                    "question_id": qid,
+                    "error": f"{type(e).__name__}: {e}",
+                })
+    # Always emit a run_report.json so operators can see what dropped.
+    report_path.write_text(json.dumps({"failures": failures}, indent=2))
     return out

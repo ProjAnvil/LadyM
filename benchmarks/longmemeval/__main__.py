@@ -35,9 +35,25 @@ def main(argv: list[str] | None = None) -> None:
     if args.command == "ingest":
         from .ingest import ingest_instance
         data, _ = _load_dataset(cfg)
+        failures: list[dict] = []
         for inst in data:
-            ingest_instance(inst, cfg, force=args.force_ingest)
-            print(f"ingested {inst['question_id']}")
+            try:
+                ingest_instance(inst, cfg, force=args.force_ingest)
+                print(f"ingested {inst['question_id']}")
+            except Exception as e:
+                # Per-instance fault tolerance (spec requirement): log the
+                # failure and keep going so 1 bad instance doesn't kill a
+                # 500-instance run.
+                msg = f"{type(e).__name__}: {e}"
+                print(f"FAILED {inst['question_id']}: {msg}")
+                failures.append({"question_id": inst["question_id"], "error": msg})
+        cfg.results_dir.mkdir(parents=True, exist_ok=True)
+        report_path = cfg.results_dir / "ingest_report.json"
+        report_path.write_text(json.dumps({"failures": failures}, indent=2))
+        print(
+            f"ingested {len(data) - len(failures)}/{len(data)} "
+            f"({len(failures)} failures -> {report_path})"
+        )
     elif args.command == "retrieve":
         from .run_retrieval import run_retrieval
         data, _ = _load_dataset(cfg)
