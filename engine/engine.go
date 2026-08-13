@@ -176,6 +176,44 @@ func (e *Engine) getAgent(op string) (providers.LLMProvider, error) {
 	return a, nil
 }
 
+func makeClassifier(provider providers.LLMProvider) operations.LLMClassifier {
+	return func(candidate string, similar []string) (operations.Action, string) {
+		msgs := []providers.Message{
+			{Role: "system", Content: consolidatePrompt},
+			{Role: "user", Content: fmt.Sprintf("candidate: %s\nsimilar: %s", candidate, fmt.Sprint(similar))},
+		}
+		d, err := provider.CompleteStructured(msgs, `{"action": "ADD|UPDATE|DELETE|NOOP", "new_text": "string?"}`)
+		if err != nil {
+			return operations.ActionAdd, ""
+		}
+		action, _ := d["action"].(string)
+		newText, _ := d["new_text"].(string)
+		return operations.Action(action), newText
+	}
+}
+
+// AttachLLMClassifier wires an explicit consolidation classifier. When fn is
+// nil it builds the consolidate agent from config (offline → heuristic).
+func (e *Engine) AttachLLMClassifier(fn operations.LLMClassifier) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.llmClassifyResolved = true
+	if fn != nil {
+		e.llmClassify = fn
+		return nil
+	}
+	provider, err := e.makeAgent("consolidate")
+	if err != nil {
+		return err
+	}
+	if provider == nil {
+		e.llmClassify = nil
+		return nil
+	}
+	e.llmClassify = makeClassifier(provider)
+	return nil
+}
+
 func (e *Engine) resolveLLMClassify() (operations.LLMClassifier, error) {
 	e.mu.Lock()
 	if e.llmClassifyResolved {
@@ -190,19 +228,7 @@ func (e *Engine) resolveLLMClassify() (operations.LLMClassifier, error) {
 	}
 	var classify operations.LLMClassifier
 	if provider != nil {
-		classify = func(candidate string, similar []string) (operations.Action, string) {
-			msgs := []providers.Message{
-				{Role: "system", Content: consolidatePrompt},
-				{Role: "user", Content: fmt.Sprintf("candidate: %s\nsimilar: %s", candidate, fmt.Sprint(similar))},
-			}
-			d, err := provider.CompleteStructured(msgs, `{"action": "ADD|UPDATE|DELETE|NOOP", "new_text": "string?"}`)
-			if err != nil {
-				return operations.ActionAdd, ""
-			}
-			action, _ := d["action"].(string)
-			newText, _ := d["new_text"].(string)
-			return operations.Action(action), newText
-		}
+		classify = makeClassifier(provider)
 	}
 	e.mu.Lock()
 	e.llmClassify = classify
