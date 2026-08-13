@@ -48,3 +48,8 @@ ladym.toml
 
 # Benchmarks
 benchmarks/.cache/
+
+# Go
+/bin/
+*.test
+coverage.out
