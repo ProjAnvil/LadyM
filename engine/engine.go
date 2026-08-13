@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ProjAnvil/LadyM/adapter"
 	"github.com/ProjAnvil/LadyM/code"
 	"github.com/ProjAnvil/LadyM/config"
 	"github.com/ProjAnvil/LadyM/layers"
@@ -36,6 +37,8 @@ type Engine struct {
 	Procedural  *layers.ProceduralMemory
 	Associative *layers.AssociativeMemory
 
+	routing *adapter.ModelRouting
+
 	mu                  sync.Mutex
 	llmClassify         operations.LLMClassifier
 	llmClassifyResolved bool
@@ -44,14 +47,26 @@ type Engine struct {
 
 // New builds an Engine from cfg (defaults to config.Default() when nil).
 func New(cfg *config.Config) (*Engine, error) {
+	return NewWithModels(cfg, nil)
+}
+
+// NewWithModels builds an Engine, optionally injecting host-owned models via
+// routing (embedding provider + per-op LLM providers).
+func NewWithModels(cfg *config.Config, models *adapter.ModelRouting) (*Engine, error) {
 	if cfg == nil {
 		cfg = config.Default()
 	}
-	e := &Engine{Config: cfg, agents: map[string]providers.LLMProvider{}}
+	e := &Engine{Config: cfg, routing: models, agents: map[string]providers.LLMProvider{}}
 
-	provider, err := storage.MakeProvider(cfg)
-	if err != nil {
-		return nil, err
+	var provider storage.EmbeddingProvider
+	var err error
+	if models != nil && models.Embedding != nil {
+		provider = models.Embedding
+	} else {
+		provider, err = storage.MakeProvider(cfg)
+		if err != nil {
+			return nil, err
+		}
 	}
 	e.Provider = provider
 
@@ -114,6 +129,9 @@ func (e *Engine) enforceEmbeddingDim() error {
 	}
 	actual := e.Provider.Dim()
 	providerName := e.Config.EmbeddingProvider
+	if e.routing != nil && e.routing.Embedding != nil {
+		providerName = "injected"
+	}
 	if stored == "" {
 		if err := e.Store.SetMeta("embedding_dim", strconv.Itoa(actual)); err != nil {
 			return err
@@ -157,6 +175,11 @@ func (e *Engine) reembedAll() error {
 // ---- agent wiring ----
 
 func (e *Engine) makeAgent(op string) (providers.LLMProvider, error) {
+	if e.routing != nil {
+		if injected := e.routing.Get(op); injected != nil {
+			return injected, nil
+		}
+	}
 	return providers.MakeAgent(e.Config, op)
 }
 

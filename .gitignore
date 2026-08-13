@@ -53,3 +53,5 @@ benchmarks/.cache/
 /bin/
 *.test
 coverage.out
+# Local shell profiles (may contain secrets)
+.localProfile

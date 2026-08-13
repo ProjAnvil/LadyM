@@ -363,6 +363,28 @@ func (s *SQLiteStore) FindByHash(contentHash, workspace string) (*schema.Memory,
 	return s.scanMemory(rows)
 }
 
+// EpisodicContentsSince returns the content strings of episodic events in
+// workspace created at or after since (used by the attention gate's
+// recent-duplicate scan; pushes the time-window cut into SQL).
+func (s *SQLiteStore) EpisodicContentsSince(workspace string, since float64) ([]string, error) {
+	rows, err := s.db.Query(
+		"SELECT content FROM memories WHERE workspace = ? AND layer = ? AND created_at >= ?",
+		workspace, string(schema.LayerEpisodic), since)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var c string
+		if err := rows.Scan(&c); err != nil {
+			return nil, err
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
 // Count returns a "layer/type" → count map (optionally scoped to workspace).
 func (s *SQLiteStore) Count(workspace string) (map[string]int, error) {
 	q := "SELECT layer, type, COUNT(*) FROM memories"

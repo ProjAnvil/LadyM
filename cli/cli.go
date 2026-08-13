@@ -396,13 +396,23 @@ func workerCmd() *cobra.Command {
 }
 
 func configCmd() *cobra.Command {
+	var port int
+	var noBrowser bool
 	cmd := &cobra.Command{
 		Use:   "config",
 		Short: "Manage ladym.toml (web editor) and the encrypted secret store.",
+		// With no subcommand, launch the local web config editor (mirrors the
+		// Python `ladym config` behaviour).
+		Args: cobra.NoArgs,
+		RunE: func(c *cobra.Command, args []string) error {
+			return web.Run(globalConfigPath, port, noBrowser)
+		},
 	}
+	cmd.Flags().IntVar(&port, "port", 8765, "Listen port")
+	cmd.Flags().BoolVar(&noBrowser, "no-browser", false, "Do not open a browser")
 	cmd.AddCommand(
 		configSetCmd(), configSetMasterKeyCmd(), configResetMasterKeyCmd(),
-		configListCmd(), configRMCmd(), configWebCmd(),
+		configListCmd(), configRMCmd(),
 	)
 	return cmd
 }
@@ -505,21 +515,6 @@ func configRMCmd() *cobra.Command {
 			return nil
 		},
 	}
-}
-
-func configWebCmd() *cobra.Command {
-	var port int
-	var noBrowser bool
-	cmd := &cobra.Command{
-		Use:   "editor",
-		Short: "Launch the local web config editor.",
-		RunE: func(c *cobra.Command, args []string) error {
-			return web.Run(globalConfigPath, port, noBrowser)
-		},
-	}
-	cmd.Flags().IntVar(&port, "port", 8765, "Listen port")
-	cmd.Flags().BoolVar(&noBrowser, "no-browser", false, "Do not open a browser")
-	return cmd
 }
 
 // ---- small helpers ----

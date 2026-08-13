@@ -14,6 +14,7 @@ import (
 
 	"github.com/ProjAnvil/LadyM/config"
 	"github.com/ProjAnvil/LadyM/engine"
+	"github.com/ProjAnvil/LadyM/providers"
 	"github.com/ProjAnvil/LadyM/secrets"
 	"github.com/ProjAnvil/LadyM/storage"
 )
@@ -114,6 +115,9 @@ func Run(configPath string, port int, noBrowser bool) error {
 		ok, msg := prov.HealthCheck()
 		fmt.Fprintf(w, "<small>%v %s</small>", checkMark(ok), msg)
 	})
+	mux.HandleFunc("/reset", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/", http.StatusFound)
+	})
 	mux.HandleFunc("/test/llm", func(w http.ResponseWriter, r *http.Request) {
 		cfg := config.Default()
 		applyForm(cfg, r)
@@ -121,7 +125,24 @@ func Run(configPath string, port int, noBrowser bool) error {
 			fmt.Fprint(w, "<small>✓ none (heuristic mode)</small>")
 			return
 		}
-		fmt.Fprint(w, "<small>✓ llm configured</small>")
+		prov, err := providers.MakeLLMProvider(cfg.LLMProvider, cfg.LLMBaseURL, cfg.LLMModel, os.Getenv(cfg.LLMAPIKeyEnv), cfg.LLMStructuredMethod, cfg.LLMMaxTokens, cfg.LLMTemperature, cfg.LLMTimeoutS)
+		if err != nil {
+			fmt.Fprintf(w, "<small>✗ %v</small>", err)
+			return
+		}
+		if prov == nil {
+			fmt.Fprint(w, "<small>✓ none (heuristic mode)</small>")
+			return
+		}
+		out, err := prov.Complete([]providers.Message{{Role: "user", Content: "ping"}})
+		if err != nil {
+			fmt.Fprintf(w, "<small>✗ %v</small>", err)
+			return
+		}
+		if len(out) > 20 {
+			out = out[:20]
+		}
+		fmt.Fprintf(w, "<small>✓ %q</small>", out)
 	})
 	mux.HandleFunc("/api/secrets", func(w http.ResponseWriter, r *http.Request) {
 		store := secrets.NewStore("")
@@ -149,6 +170,29 @@ func Run(configPath string, port int, noBrowser bool) error {
 		default:
 			http.Error(w, "method not allowed", 405)
 		}
+	})
+	mux.HandleFunc("/api/master-key", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", 405)
+			return
+		}
+		var payload struct {
+			Reset bool   `json:"reset"`
+			Key   string `json:"key"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&payload)
+		store := secrets.NewStore("")
+		var err error
+		if payload.Reset {
+			err = store.ResetMasterKey(payload.Key)
+		} else {
+			_, err = store.SetMasterKey(payload.Key)
+		}
+		if err != nil {
+			http.Error(w, err.Error(), 400)
+			return
+		}
+		writeJSON(w, map[string]any{"ok": true, "master_key_set": true})
 	})
 
 	addr := fmt.Sprintf("127.0.0.1:%d", port)

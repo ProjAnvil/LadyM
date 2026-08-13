@@ -75,12 +75,12 @@ func AttentionGate(content string, cfg *config.Config, store *storage.SQLiteStor
 	window := cfg.Attention.DedupWindowS
 	needle := hash8(content)
 	since := now - window
-	episodes, err := store.IterMemories(cfg.Workspace, string(schema.LayerEpisodic), "")
+	contents, err := store.EpisodicContentsSince(cfg.Workspace, since)
 	if err != nil {
 		return GateDecision{}, err
 	}
-	for _, e := range episodes {
-		if e.CreatedAt >= since && hash8(e.Content) == needle {
+	for _, c := range contents {
+		if hash8(c) == needle {
 			return GateDecision{Action: "drop", Reason: "recent duplicate"}, nil
 		}
 	}

@@ -56,6 +56,21 @@ eng.IndexCode("./src", false, "", nil)
 resp, _ := eng.Recall("how does auth work", "", 0, nil, nil, 0)
 ```
 
+One-shot helpers and host-model injection are also available:
+
+```go
+// one-shot (opens + closes a short-lived engine)
+resp, _ := ladym.Recall("how does auth work", "mem.db", "team", 5)
+ladym.Remember("auth uses JWT", "mem.db", "team", []string{"auth"}, "sdk")
+ladym.IndexCode("./src", "mem.db", "team", false)
+
+// inject your own providers (ModelRouting ≈ Python's langchain injection)
+eng, _ := ladym.NewEngineWithModels(cfg, &ladym.ModelRouting{
+    Embedding: myEmbeddingProvider,
+    Consolidate: myLLMProvider,
+})
+```
+
 ## Parity
 
 The following behaviour is ported 1:1 and covered by tests, including
