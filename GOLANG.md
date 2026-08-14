@@ -93,7 +93,7 @@ These are deliberate trade-offs of the Go port:
 | Python | Go port |
 |---|---|
 | `sqlite-vec` loadable extension (persistent ANN) | pure-Go `InMemoryVectorIndex` (brute-force cosine); vectors still persisted as BLOBs and warmed on reopen — behaviour identical, `prefer_sqlite_vec` accepted but inert |
-| tree-sitter + `tree-sitter-language-pack` (cgo) | pure-Go line/regex symbol extractor for Python/Go/JS/TS/Rust/Java/C/C++ (produces the same `RawSymbol` records); other languages use line-chunk fallback |
+| tree-sitter + `tree-sitter-language-pack` (cgo) | [gotreesitter](https://github.com/odvcencio/gotreesitter) — a pure-Go tree-sitter runtime that loads the same parse tables as upstream tree-sitter (206 grammars). Same AST-level symbol extraction, no cgo |
 | sentence-transformers (`embedding.provider="st"`) | returns a clear error — use `provider="http"`/`"ollama"` to point at a local embedding endpoint |
 | langchain `ChatOpenAI`/`ChatAnthropic`/`ChatOllama` | net/http OpenAI-compatible / Anthropic / Ollama chat clients; structured output uses JSON mode |
 | langgraph integration (`langchain`/`langgraph`) | not ported (Python-only runtime); the equivalent entry points are the MCP server / CLI / SDK |
