@@ -173,3 +173,48 @@ def test_wal_mode_when_requested(tmp_db):
     mode = s.conn.execute("PRAGMA journal_mode").fetchone()[0]
     assert mode == "wal"
     s.close()
+
+
+def test_busy_timeout_is_set(tmp_db):
+    """Every store connection must pin an explicit busy_timeout so concurrent
+    writers wait for the lock instead of failing with "database is locked"."""
+    from ladym.storage.store import _BUSY_TIMEOUT_MS, SQLiteStore
+    s = SQLiteStore(tmp_db, dim=8, prefer_sqlite_vec=False)
+    try:
+        ms = s.conn.execute("PRAGMA busy_timeout").fetchone()[0]
+        assert ms == _BUSY_TIMEOUT_MS
+    finally:
+        s.close()
+
+
+def test_concurrent_writer_waits_then_succeeds(tmp_db):
+    """A second connection holding the write lock must not make the store fail —
+    busy_timeout lets the write wait until the lock is released."""
+    import sqlite3
+    import threading
+
+    from ladym.storage.store import SQLiteStore
+
+    store = SQLiteStore(tmp_db, dim=8, prefer_sqlite_vec=False)
+    try:
+        blocker_ready = threading.Event()
+
+        def hold_lock_then_release() -> None:
+            blocker = sqlite3.connect(str(tmp_db))
+            blocker.execute("BEGIN IMMEDIATE")
+            blocker_ready.set()
+            time.sleep(0.5)  # hold the write lock long enough for the store to block
+            blocker.commit()
+            blocker.close()
+
+        t = threading.Thread(target=hold_lock_then_release)
+        t.start()
+        assert blocker_ready.wait(timeout=5)
+
+        m = _mem("needs the write lock")
+        store.put_memory(m)  # blocks until the blocker commits
+        t.join(timeout=5)
+
+        assert store.get_memory(m.id) is not None
+    finally:
+        store.close()

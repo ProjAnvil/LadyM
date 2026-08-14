@@ -21,6 +21,14 @@ from typing import Any
 from ..schema import Edge, Memory
 from .vector_index import InMemoryVectorIndex, SQLiteVecIndex, VectorIndex
 
+# How long (ms) a connection waits for a SQLite write lock held by another
+# process before raising "database is locked". LadyM is legitimately opened by
+# several processes at once (the MCP ``serve``, the System2 ``worker``, and
+# one-shot CLI commands), so transient write-lock contention must wait rather
+# than fail immediately — the old behaviour surfaced as hard errors and, under
+# heavier contention, as wedged writers.
+_BUSY_TIMEOUT_MS = 10_000
+
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS memories (
     id              TEXT PRIMARY KEY,
@@ -107,6 +115,11 @@ class SQLiteStore:
         self.conn = sqlite3.connect(str(self.db_path))
         self.conn.row_factory = sqlite3.Row
         self.prefer_sqlite_vec = prefer_sqlite_vec
+        # Must run before any statement that could contend: makes a concurrent
+        # writer WAIT for the lock (up to _BUSY_TIMEOUT_MS) instead of raising
+        # "database is locked" immediately. Python's sqlite3 default (5s) is
+        # shorter and implicit; we pin an explicit, generous value here.
+        self.conn.execute(f"PRAGMA busy_timeout = {_BUSY_TIMEOUT_MS}")
         if enable_wal:
             self.conn.execute("PRAGMA journal_mode=WAL")
         self.conn.execute("PRAGMA foreign_keys = ON")

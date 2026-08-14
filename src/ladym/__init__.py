@@ -13,6 +13,7 @@ See ARCHITECTURE.md for the design and README.md for usage.
 
 from __future__ import annotations
 
+from .adapter import ModelRouting
 from .config import (
     ActivationWeights,
     CodeIndexConfig,
@@ -21,6 +22,7 @@ from .config import (
     RecallConfig,
 )
 from .engine import Engine
+from .providers.agents import NAMED_OPS
 from .schema import (
     CodeSymbol,
     Edge,
@@ -31,8 +33,6 @@ from .schema import (
     RecallResult,
     Stats,
 )
-from .adapter import ModelRouting
-from .providers.agents import NAMED_OPS
 
 __all__ = [
     "ActivationWeights",
@@ -53,4 +53,4 @@ __all__ = [
     "NAMED_OPS",
 ]
 
-__version__ = "0.2.1"
+__version__ = "0.2.2"

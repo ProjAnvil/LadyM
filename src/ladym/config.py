@@ -166,7 +166,12 @@ class Config:
         default_factory=lambda: os.environ.get("LADYM_WORKSPACE", "default")
     )
     prefer_sqlite_vec: bool = True
-    enable_wal: bool = False
+    # WAL lets concurrent readers coexist with the single writer, so the MCP
+    # ``serve`` process, the System2 ``worker``, and one-shot CLI commands can
+    # share one ``.db`` without wedging each other. Default on; set
+    # ``enable_wal = false`` (or ``LADYM_ENABLE_WAL=false``) only on filesystems
+    # that don't support WAL.
+    enable_wal: bool = True
 
     # embedding (flat — source of truth for make_provider)
     embedding_provider: str = field(

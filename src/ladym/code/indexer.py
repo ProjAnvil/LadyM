@@ -7,12 +7,16 @@ L4-style code_refs. Files without a grammar degrade to sliding-window line chunk
 
 from __future__ import annotations
 
+import fcntl
 import hashlib
+import os
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from ..config import Config
+from ..errors import IndexInProgressError
 from ..schema import CodeSymbol, Layer, Memory, MemoryType
 from ..storage.embeddings import EmbeddingProvider
 from ..storage.store import SQLiteStore
@@ -50,6 +54,34 @@ def _should_ignore(path: Path, ignore_globs: list[str]) -> bool:
     return any(pat.rstrip("*").rstrip("/") in name for pat in ignore_globs)
 
 
+@contextmanager
+def _exclusive_index_lock(db_path: Path):
+    """Cross-process single-flight lock so only one indexer runs per database.
+
+    ``flock`` is released automatically when the process exits (even on crash),
+    so a stale lock can never wedge future runs. It is non-blocking: if another
+    process already holds the lock we fail fast with
+    :class:`IndexInProgressError` rather than queueing a second full reindex.
+    """
+    lock_path = Path(f"{db_path}.index.lock")
+    fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o644)
+    acquired = False
+    try:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            acquired = True
+        except BlockingIOError:
+            raise IndexInProgressError(
+                f"code indexing is already running for {db_path}; "
+                "wait for it to finish before starting another"
+            ) from None
+        yield
+    finally:
+        if acquired:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+        os.close(fd)
+
+
 def index_codebase(
     root: Path,
     store: SQLiteStore,
@@ -60,7 +92,29 @@ def index_codebase(
     force: bool = False,
     language_filter: list[str] | None = None,
 ) -> IndexReport:
-    """Walk ``root`` and index every supported source file."""
+    """Walk ``root`` and index every supported source file.
+
+    Takes a cross-process single-flight lock on the database so two concurrent
+    reindexes cannot thrash the same SQLite store; raises
+    :class:`IndexInProgressError` when another process is already indexing.
+    """
+    with _exclusive_index_lock(store.db_path):
+        return _index_codebase_locked(
+            root, store, embedder, cfg=cfg, workspace=workspace,
+            force=force, language_filter=language_filter,
+        )
+
+
+def _index_codebase_locked(
+    root: Path,
+    store: SQLiteStore,
+    embedder: EmbeddingProvider,
+    *,
+    cfg: Config,
+    workspace: str | None,
+    force: bool,
+    language_filter: list[str] | None,
+) -> IndexReport:
     try:
         import tree_sitter  # noqa: F401  — guard: [codeindex] extra check
     except ImportError as e:

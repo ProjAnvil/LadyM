@@ -322,8 +322,20 @@ def test_config_defaults_offline():
     assert cfg.llm_provider == "none"  # canonical offline token (Task 2.1)
     assert cfg.workspace == "default"
     assert cfg.prefer_sqlite_vec is True
+    # WAL defaults on so concurrent ladym processes share one DB safely.
+    assert cfg.enable_wal is True
     assert cfg.activation.similarity == 1.0
     assert cfg.recall.top_k_tier1 == 8
+
+
+def test_enable_wal_defaults_on_and_can_be_disabled(tmp_path, monkeypatch):
+    """enable_wal defaults to True; a TOML ``enable_wal = false`` (or env) opts out."""
+    monkeypatch.delenv("LADYM_ENABLE_WAL", raising=False)
+    assert Config().enable_wal is True
+
+    f = tmp_path / "ladym.toml"
+    write(f, "enable_wal = false\n")
+    assert Config.from_file(f).enable_wal is False
 
 
 def test_for_testing_still_offline(tmp_path):
