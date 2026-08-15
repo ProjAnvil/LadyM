@@ -146,7 +146,14 @@ func summarise(llm providers.LLMProvider, prompt string, members []*schema.Memor
 		{Role: "system", Content: prompt},
 		{Role: "user", Content: "Abstract these memories into one mental model:\n" + corpus},
 	}
-	return llm.CompleteStructured(msgs, `{"title": "string", "model": "string"}`)
+	return llm.CompleteStructured(msgs, providers.JSONSchema{
+		"type": "object",
+		"properties": map[string]any{
+			"title": map[string]any{"type": "string", "description": "Short title for the mental model"},
+			"model": map[string]any{"type": "string", "description": "The abstracted mental model body"},
+		},
+		"required": []string{"title", "model"},
+	})
 }
 
 func storeModel(store *storage.SQLiteStore, embedder storage.EmbeddingProvider, title, body, workspace, source string, extraMeta map[string]any) (*schema.Memory, error) {

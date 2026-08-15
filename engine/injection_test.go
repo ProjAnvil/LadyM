@@ -13,7 +13,7 @@ import (
 func TestNewWithModelsInjectsProviders(t *testing.T) {
 	emb := storage.NewHashingEmbedding(32)
 	classifier := &providers.FakeLLMProvider{
-		StructuredFn: func(msgs []providers.Message, schemaDesc string) (map[string]any, error) {
+		StructuredFn: func(msgs []providers.Message, schema providers.JSONSchema) (map[string]any, error) {
 			return map[string]any{"action": "ADD", "new_text": nil}, nil
 		},
 	}

@@ -50,7 +50,7 @@ func (f *fakeParityLLM) Name() string { return "fake" }
 func (f *fakeParityLLM) Complete(messages []providers.Message) (string, error) {
 	return "", nil
 }
-func (f *fakeParityLLM) CompleteStructured(messages []providers.Message, schemaDesc string) (map[string]any, error) {
+func (f *fakeParityLLM) CompleteStructured(messages []providers.Message, schema providers.JSONSchema) (map[string]any, error) {
 	for _, m := range messages {
 		if m.Role == "user" {
 			f.gotUser = m.Content

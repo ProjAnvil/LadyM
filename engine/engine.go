@@ -205,7 +205,14 @@ func makeClassifier(provider providers.LLMProvider) operations.LLMClassifier {
 			{Role: "system", Content: consolidatePrompt},
 			{Role: "user", Content: fmt.Sprintf("candidate: %s\nsimilar: %s", candidate, fmt.Sprint(similar))},
 		}
-		d, err := provider.CompleteStructured(msgs, `{"action": "ADD|UPDATE|DELETE|NOOP", "new_text": "string?"}`)
+		d, err := provider.CompleteStructured(msgs, providers.JSONSchema{
+			"type": "object",
+			"properties": map[string]any{
+				"action":   map[string]any{"type": "string", "description": "One of ADD|UPDATE|DELETE|NOOP"},
+				"new_text": map[string]any{"type": "string", "description": "Replacement text for UPDATE; omitted otherwise"},
+			},
+			"required": []string{"action"},
+		})
 		if err != nil {
 			return "", "", err
 		}

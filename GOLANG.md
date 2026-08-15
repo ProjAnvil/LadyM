@@ -69,6 +69,24 @@ eng, _ := ladym.NewEngineWithModels(cfg, &ladym.ModelRouting{
     Embedding: myEmbeddingProvider,
     Consolidate: myLLMProvider,
 })
+
+// inject langchain-golang models directly (mirrors Python's langchain injection)
+eng, _ = ladym.NewEngineWithModels(cfg, &ladym.ModelRouting{
+    Embedding:   adapter.WrapEmbeddings(openai.NewEmbeddings(...)),
+    Consolidate: adapter.WrapChatModel(anthropic.NewChatModel(...), "function_calling"),
+})
+```
+
+LangGraph hosts can wire ladyM in as a memory layer via the `langgraph`
+package (mirrors Python's `ladym.langgraph`):
+
+```go
+// Path A — tools for ReAct-style agents (agents.CreateAgent)
+tools, _ := ladymgraph.CreateTools(eng, "team", 8)
+
+// Path B — graph nodes for automatic per-turn memory injection
+g.AddNode("recall", ladymgraph.CreateRecallNode(eng, 6, "", nil))
+g.AddNode("retain", ladymgraph.CreateRetainNode(eng, nil))
 ```
 
 ## Parity
@@ -95,8 +113,10 @@ These are deliberate trade-offs of the Go port:
 | `sqlite-vec` loadable extension (persistent ANN) | pure-Go `InMemoryVectorIndex` (brute-force cosine); vectors still persisted as BLOBs and warmed on reopen — behaviour identical, `prefer_sqlite_vec` accepted but inert |
 | tree-sitter + `tree-sitter-language-pack` (cgo) | [gotreesitter](https://github.com/odvcencio/gotreesitter) — a pure-Go tree-sitter runtime that loads the same parse tables as upstream tree-sitter (206 grammars). Same AST-level symbol extraction, no cgo |
 | sentence-transformers (`embedding.provider="st"`) | returns a clear error — use `provider="http"`/`"ollama"` to point at a local embedding endpoint |
-| langchain `ChatOpenAI`/`ChatAnthropic`/`ChatOllama` | net/http OpenAI-compatible / Anthropic / Ollama chat clients; structured output uses JSON mode |
-| langgraph integration (`langchain`/`langgraph`) | not ported (Python-only runtime); the equivalent entry points are the MCP server / CLI / SDK |
+| langchain `ChatOpenAI`/`ChatAnthropic`/`ChatOllama` | [langchain-golang](https://github.com/ProjAnvil/langchain-golang) partner chat models (`openai`/`anthropic`/`ollama` kinds) with provider-native structured output (real JSON Schema: OpenAI json_schema, Anthropic tool use, Ollama format schema); `llm.provider="http"` keeps the legacy hand-rolled net/http client as an escape hatch |
+| langgraph integration (`ladym.langgraph`) | `langgraph` package on langchain-golang: `CreateTools` (Path A) and `CreateRecallNode`/`CreateRetainNode` (Path B) |
+| OpenAI endpoint | langchain-golang's OpenAI partner defaults to the Responses API; ladyM switches it to `/chat/completions` for parity with Python's `ChatOpenAI` and OpenAI-compatible servers |
+| `structured_method=function_calling` on OpenAI | langchain-golang's OpenAI partner implements structured output via the native json_schema response_format rather than function calling; behavior is equivalent-or-stricter |
 | sqlite driver | `modernc.org/sqlite` (pure Go, no cgo — preserves the "no native toolchain" property); slower than native sqlite for large bulk indexing |
 
 `go test ./...` is hermetic: it exercises the deterministic hashing embedding and

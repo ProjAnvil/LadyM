@@ -102,7 +102,15 @@ func llmGate(provider providers.LLMProvider, content string) (GateDecision, erro
 		{Role: "system", Content: gateSystemPrompt},
 		{Role: "user", Content: content},
 	}
-	d, err := provider.CompleteStructured(msgs, `{"action": "pass|rewrite|drop", "content": "string?", "reason": "string"}`)
+	d, err := provider.CompleteStructured(msgs, providers.JSONSchema{
+		"type": "object",
+		"properties": map[string]any{
+			"action":  map[string]any{"type": "string", "description": "One of pass|rewrite|drop"},
+			"content": map[string]any{"type": "string", "description": "Rewritten content when action=rewrite; omitted otherwise"},
+			"reason":  map[string]any{"type": "string", "description": "Short rationale for the decision"},
+		},
+		"required": []string{"action"},
+	})
 	if err != nil {
 		return GateDecision{}, err
 	}

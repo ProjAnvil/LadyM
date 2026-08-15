@@ -116,7 +116,25 @@ func PredictL6(store *storage.SQLiteStore, embedder storage.EmbeddingProvider, c
 		{Role: "system", Content: prompt},
 		{Role: "user", Content: "Predict likely next intents from these recent episodes:\n" + corpus},
 	}
-	out, err := llm.CompleteStructured(msgs, `{"intents": [{"intent": "string", "confidence": 0.5, "horizon_s": 0}]}`)
+	out, err := llm.CompleteStructured(msgs, providers.JSONSchema{
+		"type": "object",
+		"properties": map[string]any{
+			"intents": map[string]any{
+				"type":        "array",
+				"description": "Predicted next intents",
+				"items": map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"intent":     map[string]any{"type": "string", "description": "Predicted intent text"},
+						"confidence": map[string]any{"type": "number", "description": "0..1 confidence, default 0.5"},
+						"horizon_s":  map[string]any{"type": "number", "description": "Seconds the prediction stays valid; omit for the configured default"},
+					},
+					"required": []string{"intent"},
+				},
+			},
+		},
+		"required": []string{"intents"},
+	})
 	if err != nil {
 		return nil, err
 	}

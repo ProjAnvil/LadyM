@@ -17,6 +17,8 @@ github.com/ncruces/go-strftime v1.0.0 h1:HMFp8mLCTPp341M/ZnA4qaf7ZlsbTc+miZjCLOF
 github.com/ncruces/go-strftime v1.0.0/go.mod h1:Fwc5htZGVVkseilnfgOVb9mKy6w1naJmn9CehxcKcls=
 github.com/odvcencio/gotreesitter v0.49.0 h1:3vjywFxk+v/Z6OGCxJi6gVy4ShwGhUUU+L3J9f+QcCk=
 github.com/odvcencio/gotreesitter v0.49.0/go.mod h1:hBVkghd0paaYAVwd2087vfwdeU984bQbMo9LvpE0moo=
+github.com/projanvil/langchain-golang v0.5.0 h1:8p7VRgZpRTYxYVwJVv5AJJEYibeGLLYDNPYqrd/x+hA=
+github.com/projanvil/langchain-golang v0.5.0/go.mod h1:1Combx+N96YyHchbXTfJXGIB3ckJs3QAXxF98O5/PyY=
 github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec h1:W09IVJc94icq4NjY3clb7Lk8O1qJ8BdBEF8z0ibU0rE=
 github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec/go.mod h1:qqbHyh8v60DhA7CoWK5oRCqLrMHRGoxYCSS9EjAz6Eo=
 github.com/russross/blackfriday/v2 v2.1.0/go.mod h1:+Rmxgy9KzJVeS9/2gXHxylqXiyQDYRxCVz55jmeOWTM=

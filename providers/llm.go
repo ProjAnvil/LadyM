@@ -18,21 +18,27 @@ type Message struct {
 	Content string `json:"content"`
 }
 
+// JSONSchema is a JSON-Schema-shaped object describing the expected
+// structured output. It matches langchain-golang's core/schema.Schema
+// (which is itself map[string]any), so callers can pass either.
+type JSONSchema = map[string]any
+
 // LLMProvider is the abstract base for LLM providers.
 type LLMProvider interface {
 	Name() string
 	// Complete returns the model's text reply.
 	Complete(messages []Message) (string, error)
-	// CompleteStructured returns a parsed JSON object. schemaDesc is a compact
-	// description of the expected JSON shape.
-	CompleteStructured(messages []Message, schemaDesc string) (map[string]any, error)
+	// CompleteStructured returns a parsed JSON object conforming to schema,
+	// a real JSON Schema object (mirroring Python's Pydantic-derived schema
+	// passed to LangChain's with_structured_output).
+	CompleteStructured(messages []Message, schema JSONSchema) (map[string]any, error)
 	Close() error
 }
 
 // FakeLLMProvider is a scriptable test double.
 type FakeLLMProvider struct {
 	CompleteFn   func([]Message) (string, error)
-	StructuredFn func([]Message, string) (map[string]any, error)
+	StructuredFn func([]Message, JSONSchema) (map[string]any, error)
 }
 
 func (f *FakeLLMProvider) Name() string { return "fake" }
@@ -44,11 +50,11 @@ func (f *FakeLLMProvider) Complete(messages []Message) (string, error) {
 	return f.CompleteFn(messages)
 }
 
-func (f *FakeLLMProvider) CompleteStructured(messages []Message, schemaDesc string) (map[string]any, error) {
+func (f *FakeLLMProvider) CompleteStructured(messages []Message, schema JSONSchema) (map[string]any, error) {
 	if f.StructuredFn == nil {
 		return nil, fmt.Errorf("FakeLLMProvider has no structured_fn scripted")
 	}
-	return f.StructuredFn(messages, schemaDesc)
+	return f.StructuredFn(messages, schema)
 }
 
 func (f *FakeLLMProvider) Close() error { return nil }
@@ -129,11 +135,11 @@ func (h *HTTPLLM) post(url string, payload map[string]any, headers map[string]st
 func (h *HTTPLLM) Complete(messages []Message) (string, error) {
 	switch h.kind {
 	case "anthropic":
-		return h.anthropicComplete(messages, false, "", "")
+		return h.anthropicComplete(messages, false, nil, "")
 	case "ollama":
-		return h.ollamaComplete(messages, false, "")
+		return h.ollamaComplete(messages, false, nil)
 	default:
-		return h.openAIComplete(messages, false, "", "")
+		return h.openAIComplete(messages, false, nil, "")
 	}
 }
 
@@ -141,17 +147,14 @@ func (h *HTTPLLM) Complete(messages []Message) (string, error) {
 // output is requested via function_calling / tool use.
 const structuredToolName = "structured_output"
 
-// genericObjectSchema is a permissive JSON Schema used for json_schema /
-// function_calling structured output. NOTE: unlike the Python reference
-// (adapter.py), where complete_structured receives a Pydantic model class and
-// LangChain's with_structured_output derives a real JSON Schema from it, the
-// Go port's CompleteStructured only receives a free-text schemaDesc. The
-// description therefore cannot be reconstructed into a true JSON Schema, so
-// we send this generic object schema and keep the textual description in the
-// prompt. This is a deliberate divergence from LangChain's strict-schema
-// behavior.
-func genericObjectSchema() map[string]any {
-	return map[string]any{"type": "object", "additionalProperties": true}
+// schemaPromptText renders a JSON Schema as compact text for prompt-based
+// (json_mode) structured output.
+func schemaPromptText(schema JSONSchema) string {
+	b, err := json.Marshal(schema)
+	if err != nil {
+		return fmt.Sprint(schema)
+	}
+	return string(b)
 }
 
 // normalizedStructuredMethod validates the configured structured_method.
@@ -168,7 +171,7 @@ func normalizedStructuredMethod(m string) (string, error) {
 	}
 }
 
-func (h *HTTPLLM) CompleteStructured(messages []Message, schemaDesc string) (map[string]any, error) {
+func (h *HTTPLLM) CompleteStructured(messages []Message, schema JSONSchema) (map[string]any, error) {
 	method, err := normalizedStructuredMethod(h.structuredMethod)
 	if err != nil {
 		return nil, err
@@ -176,11 +179,11 @@ func (h *HTTPLLM) CompleteStructured(messages []Message, schemaDesc string) (map
 	var content string
 	switch h.kind {
 	case "anthropic":
-		content, err = h.anthropicComplete(messages, true, schemaDesc, method)
+		content, err = h.anthropicComplete(messages, true, schema, method)
 	case "ollama":
-		content, err = h.ollamaComplete(messages, true, schemaDesc)
+		content, err = h.ollamaComplete(messages, true, schema)
 	default:
-		content, err = h.openAIComplete(messages, true, schemaDesc, method)
+		content, err = h.openAIComplete(messages, true, schema, method)
 	}
 	if err != nil {
 		return nil, err
@@ -206,7 +209,7 @@ func extractJSON(s string) string {
 	return s
 }
 
-func (h *HTTPLLM) openAIComplete(messages []Message, structured bool, schemaDesc, method string) (string, error) {
+func (h *HTTPLLM) openAIComplete(messages []Message, structured bool, schema JSONSchema, method string) (string, error) {
 	msgs := append([]Message{}, messages...)
 	payload := map[string]any{
 		"model":       h.model,
@@ -215,18 +218,16 @@ func (h *HTTPLLM) openAIComplete(messages []Message, structured bool, schemaDesc
 		"temperature": h.temperature,
 	}
 	if structured {
-		sys := "Reply ONLY with JSON matching this schema: " + schemaDesc
+		sys := "Reply ONLY with JSON matching this JSON schema: " + schemaPromptText(schema)
 		msgs = append([]Message{{Role: "system", Content: sys}}, msgs...)
 		payload["messages"] = msgs
 		switch method {
 		case "json_schema":
-			// See genericObjectSchema: schemaDesc is free text, so we pair a
-			// generic object schema with the prompt-embedded description.
 			payload["response_format"] = map[string]any{
 				"type": "json_schema",
 				"json_schema": map[string]any{
 					"name":   structuredToolName,
-					"schema": genericObjectSchema(),
+					"schema": schema,
 				},
 			}
 		case "function_calling":
@@ -235,7 +236,7 @@ func (h *HTTPLLM) openAIComplete(messages []Message, structured bool, schemaDesc
 				"function": map[string]any{
 					"name":        structuredToolName,
 					"description": "Return structured output matching the requested schema.",
-					"parameters":  genericObjectSchema(),
+					"parameters":  schema,
 				},
 			}}
 			payload["tool_choice"] = map[string]any{
@@ -274,7 +275,7 @@ func (h *HTTPLLM) openAIComplete(messages []Message, structured bool, schemaDesc
 	return content, nil
 }
 
-func (h *HTTPLLM) anthropicComplete(messages []Message, structured bool, schemaDesc, method string) (string, error) {
+func (h *HTTPLLM) anthropicComplete(messages []Message, structured bool, schema JSONSchema, method string) (string, error) {
 	var systemParts []string
 	var userMsgs []map[string]any
 	for _, m := range messages {
@@ -294,17 +295,16 @@ func (h *HTTPLLM) anthropicComplete(messages []Message, structured bool, schemaD
 		switch method {
 		case "function_calling", "json_schema":
 			// Anthropic has no json_schema response_format; LangChain maps both
-			// methods to tool use. See genericObjectSchema for why input_schema
-			// is a generic object schema.
-			systemParts = append(systemParts, "Reply via the "+structuredToolName+" tool with JSON matching this schema: "+schemaDesc)
+			// methods to tool use with the real JSON Schema as input_schema.
+			systemParts = append(systemParts, "Reply via the "+structuredToolName+" tool with JSON matching this JSON schema: "+schemaPromptText(schema))
 			payload["tools"] = []any{map[string]any{
 				"name":         structuredToolName,
 				"description":  "Return structured output matching the requested schema.",
-				"input_schema": genericObjectSchema(),
+				"input_schema": schema,
 			}}
 			payload["tool_choice"] = map[string]any{"type": "tool", "name": structuredToolName}
 		default: // "json_mode" or "" — prompt injection
-			systemParts = append(systemParts, "Reply ONLY with JSON matching this schema: "+schemaDesc)
+			systemParts = append(systemParts, "Reply ONLY with JSON matching this JSON schema: "+schemaPromptText(schema))
 		}
 	}
 	if len(systemParts) > 0 {
@@ -340,7 +340,7 @@ func (h *HTTPLLM) anthropicComplete(messages []Message, structured bool, schemaD
 	return text, nil
 }
 
-func (h *HTTPLLM) ollamaComplete(messages []Message, structured bool, schemaDesc string) (string, error) {
+func (h *HTTPLLM) ollamaComplete(messages []Message, structured bool, schema JSONSchema) (string, error) {
 	msgs := append([]Message{}, messages...)
 	payload := map[string]any{
 		"model":    h.model,
@@ -350,10 +350,12 @@ func (h *HTTPLLM) ollamaComplete(messages []Message, structured bool, schemaDesc
 		"options": map[string]any{"temperature": h.temperature},
 	}
 	if structured {
-		sys := "Reply ONLY with JSON matching this schema: " + schemaDesc
+		sys := "Reply ONLY with JSON matching this JSON schema: " + schemaPromptText(schema)
 		msgs = append([]Message{{Role: "system", Content: sys}}, msgs...)
 		payload["messages"] = msgs
-		payload["format"] = "json"
+		// Python's ChatOllama.with_structured_output default passes the real
+		// JSON Schema in the request `format` field (not just "json").
+		payload["format"] = schema
 	}
 	resp, err := h.post(h.baseURL+"/api/chat", payload, nil)
 	if err != nil {
@@ -364,7 +366,11 @@ func (h *HTTPLLM) ollamaComplete(messages []Message, structured bool, schemaDesc
 	return content, nil
 }
 
-// MakeLLMProvider builds a provider for the given kind. Returns nil for "none".
+// MakeLLMProvider builds a provider for the given kind. Returns nil for
+// "none". "openai" / "anthropic" / "ollama" are backed by langchain-golang
+// partner chat models (mirroring Python's LangChain-based construction);
+// "http" selects the legacy hand-rolled HTTPLLM (OpenAI-compatible
+// /chat/completions) as a zero-framework escape hatch.
 func MakeLLMProvider(kind, baseURL, model, apiKey, structuredMethod string, maxTokens int, temperature, timeoutS float64) (LLMProvider, error) {
 	k := strings.ToLower(kind)
 	if k == "" {
@@ -373,12 +379,14 @@ func MakeLLMProvider(kind, baseURL, model, apiKey, structuredMethod string, maxT
 	switch k {
 	case "none":
 		return nil, nil
-	case "openai", "http":
+	case "http":
 		return newHTTPLLM("openai", baseURL, model, apiKey, maxTokens, temperature, timeoutS, structuredMethod), nil
-	case "anthropic":
-		return newHTTPLLM("anthropic", baseURL, model, apiKey, maxTokens, temperature, timeoutS, structuredMethod), nil
-	case "ollama":
-		return newHTTPLLM("ollama", baseURL, model, apiKey, maxTokens, temperature, timeoutS, structuredMethod), nil
+	case "openai", "anthropic", "ollama":
+		cm, err := makePartnerChatModel(k, baseURL, model, apiKey, maxTokens, temperature, timeoutS)
+		if err != nil {
+			return nil, err
+		}
+		return WrapChatModel(cm, structuredMethod), nil
 	default:
 		return nil, fmt.Errorf("unknown llm provider: %s", kind)
 	}

@@ -59,10 +59,20 @@ func newAnthropic(t *testing.T, baseURL, method string) *HTTPLLM {
 	return newHTTPLLM("anthropic", baseURL, "claude-test", "key", 1024, 0.2, 30, method)
 }
 
+// testSchema is a real JSON Schema (replacing the former free-text schema
+// description) used across the structured-output tests.
+func testSchema() JSONSchema {
+	return JSONSchema{
+		"type":       "object",
+		"properties": map[string]any{"a": map[string]any{"type": "number"}},
+		"required":   []string{"a"},
+	}
+}
+
 func TestOpenAIStructuredJSONModeUsesJSONObject(t *testing.T) {
 	srv, captured := captureServer(t, openAIReply(`{"a":1}`))
 	llm := newOpenAI(t, srv.URL, "json_mode")
-	if _, err := llm.CompleteStructured([]Message{{Role: "user", Content: "hi"}}, "an object"); err != nil {
+	if _, err := llm.CompleteStructured([]Message{{Role: "user", Content: "hi"}}, testSchema()); err != nil {
 		t.Fatalf("CompleteStructured: %v", err)
 	}
 	rf, ok := (*captured)["response_format"].(map[string]any)
@@ -80,7 +90,7 @@ func TestOpenAIStructuredJSONModeUsesJSONObject(t *testing.T) {
 func TestOpenAIStructuredDefaultUsesJSONObject(t *testing.T) {
 	srv, captured := captureServer(t, openAIReply(`{"a":1}`))
 	llm := newOpenAI(t, srv.URL, "")
-	if _, err := llm.CompleteStructured([]Message{{Role: "user", Content: "hi"}}, "an object"); err != nil {
+	if _, err := llm.CompleteStructured([]Message{{Role: "user", Content: "hi"}}, testSchema()); err != nil {
 		t.Fatalf("CompleteStructured: %v", err)
 	}
 	rf, ok := (*captured)["response_format"].(map[string]any)
@@ -92,7 +102,7 @@ func TestOpenAIStructuredDefaultUsesJSONObject(t *testing.T) {
 func TestOpenAIStructuredJSONSchema(t *testing.T) {
 	srv, captured := captureServer(t, openAIReply(`{"a":1}`))
 	llm := newOpenAI(t, srv.URL, "json_schema")
-	if _, err := llm.CompleteStructured([]Message{{Role: "user", Content: "hi"}}, "an object"); err != nil {
+	if _, err := llm.CompleteStructured([]Message{{Role: "user", Content: "hi"}}, testSchema()); err != nil {
 		t.Fatalf("CompleteStructured: %v", err)
 	}
 	rf, ok := (*captured)["response_format"].(map[string]any)
@@ -113,12 +123,16 @@ func TestOpenAIStructuredJSONSchema(t *testing.T) {
 	if !ok || schema["type"] != "object" {
 		t.Fatalf("json_schema: missing/invalid schema: %v", js)
 	}
+	props, ok := schema["properties"].(map[string]any)
+	if !ok || props["a"] == nil {
+		t.Fatalf("json_schema: real schema not passed through, got: %v", schema)
+	}
 }
 
 func TestOpenAIStructuredFunctionCalling(t *testing.T) {
 	srv, captured := captureServer(t, openAIToolCallReply(`{"a":1}`))
 	llm := newOpenAI(t, srv.URL, "function_calling")
-	out, err := llm.CompleteStructured([]Message{{Role: "user", Content: "hi"}}, "an object")
+	out, err := llm.CompleteStructured([]Message{{Role: "user", Content: "hi"}}, testSchema())
 	if err != nil {
 		t.Fatalf("CompleteStructured: %v", err)
 	}
@@ -169,7 +183,7 @@ func anthropicToolUseReply(input map[string]any) map[string]any {
 func TestAnthropicStructuredFunctionCalling(t *testing.T) {
 	srv, captured := captureServer(t, anthropicToolUseReply(map[string]any{"a": 1}))
 	llm := newAnthropic(t, srv.URL, "function_calling")
-	out, err := llm.CompleteStructured([]Message{{Role: "user", Content: "hi"}}, "an object")
+	out, err := llm.CompleteStructured([]Message{{Role: "user", Content: "hi"}}, testSchema())
 	if err != nil {
 		t.Fatalf("CompleteStructured: %v", err)
 	}
@@ -196,7 +210,7 @@ func TestAnthropicStructuredFunctionCalling(t *testing.T) {
 func TestAnthropicStructuredJSONSchemaUsesTools(t *testing.T) {
 	srv, captured := captureServer(t, anthropicToolUseReply(map[string]any{"a": 1}))
 	llm := newAnthropic(t, srv.URL, "json_schema")
-	if _, err := llm.CompleteStructured([]Message{{Role: "user", Content: "hi"}}, "an object"); err != nil {
+	if _, err := llm.CompleteStructured([]Message{{Role: "user", Content: "hi"}}, testSchema()); err != nil {
 		t.Fatalf("CompleteStructured: %v", err)
 	}
 	if _, ok := (*captured)["tools"].([]any); !ok {
@@ -207,7 +221,7 @@ func TestAnthropicStructuredJSONSchemaUsesTools(t *testing.T) {
 func TestAnthropicStructuredJSONModeUsesPromptInjection(t *testing.T) {
 	srv, captured := captureServer(t, anthropicTextReply(`{"a":1}`))
 	llm := newAnthropic(t, srv.URL, "json_mode")
-	if _, err := llm.CompleteStructured([]Message{{Role: "user", Content: "hi"}}, "an object"); err != nil {
+	if _, err := llm.CompleteStructured([]Message{{Role: "user", Content: "hi"}}, testSchema()); err != nil {
 		t.Fatalf("CompleteStructured: %v", err)
 	}
 	if _, hasTools := (*captured)["tools"]; hasTools {
@@ -222,7 +236,7 @@ func TestAnthropicStructuredJSONModeUsesPromptInjection(t *testing.T) {
 func TestUnknownStructuredMethodErrors(t *testing.T) {
 	srv, _ := captureServer(t, openAIReply(`{"a":1}`))
 	llm := newOpenAI(t, srv.URL, "bogus_method")
-	_, err := llm.CompleteStructured([]Message{{Role: "user", Content: "hi"}}, "an object")
+	_, err := llm.CompleteStructured([]Message{{Role: "user", Content: "hi"}}, testSchema())
 	if err == nil {
 		t.Fatal("expected error for unknown structured_method")
 	}
