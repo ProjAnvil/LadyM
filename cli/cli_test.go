@@ -49,7 +49,7 @@ func TestWriteStatsByLayerAndNoneWorkspaces(t *testing.T) {
 		ByLayer:       map[string]int{"L2_semantic": 4, "L1_episodic": 2},
 	}
 	var buf bytes.Buffer
-	writeStats(&buf, s)
+	writeStats(&buf, s, "")
 	out := buf.String()
 	if !strings.Contains(out, "workspaces: (none)") {
 		t.Errorf("output missing '(none)' for empty workspaces:\n%s", out)
@@ -66,9 +66,60 @@ func TestWriteStatsByLayerAndNoneWorkspaces(t *testing.T) {
 	// Non-empty workspaces still join with ", ".
 	s.Workspaces = []string{"a", "b"}
 	buf.Reset()
-	writeStats(&buf, s)
+	writeStats(&buf, s, "")
 	if !strings.Contains(buf.String(), "workspaces: a, b") {
 		t.Errorf("output missing joined workspaces:\n%s", buf.String())
+	}
+}
+
+// TestWriteRecallTableIncludesIDColumn: scenario playbooks assert on memory
+// ids — the recall table must print the id as its first column.
+func TestWriteRecallTableIncludesIDColumn(t *testing.T) {
+	resp := &schema.RecallResponse{
+		Query: "q",
+		Results: []*schema.RecallResult{
+			{
+				Score: 0.9,
+				Memory: &schema.Memory{
+					ID:      "abc123def456",
+					Layer:   "L2_semantic",
+					Type:    "fact",
+					Summary: "a fact",
+					Source:  "cli",
+				},
+			},
+		},
+	}
+	var buf bytes.Buffer
+	writeRecallTable(&buf, resp)
+	out := buf.String()
+	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
+	if len(lines) < 2 {
+		t.Fatalf("expected header + at least one row:\n%s", out)
+	}
+	if !strings.HasPrefix(lines[0], "id") {
+		t.Errorf("header must start with the id column:\n%s", lines[0])
+	}
+	if !strings.HasPrefix(lines[1], "abc123def456") {
+		t.Errorf("first data row must start with the memory id:\n%s", lines[1])
+	}
+}
+
+// TestWriteStatsScopedWorkspace: with -w, the workspaces line must list only
+// the scoped workspace, not every workspace in the db.
+func TestWriteStatsScopedWorkspace(t *testing.T) {
+	s := &schema.Stats{
+		DBPath:     "/tmp/x.db",
+		Workspaces: []string{"scn-s01", "other-ws"},
+	}
+	var buf bytes.Buffer
+	writeStats(&buf, s, "scn-s01")
+	out := buf.String()
+	if !strings.Contains(out, "workspaces: scn-s01") {
+		t.Errorf("output missing scoped workspace:\n%s", out)
+	}
+	if strings.Contains(out, "other-ws") {
+		t.Errorf("output should not list other workspaces when -w is set:\n%s", out)
 	}
 }
 

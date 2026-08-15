@@ -194,10 +194,7 @@ func recallCmd() *cobra.Command {
 				return nil
 			}
 			fmt.Printf("recall: %s  (tier %d, %.1fms)\n", resp.Query, resp.TierReached, resp.ElapsedMs)
-			fmt.Printf("%-10s %-14s %-14s %-60s %s\n", "score", "layer", "type", "summary", "source")
-			for _, r := range resp.Results {
-				fmt.Printf("%-10.3f %-14s %-14s %-60s %s\n", r.Score, r.Memory.Layer, r.Memory.Type, truncateStr(r.Memory.Summary, 60), truncateStr(r.Memory.Source, 30))
-			}
+			writeRecallTable(os.Stdout, resp)
 			return nil
 		},
 	}
@@ -206,6 +203,15 @@ func recallCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&codeOnly, "code", false, "Restrict to code items.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit JSON.")
 	return cmd
+}
+
+// writeRecallTable prints recall results as a table; the memory id is the
+// first column so scenario playbooks can assert on ids directly.
+func writeRecallTable(w io.Writer, resp *schema.RecallResponse) {
+	fmt.Fprintf(w, "%-34s %-10s %-14s %-14s %-60s %s\n", "id", "score", "layer", "type", "summary", "source")
+	for _, r := range resp.Results {
+		fmt.Fprintf(w, "%-34s %-10.3f %-14s %-14s %-60s %s\n", r.Memory.ID, r.Score, r.Memory.Layer, r.Memory.Type, truncateStr(r.Memory.Summary, 60), truncateStr(r.Memory.Source, 30))
+	}
 }
 
 func recallResultsJSON(results []*schema.RecallResult) []map[string]any {
@@ -293,7 +299,7 @@ func statsCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			writeStats(os.Stdout, s)
+			writeStats(os.Stdout, s, workspace)
 			return nil
 		},
 	}
@@ -548,12 +554,18 @@ func writeIndexReport(w io.Writer, report *code.IndexReport) {
 }
 
 // writeStats prints the `stats` output, including the by-layer breakdown and
-// "(none)" for empty workspaces (mirrors Python cli.py stats()).
-func writeStats(w io.Writer, s *schema.Stats) {
+// "(none)" for empty workspaces (mirrors Python cli.py stats()). When
+// scopedWS is non-empty (CLI -w), the workspaces line lists only that
+// workspace instead of every workspace in the db.
+func writeStats(w io.Writer, s *schema.Stats, scopedWS string) {
 	fmt.Fprintf(w, "LadyM stats  db=%s\n", s.DBPath)
 	fmt.Fprintf(w, "  total memories: %d\n", s.TotalMemories)
 	fmt.Fprintf(w, "  edges: %d    code symbols: %d\n", s.Edges, s.CodeSymbols)
-	ws := strings.Join(s.Workspaces, ", ")
+	wsList := s.Workspaces
+	if scopedWS != "" {
+		wsList = []string{scopedWS}
+	}
+	ws := strings.Join(wsList, ", ")
 	if ws == "" {
 		ws = "(none)"
 	}
