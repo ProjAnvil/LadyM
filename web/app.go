@@ -53,7 +53,21 @@ const pageHTML = `<!doctype html>
 
 // Run starts the local config editor.
 func Run(configPath string, port int, noBrowser bool) error {
-	cfgPath := configPath
+	addr := fmt.Sprintf("127.0.0.1:%d", port)
+	fmt.Printf("LadyM config on http://%s/\n", addr)
+	if !noBrowser {
+		go func() {
+			time.Sleep(time.Second)
+			_ = openBrowser("http://" + addr + "/")
+		}()
+	}
+	return http.ListenAndServe(addr, newMux(configPath, ""))
+}
+
+// newMux builds the editor's routes. secretsDir overrides the secret store
+// root ("" = default ~/.ladyM); tests pass a t.TempDir() to stay hermetic.
+func newMux(cfgPath string, secretsDir string) *http.ServeMux {
+	newStore := func() *secrets.Store { return secrets.NewStore(secretsDir) }
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/" {
@@ -65,7 +79,7 @@ func Run(configPath string, port int, noBrowser bool) error {
 			http.Error(w, err.Error(), 500)
 			return
 		}
-		store := secrets.NewStore("")
+		store := newStore()
 		names, _ := store.ListNames()
 		tmpl, _ := template.New("page").Parse(pageHTML)
 		_ = tmpl.Execute(w, map[string]any{
@@ -145,7 +159,7 @@ func Run(configPath string, port int, noBrowser bool) error {
 		fmt.Fprintf(w, "<small>✓ %q</small>", out)
 	})
 	mux.HandleFunc("/api/secrets", func(w http.ResponseWriter, r *http.Request) {
-		store := secrets.NewStore("")
+		store := newStore()
 		switch r.Method {
 		case http.MethodGet:
 			names, _ := store.ListNames()
@@ -163,13 +177,28 @@ func Run(configPath string, port int, noBrowser bool) error {
 				return
 			}
 			writeJSON(w, map[string]any{"ok": true})
-		case http.MethodDelete:
-			name := strings.TrimPrefix(r.URL.Path, "/api/secrets/")
-			_, _ = store.Remove(name)
-			writeJSON(w, map[string]any{"ok": true})
 		default:
 			http.Error(w, "method not allowed", 405)
 		}
+	})
+	// Subtree pattern so DELETE /api/secrets/{name} actually routes here —
+	// the exact "/api/secrets" pattern above does not match subpaths.
+	mux.HandleFunc("/api/secrets/", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodDelete {
+			http.Error(w, "method not allowed", 405)
+			return
+		}
+		name := strings.TrimPrefix(r.URL.Path, "/api/secrets/")
+		if name == "" || strings.Contains(name, "/") {
+			http.NotFound(w, r)
+			return
+		}
+		store := newStore()
+		if _, err := store.Remove(name); err != nil {
+			http.Error(w, err.Error(), 400)
+			return
+		}
+		writeJSON(w, map[string]any{"ok": true})
 	})
 	mux.HandleFunc("/api/master-key", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
@@ -181,7 +210,7 @@ func Run(configPath string, port int, noBrowser bool) error {
 			Key   string `json:"key"`
 		}
 		_ = json.NewDecoder(r.Body).Decode(&payload)
-		store := secrets.NewStore("")
+		store := newStore()
 		var err error
 		if payload.Reset {
 			err = store.ResetMasterKey(payload.Key)
@@ -194,16 +223,7 @@ func Run(configPath string, port int, noBrowser bool) error {
 		}
 		writeJSON(w, map[string]any{"ok": true, "master_key_set": true})
 	})
-
-	addr := fmt.Sprintf("127.0.0.1:%d", port)
-	fmt.Printf("LadyM config on http://%s/\n", addr)
-	if !noBrowser {
-		go func() {
-			time.Sleep(time.Second)
-			_ = openBrowser("http://" + addr + "/")
-		}()
-	}
-	return http.ListenAndServe(addr, mux)
+	return mux
 }
 
 func checkMark(ok bool) string {
