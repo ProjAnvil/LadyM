@@ -42,3 +42,10 @@ async with AsyncLadymClient(db="./ladym.db") as client:
 uv sync          # install deps
 uv run pytest    # smoke tests (spawn the real Go binary)
 ```
+
+## LongMemEval benchmark
+
+The LongMemEval validation suite for the Go engine lives in the separate
+[`benchmarks/`](../../benchmarks/) uv project at the repo root (it depends on
+this package via an editable path install). See
+[`benchmarks/README.md`](../../benchmarks/README.md) for how to run it.

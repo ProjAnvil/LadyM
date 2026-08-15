@@ -1,0 +1,29 @@
+[project]
+name = "longmemeval"
+version = "0.1.0"
+description = "LongMemEval benchmark suite driving the ladyM Go engine via ladym-wrapper (validation harness, not a user package)"
+readme = "README.md"
+authors = [
+    { name = "yuhaochen", email = "cyh278889789@gmail.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "backoff>=2.2.1",
+    "ladym-wrapper",
+    "numpy>=2.5.2",
+    "openai>=3.1.0",
+    "requests>=2.34.2",
+    "tqdm>=4.70.0",
+]
+
+[build-system]
+requires = ["uv_build>=0.11.9,<0.12.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]
+
+[tool.uv.sources]
+ladym-wrapper = { path = "../wrapper/py", editable = true }
