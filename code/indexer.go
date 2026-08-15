@@ -59,7 +59,18 @@ func shouldIgnore(path string, ignoreGlobs []string) bool {
 }
 
 // IndexCodebase walks root and indexes every supported source file.
+//
+// The whole pass runs under a cross-process flock on <db>.index.lock (mirrors
+// the Python indexer): a second concurrent index — from another CLI, MCP
+// server, or worker — fails fast with IndexInProgressError instead of
+// interleaving writes.
 func IndexCodebase(root string, store *storage.SQLiteStore, embedder storage.EmbeddingProvider, cfg *config.Config, workspace string, force bool, languageFilter []string) (*IndexReport, error) {
+	release, err := acquireIndexLock(store.DBPath)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+
 	start := time.Now()
 	ws := workspace
 	if ws == "" {

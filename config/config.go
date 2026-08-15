@@ -200,7 +200,10 @@ func Default() *Config {
 		DBPath:          defaultDBPath(),
 		Workspace:       envOr("LADYM_WORKSPACE", "default"),
 		PreferSQLiteVec: true,
-		EnableWAL:       false,
+		// WAL on by default so MCP serve / worker / one-shot CLI processes can
+		// share a single db. Disable with enable_wal=false or
+		// LADYM_ENABLE_WAL=false on filesystems without WAL support.
+		EnableWAL: true,
 
 		EmbeddingProvider:         envOr("LADYM_EMBEDDING", "hashing"),
 		EmbeddingModel:            envOr("LADYM_EMBEDDING_MODEL", ""),

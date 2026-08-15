@@ -321,7 +321,7 @@ loads an extra TOML file on top.
 | `LADYM_LLM_BASE_URL` | (provider default) | Override LLM API base URL (OpenAI/Ollama-compatible) |
 | `LADYM_LLM_MODEL` | `gpt-4o-mini` | LLM model name for the consolidation classifier |
 | `LADYM_LLM_API_KEY_ENV` | (none) | Name of the env var holding the LLM API key |
-| `LADYM_ENABLE_WAL` | `false` | Enable SQLite WAL journal mode |
+| `LADYM_ENABLE_WAL` | `true` | Enable SQLite WAL journal mode (default on so multiple processes can share one db; set `false` on filesystems without WAL support) |
 
 `base_url` support lets you point embedding and LLM calls at any OpenAI/Ollama-compatible
 endpoint (e.g. vLLM, LiteLLM, local Ollama); the `http` providers let you template an

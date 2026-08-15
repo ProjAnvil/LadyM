@@ -17,6 +17,19 @@ func openTestStore(t *testing.T) *SQLiteStore {
 	return s
 }
 
+func TestBusyTimeoutPragma(t *testing.T) {
+	// Contending writers from other processes must wait instead of failing
+	// immediately with "database is locked".
+	s := openTestStore(t)
+	var ms int
+	if err := s.DB().QueryRow("PRAGMA busy_timeout").Scan(&ms); err != nil {
+		t.Fatal(err)
+	}
+	if ms != 10000 {
+		t.Errorf("busy_timeout = %d, want 10000", ms)
+	}
+}
+
 func (s *SQLiteStore) countCodeRefs(t *testing.T) int {
 	t.Helper()
 	var n int

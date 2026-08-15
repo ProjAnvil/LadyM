@@ -115,6 +115,10 @@ type SQLiteStore struct {
 	usingVec    bool
 }
 
+// busyTimeoutMS makes contending writers wait (up to 10s) instead of failing
+// immediately with "database is locked" when multiple processes share one db.
+const busyTimeoutMS = 10000
+
 // NewStore opens (or creates) a SQLite store at dbPath.
 //
 // NOTE: the Python port used the sqlite-vec loadable extension for persistent
@@ -134,6 +138,12 @@ func NewStore(dbPath string, dim int, preferSQLiteVec bool, enableWAL bool) (*SQ
 	// avoids SQLITE_BUSY on concurrent writes within one engine. A separate
 	// Engine (worker) opens its own connection; WAL lets the two coexist.
 	db.SetMaxOpenConns(1)
+	// Set unconditionally (not only in WAL mode): any cross-process writer
+	// contention should block briefly rather than error out.
+	if _, err := db.Exec(fmt.Sprintf("PRAGMA busy_timeout = %d", busyTimeoutMS)); err != nil {
+		db.Close()
+		return nil, err
+	}
 	if _, err := db.Exec("PRAGMA foreign_keys = ON"); err != nil {
 		db.Close()
 		return nil, err

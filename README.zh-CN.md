@@ -305,7 +305,7 @@ ladym stats                             # 查看记忆里有什么
 | `LADYM_LLM_BASE_URL` | （provider 默认） | 覆盖 LLM API base URL（OpenAI/Ollama 兼容） |
 | `LADYM_LLM_MODEL` | `gpt-4o-mini` | 合并分类器的 LLM 模型名 |
 | `LADYM_LLM_API_KEY_ENV` | （无） | 存放 LLM API key 的环境变量名 |
-| `LADYM_ENABLE_WAL` | `false` | 开启 SQLite WAL journal 模式 |
+| `LADYM_ENABLE_WAL` | `true` | 开启 SQLite WAL journal 模式(默认开启,便于多进程共享同一个 db;在不支持 WAL 的文件系统上设为 `false`) |
 
 `base_url` 让你能把向量和 LLM 调用指向任意 OpenAI/Ollama 兼容端点（如 vLLM、LiteLLM、本地
 Ollama）；`http` provider 还可以模板化任意 embedding/LLM HTTP API。更细的开关

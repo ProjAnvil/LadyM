@@ -88,6 +88,14 @@ func TestDeepMerge(t *testing.T) {
 	}
 }
 
+func TestDefaultEnableWAL(t *testing.T) {
+	// WAL is on by default so MCP serve / worker / one-shot CLI processes can
+	// share a single db without "database is locked" failures.
+	if !Default().EnableWAL {
+		t.Error("EnableWAL default should be true")
+	}
+}
+
 func TestForTesting(t *testing.T) {
 	cfg := ForTesting(t.TempDir())
 	if cfg.Workspace != "test" {
