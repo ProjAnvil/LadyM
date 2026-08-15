@@ -221,6 +221,28 @@ eng.Link(srcID, dstID, "depends_on") // Zettelkasten 边
 `ladym.Remember(...)`、`ladym.IndexCode(...)`——会开一个短生命周期的 engine，执行后关闭，
 适合不想管理生命周期的脚本。
 
+### Python SDK（MCP wrapper）
+
+Python 应用通过 [`wrapper/py`](wrapper/py/) 使用 Go 引擎——一个轻量类型化客户端，
+它会拉起 `ladym serve` MCP server（stdio 上的 JSON-RPC 2.0），把九个工具
+（`recall`、`remember`、`record_event`、`search_code`、`index_code`、`consolidate`、
+`stats`、`link`、`forget`）暴露为 Python 方法。Python 侧不含任何记忆逻辑，
+Go 二进制是唯一事实源。
+
+```python
+from ladym_wrapper import LadymClient        # 同步
+from ladym_wrapper import AsyncLadymClient  # 异步
+
+with LadymClient() as client:
+    client.remember("deploys go through Argo CD", source="notes")
+    hits = client.recall("how do we deploy?")
+```
+
+Go 二进制的解析顺序：`binary=` 参数 → `LADYM_BIN` 环境变量 → `PATH` → 仓库内的
+`bin/ladym`。要求 Python ≥ 3.12，详见
+[`wrapper/py/README.md`](wrapper/py/README.md)。（完整的 0.2.x Python 实现保留在
+[`python`](https://github.com/ProjAnvil/LadyM/tree/python) 分支。）
+
 ### 注入你自己的 langchain-golang 模型
 
 如果你的应用已经配好了 langchain-golang 的 chat / embedding 模型（含 api key、

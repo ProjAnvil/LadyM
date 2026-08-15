@@ -232,6 +232,29 @@ One-shot helpers — `ladym.Recall(query, dbPath, workspace, topK)`,
 `ladym.Remember(...)`, `ladym.IndexCode(...)` — open a short-lived engine, run, and
 close, for scripts that don't want to manage the lifecycle.
 
+### Python SDK (MCP wrapper)
+
+Python apps talk to the Go engine through [`wrapper/py`](wrapper/py/) — a thin typed
+client that spawns the `ladym serve` MCP server (JSON-RPC 2.0 over stdio) and exposes
+the nine tools (`recall`, `remember`, `record_event`, `search_code`, `index_code`,
+`consolidate`, `stats`, `link`, `forget`) as Python methods. No memory logic lives in
+Python; the Go binary is the single source of truth.
+
+```python
+from ladym_wrapper import LadymClient        # sync
+from ladym_wrapper import AsyncLadymClient  # async
+
+with LadymClient() as client:
+    client.remember("deploys go through Argo CD", source="notes")
+    hits = client.recall("how do we deploy?")
+```
+
+The Go binary is resolved in order: `binary=` argument → `LADYM_BIN` env var → `PATH` →
+repo-local `bin/ladym`. Requires Python ≥ 3.12. See
+[`wrapper/py/README.md`](wrapper/py/README.md) for details. (The full 0.2.x Python
+implementation is preserved on the
+[`python`](https://github.com/ProjAnvil/LadyM/tree/python) branch.)
+
 ### Injecting your own langchain-golang models
 
 If your app already configures langchain-golang chat / embedding models
