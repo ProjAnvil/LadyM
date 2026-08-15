@@ -84,7 +84,7 @@ func keysOfSpec(m map[string]propSpec) []string {
 }
 
 // TestToolsListSchemas pins the full inputSchema of every tool, mirroring the
-// signatures of the Python FastMCP server (src/ladym/mcp/server.py).
+// signatures of the Python FastMCP server (mcp/server.py on the main branch).
 func TestToolsListSchemas(t *testing.T) {
 	s := &server{}
 	tools := map[string]toolDef{}

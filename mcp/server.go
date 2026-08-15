@@ -145,7 +145,8 @@ func (s *server) handle(req rpcRequest) (rpcResponse, error) {
 }
 
 // JSON-Schema property helpers for tools/list. The schemas mirror the
-// signatures FastMCP generates from the Python server (src/ladym/mcp/server.py).
+// signatures FastMCP generates from the Python server (mcp/server.py on the
+// main branch).
 func objSchema(props map[string]any, required ...string) map[string]any {
 	s := map[string]any{"type": "object", "properties": props}
 	if len(required) > 0 {
