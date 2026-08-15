@@ -1,8 +1,8 @@
 # LadyM
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/)
-[![Tests](https://img.shields.io/badge/tests-299-green.svg)](#测试)
+[![Go 1.26+](https://img.shields.io/badge/Go-1.26+-00ADD8?logo=go&logoColor=white)](https://go.dev/)
+[![Tests](https://img.shields.io/badge/tests-go%20test%20.%2F...-green.svg)](#测试)
 [![MCP](https://img.shields.io/badge/MCP-compatible-purple.svg)](#mcp-服务器claude-codecursor-等)
 [![Storage](https://img.shields.io/badge/storage-local--first%20SQLite-success.svg)](#架构)
 
@@ -12,16 +12,25 @@
 > 代码分析——而不是每一轮都重新 `Read`、重新 `Grep` 那些同样的文件。
 
 LadyM 把工作区的*理解*——代码分析、决策、技能、事件——缓存为一个分层、可合并、会衰减的
-记忆，任何 Agent 都能通过单个关键词召回。基于 **uv + Python 3.11+**、**本地优先的 SQLite +
-sqlite-vec**、以及用于代码索引的 **tree-sitter** 构建。通过 **MCP**、**Claude Code Skill**、
-**Python SDK**、**CLI** 四种方式暴露——全部调用同一个引擎，行为处处一致。
+记忆，任何 Agent 都能通过单个关键词召回。用 **Go** 写成**单一静态二进制、零 cgo**：
+SQLite 基于 [modernc.org/sqlite](https://pkg.go.dev/modernc.org/sqlite)，向量检索是进程内
+暴力余弦索引，代码索引用 [gotreesitter](https://github.com/odvcencio/gotreesitter)
+（纯 Go 的 tree-sitter 运行时）。通过 **MCP**、**Claude Code Skill**、**Go SDK**、
+**CLI** 四种方式暴露——全部调用同一个引擎，行为处处一致。
 
 ---
 
-## 0.2.1 更新
+## 0.3.0 更新
 
-- **默认精简安装** —— tree-sitter 代码索引改为可选的 `[codeindex]` extra。裸 `pip install` 只含记忆核心，不带原生解析器；需要 `index_code` / `search_code` 时加装 `'ladym[codeindex]'`。
-- **注入你自己的 langchain 模型** —— 通过新增的 `ModelRouting`（类型化 per-op 字段），把已配好的 `ChatOpenAI` / `OpenAIEmbeddings` 直接交给 `Engine`，无需在 ladyM 配置里重复声明 API key 和端点。详见[注入你自己的 langchain 模型](#注入你自己的-langchain-模型)。
+- **完整 Go 重写** —— LadyM 现在是单一静态二进制，**无 Python 依赖、零 cgo**。
+  用 `go install` 安装或从源码构建即可，无需任何额外环境。
+- **纯 Go 存储栈** —— SQLite 跑在 `modernc.org/sqlite` 上，原先的 `sqlite-vec` 扩展被
+  进程内暴力余弦索引取代（[storage/vector_index.go](storage/vector_index.go)），二进制保持
+  密封、可在任意平台交叉编译。
+- **纯 Go tree-sitter** —— 代码索引使用 `gotreesitter`，加载与上游 tree-sitter 相同的
+  parse table，但无需原生构建。
+- **一个引擎，所有前端** —— MCP server、CLI、Go SDK 全部封装同一个 `engine.Engine`，
+  在任何宿主里行为完全一致。
 
 ---
 
@@ -38,15 +47,15 @@ LadyM 把这种一次性的重复发现，变成**结构化、会演化的记忆
 | | 你能得到什么 |
 |---|---|
 | 🧠 **代码记忆与通用记忆同层融合** | L2 把 tree-sitter 代码符号和普通事实放进同一个存储，用同一个激活函数打分。记忆与代码库 RAG 是**一套系统而非两套**——这是其他框架都没有的位置。 |
-| 🔒 **本地优先、零配置启动** | 默认 `HashingEmbedding` + `provider="none"`，装完即用：**无需网络、无需下载模型、无需 API key**。一个 SQLite 文件装下一切。 |
+| 🔒 **本地优先、零配置启动** | 默认 `HashingEmbedding` + `llm.provider="none"`，装完即用：**无需网络、无需下载模型、无需 API key**。一个 SQLite 文件装下一切。 |
 | 🧬 **类脑六层 + 双路径** | L0–L4 核心存储（工作 / 情景 / 语义 / 程序 / 联想），外加 System 2 worker 抽取 **L5 心智模型**与 **L6 前瞻意图**，配合 `supersedes` 演化链，让记忆*演化*而非堆积。 |
-| 🔌 **四端同源** | MCP server、Claude Code Skill、Python SDK、CLI 全部调用同一个 `Engine`——无论你是在 Claude Code、Cursor、脚本还是终端里，行为完全一致。 |
+| 🔌 **四端同源** | MCP server、Claude Code Skill、Go SDK、CLI 全部调用同一个 `Engine`——无论你是在 Claude Code、Cursor、脚本还是终端里，行为完全一致。 |
 
 ## 快速上手（30 秒）
 
 ```bash
-# 1. 安装（离线默认——无需 extras、运行时无需网络）
-uv tool install .
+# 1. 安装（单一静态二进制——运行时无需网络、无需 API key）
+go install github.com/ProjAnvil/LadyM/cmd/ladym@latest
 
 # 2. 索引你总是反复 grep 的代码库
 ladym index ./src
@@ -58,8 +67,7 @@ ladym recall "how does password verification work" --code
 ladym remember "auth uses JWT with 24h expiry" --tags auth,security
 ```
 
-就是这么简单——`ladym` 已经在你的 PATH 上，完全离线可用。不想安装的话，用
-`uvx --from . ladym stats` 试一下。
+就是这么简单——`ladym` 已经在你的 PATH 上，完全离线可用。
 
 ## 横向对比
 
@@ -109,58 +117,39 @@ LadyM 借鉴了上述所有项目的学术思想（见 [ARCHITECTURE.md](ARCHITE
 
 ## 安装
 
-### 完整安装（全部功能）
-
-一条命令拉入全部用户向 extras——LLM provider、向量模型、MCP server，以及 `ladym config`
-网页编辑器：
-
-```bash
-# 从本仓库 clone 安装
-uv tool install ".[all]"
-
-# 或直接从 git 安装，无需 clone
-uv tool install "git+https://github.com/ProjAnvil/LadyM.git[all]"
-```
-
 ### 作为全局 CLI（推荐）
 
 ```bash
-uv tool install .                # 离线默认——仅记忆核心，不含代码索引
-uv tool install ".[codeindex]"   # + tree-sitter 代码索引（index_code / search_code）
-uv tool install ".[web,llm]"     # LLM provider + `ladym config` 网页编辑器
-# 其他 extras 同样可组合：[mcp] [local] [openai] [anthropic] [codeindex]
+go install github.com/ProjAnvil/LadyM/cmd/ladym@latest
 ```
 
-`.` 是密封的核心（仅离线）。它会在你的 PATH（`~/.local/bin/ladym`）上放一个 `ladym` 可执行
-文件，与项目 venv 隔离。升级用 `uv tool install . --force --reinstall`，卸载用
-`uv tool uninstall ladym`。
+这会在你的 Go bin 路径（`$(go env GOPATH)/bin`）放一个静态 `ladym` 二进制。构建需要
+Go 1.26+；二进制本身无任何运行时依赖。
 
-### 一次性运行 / 先试后装
+### 从源码构建
 
 ```bash
-uvx --from . ladym stats
-uvx --from . ladym remember "auth uses JWT"
-uvx --from . ladym recall "auth"
+git clone https://github.com/ProjAnvil/LadyM.git && cd LadyM
+go build -o bin/ladym ./cmd/ladym
+./bin/ladym stats
 ```
 
-`uvx` 在一次性环境里运行 CLI，不污染你的 PATH。
+也可以用安装脚本，构建后复制到 `~/.local/bin`：
+
+```bash
+scripts/install.sh            # 或：scripts/install.sh /custom/bin/dir
+```
 
 ### 用于开发
 
 ```bash
-git clone https://github.com/ProjAnvil/LadyM.git && cd ladyM
-uv venv --python 3.12
-uv pip install -e ".[dev]"            # 核心 + 测试/lint 工具，可编辑安装（已含 [codeindex]）
-# 可选 extras 叠加：
-uv pip install -e ".[mcp]"            # MCP server（用于 Claude Code / Cursor）
-uv pip install -e ".[local]"          # sentence-transformers 向量
-uv pip install -e ".[openai]"         # OpenAI 向量
-uv pip install -e ".[llm]"            # LLM provider 支持（合并分类器）
-uv pip install -e ".[web]"            # FastAPI + HTMX 的 `ladym config` 编辑器
+git clone https://github.com/ProjAnvil/LadyM.git && cd LadyM
+go build ./...                # 编译全部
+go test ./...                 # 完整测试套件，完全离线
 ```
 
-要求 Python ≥ 3.11（用到 `enum.StrEnum`）。`sqlite-vec` 以 wheel 形式分发——macOS/Linux/Windows
-都无需原生工具链。`tree-sitter` 经 `[codeindex]` extra 可选安装；默认安装仅含记忆核心。
+本 module 为纯 Go（`github.com/ProjAnvil/LadyM`），只有少量库依赖——macOS/Linux/Windows
+都无需原生工具链。
 
 ## 集成
 
@@ -181,61 +170,86 @@ uv pip install -e ".[web]"            # FastAPI + HTMX 的 `ladym config` 编辑
 }
 ```
 
-服务器暴露九个工具——`recall`、`remember`、`record_event`、`search_code`、`index_code`、
-`consolidate`、`stats`、`link`、`forget`——详见 [src/ladym/mcp/server.py](src/ladym/mcp/server.py)。
-`record_event` 记录一条 L1 情景事件，喂给 System 2 worker 做合并（L1 → L2）以及受门控的 L5/L6
-抽取器（记录约 3 条以上即可触发这些周期）。
+服务器通过 stdio 讲 MCP 协议，暴露九个工具——`recall`、`remember`、`record_event`、
+`search_code`、`index_code`、`consolidate`、`stats`、`link`、`forget`——详见
+[mcp/server.go](mcp/server.go)。`record_event` 记录一条 L1 情景事件，喂给 System 2 worker
+做合并（L1 → L2）以及受门控的 L5/L6 抽取器（记录约 3 条以上即可触发这些周期）。
 
 ### Claude Code Skill
 
 开箱即用的 skill 在 [skills/ladym-recall.md](skills/ladym-recall.md)。把它复制到你的
 `.claude/skills/` 目录，Agent 就能用一个关键词把工作区记忆拉进上下文，而不必重读文件。
 
-### Python SDK
+### Go SDK
 
-```python
-from ladym import Engine, Config, Layer
+`ladym` 包是引擎的一站式 facade（[ladym/ladym.go](ladym/ladym.go)）：
 
-eng = Engine(Config(db_path="ladym.db", workspace="myteam"))
+```go
+import "github.com/ProjAnvil/LadyM/ladym"
 
-# 索引一次（增量——跳过未改动文件）
-eng.index_code("./src")
+eng, err := ladym.NewEngine(ladym.DefaultConfig())
+if err != nil {
+	// handle error
+}
+defer eng.Close()
 
-# 写路径
-eng.semantic.put_fact("auth uses JWT with 24h expiry", tags=["auth"])
-eng.episodic.record(agent="claude", action="fixed login bug", outcome="success")
+// 索引一次（增量——跳过未改动文件）
+report, err := eng.IndexCode("./src", false, "", nil)
 
-# 读路径：两层检索，ACT-R 激活排序
-resp = eng.recall("how does auth work")
-for r in resp.results:
-    print(f"{r.score:.3f} [{r.memory.layer}] {r.memory.summary}")
+// 写路径
+eng.Remember("auth uses JWT with 24h expiry", ladym.LayerSemantic, ladym.TypeFact,
+	[]string{"auth"}, nil, "sdk", "")
+eng.RecordEvent("claude", "fixed login bug", "", "success", nil, nil)
 
-# 仅代码的快捷方式
-for r in eng.search_code("verify password").results:
-    print(r.memory.metadata["qualified_name"], r.memory.content[:80])
+// 读路径：两层检索，ACT-R 激活排序
+resp, err := eng.Recall("how does auth work", "", 8, nil, nil, 0)
+for _, r := range resp.Results {
+	fmt.Printf("%.3f [%s] %s\n", r.Score, r.Memory.Layer, r.Memory.Summary)
+}
 
-# 认知操作
-eng.consolidate()         # L1 事件 → L2 事实（ADD/UPDATE/DELETE/NOOP）
-eng.proceduralize()       # 重复的成功事件 → L3 playbook
-eng.decay(dry_run=True)   # ACT-R 基础级遗忘
-eng.link(a_id, b_id, "depends_on")  # Zettelkasten 边
+// 仅代码的快捷方式
+codeResp, err := eng.SearchCode("verify password", 8, "")
+
+// 认知操作
+eng.Consolidate("", 0)          // L1 事件 → L2 事实（ADD/UPDATE/DELETE/NOOP）
+eng.Proceduralize("", 0)        // 重复的成功事件 → L3 playbook
+eng.Decay("", true, 0, 0)       // ACT-R 基础级遗忘（dry run）
+eng.Link(srcID, dstID, "depends_on") // Zettelkasten 边
 ```
 
-### 注入你自己的 langchain 模型
+一次性辅助函数——`ladym.Recall(query, dbPath, workspace, topK)`、
+`ladym.Remember(...)`、`ladym.IndexCode(...)`——会开一个短生命周期的 engine，执行后关闭，
+适合不想管理生命周期的脚本。
 
-如果你的应用已经配好了 langchain 的 `ChatOpenAI` / `OpenAIEmbeddings`
-（含 api_key、base_url、model），可以直接通过 `ModelRouting` 把它们交给 Engine——
-无需在 ladyM 的配置里重复声明凭证：
+### 注入你自己的 langchain-golang 模型
 
-```python
-from ladym import Engine, Config, ModelRouting
-from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+如果你的应用已经配好了 langchain-golang 的 chat / embedding 模型（含 api key、
+base URL、model），可以包装后直接通过 `ModelRouting` 交给 Engine——无需在 LadyM 的配置里
+重复声明凭证（[adapter/adapter.go](adapter/adapter.go)）：
 
-eng = Engine(Config(db_path="mem.db"), models=ModelRouting(
-    consolidate=ChatOpenAI(model="gpt-4o", api_key=sk, base_url=url),
-    attention_gate=ChatOpenAI(model="gpt-4o-mini", api_key=sk, base_url=url),
-    embedding=OpenAIEmbeddings(model="text-embedding-3-small", api_key=sk),
-))
+```go
+import (
+	"github.com/ProjAnvil/LadyM/adapter"
+	"github.com/ProjAnvil/LadyM/ladym"
+	"github.com/projanvil/langchain-golang/core/modelconfig"
+	"github.com/projanvil/langchain-golang/partners/openai"
+)
+
+eng, err := ladym.NewEngineWithModels(ladym.DefaultConfig(), &adapter.ModelRouting{
+	Consolidate: adapter.WrapChatModel(openai.NewChatModel(
+		modelconfig.WithModel("gpt-4o"),
+		modelconfig.WithAPIKey(key),
+		modelconfig.WithBaseURL(url),
+	), ""),
+	AttentionGate: adapter.WrapChatModel(openai.NewChatModel(
+		modelconfig.WithModel("gpt-4o-mini"),
+		modelconfig.WithAPIKey(key),
+	), ""),
+	Embedding: adapter.WrapEmbeddings(openai.NewEmbeddings(
+		modelconfig.WithModel("text-embedding-3-small"),
+		modelconfig.WithAPIKey(key),
+	)),
+})
 ```
 
 五个认知操作（`consolidate`、`proceduralize`、`attention_gate`、
@@ -244,22 +258,25 @@ eng = Engine(Config(db_path="mem.db"), models=ModelRouting(
 
 ### LangGraph
 
-LadyM 提供可选的 LangGraph 集成（安装：`uv pip install "git+https://github.com/ProjAnvil/LadyM.git[langgraph]"`），把 ladyM
-作为 LangGraph / LangChain agent 的长期记忆层。两条等价路径：
+[langgraph/](langgraph/) 包把 LadyM 集成为 langchain-golang LangGraph / LangChain agent
+的长期记忆层。两条等价路径：
 
-- **Tools（工具）** — `create_ladym_tools(engine)` 返回 LangChain 工具（`recall_memory`、
-  `remember_fact`、`search_code`），适合 LLM 自主决定何时存取的 ReAct 型 agent。
-- **Nodes（节点）** — `create_recall_node(engine)` / `create_retain_node(engine)` 返回图节点，
-  每轮自动把相关记忆作为 SystemMessage 注入、并自动存下本轮对话（通过
-  `config["configurable"]["user_id"]` 支持按用户隔离 workspace）。
+- **Tools（工具）** — `langgraph.CreateTools(eng, workspace, defaultTopK)` 返回 LangChain
+  工具（`recall_memory`、`remember_fact`、`search_code`），适合 LLM 自主决定何时存取的
+  ReAct 型 agent。
+- **Nodes（节点）** — `langgraph.CreateRecallNode(eng, topK, prefix, wsFn)` /
+  `langgraph.CreateRetainNode(eng, wsFn)` 返回图节点 `NodeFunc`，每轮自动把相关记忆作为
+  SystemMessage 注入、并自动存下本轮对话。`langgraph.WorkspaceFromUserID()` 从运行期上下文
+  的 `user_id` 解析 workspace，实现按用户隔离。
 
-完整示例见 [`docs/langgraph-integration.md`](docs/langgraph-integration.md)。
+设计走查见 [`docs/langgraph-integration.md`](docs/langgraph-integration.md)。
 
 ### CLI
 
 ```bash
 ladym index ./src                      # 索引代码库（增量）
 ladym recall "auth flow"               # 跨代码与事实召回
+ladym recall "auth flow" --code --json # 仅代码、机器可读输出
 ladym remember "..." --tags auth       # 存一条事实
 ladym record --agent claude --action "fixed login bug" --outcome success
 ladym consolidate                       # L1 → L2
@@ -267,24 +284,35 @@ ladym worker --once                     # 触发 System 2 的 L5/L6 抽取
 ladym stats                             # 查看记忆里有什么
 ```
 
-每条结果都带符号的**身份、签名、docstring、代码片段、源文件**——外加可通过符号图查询的
+用 `ladym <command> --help` 查看各命令 flag；`ladym completion <shell>` 生成 shell 自动补全。
+每条索引结果都带符号的**身份、签名、docstring、代码片段、源文件**——外加可通过符号图查询的
 **调用者/被调用者**。正是这些让 Agent 不必重读。
 
 ## 配置
+
+配置按以下优先级解析（从高到低）：CLI flag → `LADYM_*` 环境变量 → `./ladym.toml` →
+`~/.ladym/config.toml` → 内建默认值。`ladym --config <path>` 可在其上再叠加一个 TOML 文件。
 
 | 环境变量 | 默认值 | 用途 |
 |---|---|---|
 | `LADYM_DB` | `./ladym.db` | SQLite 路径（默认每个项目一个 DB） |
 | `LADYM_WORKSPACE` | `default` | 共享 DB 内的多工作区隔离 |
-| `LADYM_EMBEDDING` | `hashing` | `hashing` / `st` / `openai` |
-| `LADYM_EMBEDDING_MODEL` | （provider 默认） | `st` 或 `openai` 的模型名 |
+| `LADYM_EMBEDDING` | `hashing` | `hashing` / `openai` / `ollama` / `http` |
+| `LADYM_EMBEDDING_MODEL` | （provider 默认） | 托管向量 provider 的模型名 |
 | `LADYM_EMBEDDING_BASE_URL` | （provider 默认） | 覆盖向量 API base URL（OpenAI/Ollama 兼容） |
-| `LADYM_LLM_PROVIDER` | （无） | LLM provider 名（如 `openai`、`ollama`）——需 `uv pip install "git+https://github.com/ProjAnvil/LadyM.git[llm]"` |
+| `LADYM_EMBEDDING_API_KEY_ENV` | （无） | 存放向量 API key 的环境变量名 |
+| `LADYM_LLM_PROVIDER` | `none` | `none` / `openai` / `anthropic` / `ollama` / `http` |
 | `LADYM_LLM_BASE_URL` | （provider 默认） | 覆盖 LLM API base URL（OpenAI/Ollama 兼容） |
-| `LADYM_LLM_MODEL` | （provider 默认） | 合并分类器的 LLM 模型名 |
+| `LADYM_LLM_MODEL` | `gpt-4o-mini` | 合并分类器的 LLM 模型名 |
+| `LADYM_LLM_API_KEY_ENV` | （无） | 存放 LLM API key 的环境变量名 |
+| `LADYM_ENABLE_WAL` | `false` | 开启 SQLite WAL journal 模式 |
 
 `base_url` 让你能把向量和 LLM 调用指向任意 OpenAI/Ollama 兼容端点（如 vLLM、LiteLLM、本地
-Ollama）。所有值也都可在 `Config` dataclass 上覆盖——见 [src/ladym/config.py](src/ladym/config.py)。
+Ollama）；`http` provider 还可以模板化任意 embedding/LLM HTTP API。更细的开关
+（`LADYM_EMBEDDING_TIMEOUT_S`、`LADYM_LLM_MAX_TOKENS`、`LADYM_LLM_TEMPERATURE`、
+`[agents]` 下的 per-op 覆盖，以及 recall/activation 权重）放在 TOML 或 `config.Config`
+结构体上——见 [config/config.go](config/config.go)。TOML 里的密钥字面值会被拒绝并告警；
+请用 `<name>_env` 间接引用或下面的 secret store。
 
 ### Secret store（静态加密的密钥）
 
@@ -298,10 +326,11 @@ ladym config rm DEEPSEEK_API_KEY         # 删除
 ladym config reset-master-key <newpass>  # 换 master key，所有 secret 原地重加密
 ```
 
-密钥解析顺序——**LLM** provider：`Config.api_key` 明文字段（开发逃生舱，默认关）→ secret store
-（`~/.ladyM/secrets.enc`）→ `api_key_env` 指向的进程环境变量。**Embedding** provider 跳过明文
-层，顺序为：secret store → 环境变量。三者皆无时，命令快速失败并给出单行 `ConfigError`，点明
-环境变量名和修复命令（exit 1；MCP 工具返回结构化错误而非 traceback）。
+密钥解析顺序——**LLM** provider：`Config.LLMAPIKey` 明文字段（开发逃生舱，仅在
+`allow_plaintext_secrets` 开启时生效，默认关）→ secret store（`~/.ladyM/secrets.enc`）→
+`api_key_env` 指向的进程环境变量。**Embedding** provider 跳过明文层，顺序为：secret store →
+环境变量。三者皆无时，命令快速失败并给出单行 `ConfigError`，点明环境变量名和修复命令
+（exit 1；MCP 工具返回结构化错误而非堆栈）。
 
 **安全边界：** secret store 仅保证*静态加密*——防止明文经 `cat secrets.enc`、肩窥或误贴进
 chat/log/commit 泄露。它**不**防御 `~/.ladyM/` 整目录被窃：master key 与密文同目录（这是为
@@ -309,25 +338,23 @@ chat/log/commit 泄露。它**不**防御 `~/.ladyM/` 整目录被窃：master k
 加密存储上，并依赖 OS 文件权限（目录 `0700`、文件 `0600`）。**丢失 `master.key` = 所有 secret
 不可恢复**，请务必备份。
 
-**CLI extras：**
+**更多 CLI 能力：**
 
-| 命令 | 功能 | 安装 |
-|---|---|---|
-| `ladym config` | 本地网页配置编辑器（FastAPI + HTMX，编辑 `ladym.toml`） | `uv pip install "git+https://github.com/ProjAnvil/LadyM.git[web]"` |
-| `ladym worker` | 后台 System 2 合并守护进程 | 核心；flags：`--once`、`--interval N` |
+| 命令 | 功能 |
+|---|---|
+| `ladym config` | 本地网页配置编辑器（Go `net/http` + `html/template`，编辑 `ladym.toml`；flags：`--port`、`--no-browser`） |
+| `ladym worker` | 后台 System 2 合并守护进程；flags：`--once`、`--interval N`（秒） |
 
 ## 测试
 
 ```bash
-uv run pytest                  # 267 个测试，约 3 秒，完全离线
-uv run pytest tests/integration -v
-uv run pytest --cov=ladym      # 覆盖率报告
-uv run ruff check src/ tests/  # lint
+go test ./...            # 完整套件，完全离线
+go test ./engine/ -v     # 单个包
+go vet ./...             # lint
 ```
 
 整套测试**无需网络、无需下载模型**即可运行——默认的 `HashingEmbedding` 是确定性、零依赖的，
-所以 CI 是密封的。基于 sqlite-vec 的路径有自己的回归测试，见
-[tests/integration/test_sqlite_vec.py](tests/integration/test_sqlite_vec.py)。
+所以 CI 是密封的。
 
 ## 文档
 
@@ -335,14 +362,17 @@ uv run ruff check src/ tests/  # lint
   激活函数、存储布局，以及代码索引子系统。*仅英文。*
 - **[scenarios/](scenarios/)**——可执行的端到端场景（S01 写入/召回、S03 代码索引、S07 L5 心智
   模型、S08 L6 前瞻意图、S09 注意力门控……），同时充当活的规格说明。
-- **[tests/](tests/)**——可执行的规格说明。
+  [scenarios/README.md](scenarios/README.md) 为中文剧本说明。
+- **[docs/](docs/)**——专题深入（代码索引分析、LangGraph 集成）。
+- **Go 测试套件**（各包旁的 `*_test.go`）——可执行的规格说明。
 
 ## 状态与路线图
 
-✅ 六层引擎、两层召回、ADD/UPDATE/DELETE/NOOP 合并、proceduralize、衰减、支持
-Python/JS/TS/Go/Rust/Java/C/C++ 的 tree-sitter 索引器、MCP server、CLI、Skill、可插拔 provider +
-TOML 配置、System 2 后台 worker、L5 心智模型 / L6 前瞻意图抽取、`ladym config` 网页编辑器、加密
-secret store、267 个测试。
+✅ 六层引擎、两层召回、ADD/UPDATE/DELETE/NOOP 合并、proceduralize、衰减、纯 Go tree-sitter
+索引器（Python/JS/TS/Go/Rust/Java/C/C++ 有完整符号规格，Kotlin/C#/Ruby/PHP/Swift/Scala/
+Bash/Lua/SQL/HTML/CSS 退化为行窗口切片）、MCP server、CLI、Skill、Go SDK、可插拔 provider +
+TOML 配置、System 2 后台 worker、L5 心智模型 / L6 前瞻意图抽取、`ladym config` 网页编辑器、
+加密 secret store。
 
 🚧 下一步：GraphRAG 风格的跨文件引用解析，以及多模态事件。
 
@@ -350,8 +380,8 @@ secret store、267 个测试。
 
 欢迎贡献。最快的参与方式：
 
-1. 提交前跑 `uv run pytest`（267 个测试，密封）和 `uv run ruff check`。
-2. 为任何新行为在 [scenarios/](scenarios/) 下加场景，或在 [tests/](tests/) 下加测试——它们就是
+1. 提交前跑 `go test ./...`（密封）和 `go vet ./...`。
+2. 为任何新行为在 [scenarios/](scenarios/) 下加场景，或在改动包旁加 `*_test.go`——它们就是
    规格说明。
 3. 保持读路径只走启发式；任何 LLM 调用都路由到 System 2 worker。
 

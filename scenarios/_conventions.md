@@ -15,8 +15,15 @@ CLI 调用带 `-w scn-sXX`。
 统一用 sqlite3 SQL(适用所有记忆类型,含 code_symbol/index 产物)。把 `<db>` 与 `scn-sXX` 替换为实际值:
 
 ```
-! sqlite3 <db> "DELETE FROM edges WHERE src_id IN (SELECT id FROM memories WHERE workspace='scn-sXX') OR dst_id IN (SELECT id FROM memories WHERE workspace='scn-sXX'); DELETE FROM memories WHERE workspace='scn-sXX';"
+! sqlite3 <db> "DELETE FROM edges WHERE src_id IN (SELECT id FROM memories WHERE workspace='scn-sXX') OR dst_id IN (SELECT id FROM memories WHERE workspace='scn-sXX'); DELETE FROM memories WHERE workspace='scn-sXX'; DELETE FROM code_symbols WHERE memory_id NOT IN (SELECT id FROM memories);"
 ```
+
+- 末句清孤儿 `code_symbols`:sqlite3 CLI 默认不开外键级联(`PRAGMA foreign_keys` 默认为 off),删 memories 后 `code_symbols` 行会残留,必须用 `memory_id NOT IN (SELECT id FROM memories)` 兜底删除(列名见 `storage/store.go` 的 schemaSQL)。
+- **注意:`index_state` / `code_refs` 无 workspace 列**,按"相对索引根的路径"全局 keyed(`code/indexer.go` 用 `filepath.Rel(root, path)` 存 slash 路径),上面的 workspace 过滤对它们**完全无效**。S03/S12 类索引剧本的 teardown 必须按 fixture 的相对路径手动清 `index_state`,例如 S03(根 `tests/fixtures/sample_repo`):
+  ```
+  ! sqlite3 <db> "DELETE FROM index_state WHERE file_path IN ('auth/service.py', 'store/cache.py');"
+  ```
+  (同前缀可用 `file_path LIKE '<相对前缀>%'`。)**重跑剧本前必须清**,否则增量判定会把文件误判为 unchanged(直接 `files_skipped_unchanged` 全跳过),S03 步骤2 / S12 步骤3 的断言失真。`code_refs` 同理按符号名全局,如剧本断言涉及 refs 计数,teardown 一并按 `src_symbol`/`dst_symbol` 前缀清。
 
 执行两次或用 `changes()` 确认清空。reset 在每剧本开头(Given)与结尾(Teardown)各做一次,保证可重复。
 

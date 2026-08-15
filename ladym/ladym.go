@@ -17,8 +17,8 @@ import (
 	"github.com/ProjAnvil/LadyM/schema"
 )
 
-// Version is the LadyM version (mirrors the Python 0.2.1 release).
-const Version = "0.2.1"
+// Version is the LadyM version.
+const Version = "0.3.0"
 
 // Re-export the public types for a one-import SDK surface.
 type (
