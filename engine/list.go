@@ -8,8 +8,8 @@ import (
 )
 
 // List returns a workspace's memories newest-first, excluding retired items
-// (expired predictions, superseded models). limit<=0 means 20; offset pages.
-// Read-only: it never calls the LLM.
+// (expired predictions, superseded models). limit<=0 means 20; offset pages
+// (negative offset is clamped to 0). Read-only: it never calls the LLM.
 func (e *Engine) List(workspace string, layer *schema.Layer, limit, offset int) ([]*schema.Memory, error) {
 	if workspace == "" {
 		workspace = e.Config.Workspace
@@ -28,7 +28,15 @@ func (e *Engine) List(workspace string, layer *schema.Layer, limit, offset int) 
 			live = append(live, m)
 		}
 	}
-	sort.SliceStable(live, func(i, j int) bool { return live[i].UpdatedAt > live[j].UpdatedAt })
+	if offset < 0 {
+		offset = 0
+	}
+	sort.SliceStable(live, func(i, j int) bool {
+		if live[i].UpdatedAt == live[j].UpdatedAt {
+			return live[i].ID > live[j].ID // deterministic tiebreak for equal timestamps
+		}
+		return live[i].UpdatedAt > live[j].UpdatedAt
+	})
 	if offset >= len(live) {
 		return []*schema.Memory{}, nil
 	}
