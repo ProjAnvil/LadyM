@@ -522,9 +522,19 @@ func (e *Engine) StartSystem2(intervalS int, workspace string) chan struct{} {
 
 // ---- introspection ----
 
-// Stats returns aggregate store statistics.
+// Stats returns aggregate store statistics for the engine's default workspace.
 func (e *Engine) Stats() (*schema.Stats, error) {
-	counts, err := e.Store.Count(e.Config.Workspace)
+	return e.StatsFor(e.Config.Workspace)
+}
+
+// StatsFor returns aggregate store statistics scoped to the given workspace
+// (empty string falls back to the engine's default workspace). Store-wide
+// aggregates (edges, code symbols, workspace list) are not workspace-scoped.
+func (e *Engine) StatsFor(workspace string) (*schema.Stats, error) {
+	if workspace == "" {
+		workspace = e.Config.Workspace
+	}
+	counts, err := e.Store.Count(workspace)
 	if err != nil {
 		return nil, err
 	}
@@ -539,7 +549,7 @@ func (e *Engine) Stats() (*schema.Stats, error) {
 	if err != nil {
 		return nil, err
 	}
-	mems, err := e.Store.IterMemories(e.Config.Workspace, "", "")
+	mems, err := e.Store.IterMemories(workspace, "", "")
 	if err != nil {
 		return nil, err
 	}
