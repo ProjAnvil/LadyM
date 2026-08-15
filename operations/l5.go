@@ -2,6 +2,7 @@ package operations
 
 import (
 	"strconv"
+	"strings"
 
 	"github.com/ProjAnvil/LadyM/config"
 	"github.com/ProjAnvil/LadyM/providers"
@@ -136,10 +137,11 @@ func dot(a, b []float32) float64 {
 }
 
 func summarise(llm providers.LLMProvider, prompt string, members []*schema.Memory) (map[string]any, error) {
-	corpus := ""
+	lines := make([]string, 0, len(members))
 	for _, m := range members {
-		corpus += "- (" + string(m.Type) + ") " + m.Content + "\n"
+		lines = append(lines, "- ("+string(m.Type)+") "+m.Content)
 	}
+	corpus := strings.Join(lines, "\n")
 	msgs := []providers.Message{
 		{Role: "system", Content: prompt},
 		{Role: "user", Content: "Abstract these memories into one mental model:\n" + corpus},

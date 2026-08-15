@@ -200,18 +200,18 @@ func (e *Engine) getAgent(op string) (providers.LLMProvider, error) {
 }
 
 func makeClassifier(provider providers.LLMProvider) operations.LLMClassifier {
-	return func(candidate string, similar []string) (operations.Action, string) {
+	return func(candidate string, similar []string) (operations.Action, string, error) {
 		msgs := []providers.Message{
 			{Role: "system", Content: consolidatePrompt},
 			{Role: "user", Content: fmt.Sprintf("candidate: %s\nsimilar: %s", candidate, fmt.Sprint(similar))},
 		}
 		d, err := provider.CompleteStructured(msgs, `{"action": "ADD|UPDATE|DELETE|NOOP", "new_text": "string?"}`)
 		if err != nil {
-			return operations.ActionAdd, ""
+			return "", "", err
 		}
 		action, _ := d["action"].(string)
 		newText, _ := d["new_text"].(string)
-		return operations.Action(action), newText
+		return operations.Action(action), newText, nil
 	}
 }
 
@@ -331,9 +331,45 @@ func (e *Engine) RecordEvent(agent, action, observation, outcome string, tags []
 	return e.Episodic.Record(agent, action, observation, outcome, tags, metadata)
 }
 
-// Link creates an associative edge.
-func (e *Engine) Link(srcID, dstID, relation string) (*schema.Edge, error) {
-	return e.Associative.Link(srcID, dstID, relation, 1.0, nil, nil, nil)
+// LinkOption customises an associative edge created by Link.
+type LinkOption func(*linkOpts)
+
+type linkOpts struct {
+	weight    *float64
+	metadata  map[string]any
+	validFrom *float64
+	validTo   *float64
+}
+
+// WithWeight sets the edge weight. An explicit 0 is preserved (unlike the
+// default, which is 1.0 when WithWeight is not given).
+func WithWeight(w float64) LinkOption {
+	return func(o *linkOpts) { o.weight = &w }
+}
+
+// WithMetadata sets the edge metadata.
+func WithMetadata(m map[string]any) LinkOption {
+	return func(o *linkOpts) { o.metadata = m }
+}
+
+// WithValidFrom sets the edge's valid-from timestamp.
+func WithValidFrom(t float64) LinkOption {
+	return func(o *linkOpts) { o.validFrom = &t }
+}
+
+// WithValidTo sets the edge's valid-to timestamp.
+func WithValidTo(t float64) LinkOption {
+	return func(o *linkOpts) { o.validTo = &t }
+}
+
+// Link creates an associative edge, passing weight/metadata/valid_from/valid_to
+// through to the associative layer (Python: link(src, dst, relation, **kw)).
+func (e *Engine) Link(srcID, dstID, relation string, opts ...LinkOption) (*schema.Edge, error) {
+	var o linkOpts
+	for _, opt := range opts {
+		opt(&o)
+	}
+	return e.Associative.Link(srcID, dstID, relation, o.weight, o.metadata, o.validFrom, o.validTo)
 }
 
 // ---- read path ----

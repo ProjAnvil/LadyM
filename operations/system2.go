@@ -53,7 +53,7 @@ func RunSystem2Cycle(runner System2Runner, workspace string) (*System2Report, er
 	} else {
 		report.SkippedLLMSteps = true
 	}
-	decay, err := runner.Decay(workspace, true, 0, 0)
+	decay, err := runner.Decay(workspace, false, 0, 0)
 	if err != nil {
 		return nil, err
 	}

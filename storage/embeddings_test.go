@@ -15,6 +15,9 @@ func TestTokenize(t *testing.T) {
 		{"Foo-Bar_Baz, x.y; f() {}", []string{"foo", "bar", "baz", ",", "x", ".", "y", ";", "f", "(", ")", "{", "}"}},
 		{"get_user_name", []string{"get", "user", "name"}},
 		{"HTTPRequest", []string{"http", "request"}},
+		// Python _TOKEN_RE includes ':' in the punctuation set, so "key: value"
+		// yields a standalone ":" token.
+		{"key: value", []string{"key", ":", "value"}},
 	}
 	for _, c := range cases {
 		got := Tokenize(c.in)

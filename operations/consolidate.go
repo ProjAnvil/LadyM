@@ -35,7 +35,8 @@ func newConsolidationReport() *ConsolidationReport {
 }
 
 // LLMClassifier is a pluggable (candidate, similar) → (Action, newText) classifier.
-type LLMClassifier func(candidate string, similar []string) (Action, string)
+// A non-nil error aborts the consolidation pass (Python: exceptions propagate).
+type LLMClassifier func(candidate string, similar []string) (Action, string, error)
 
 type similarFact struct {
 	Memory *schema.Memory
@@ -124,7 +125,11 @@ func Consolidate(store *storage.SQLiteStore, embedder storage.EmbeddingProvider,
 			for _, s := range similar {
 				simTexts = append(simTexts, s.Memory.Content)
 			}
-			action, newText = llmClassify(ep.Content, simTexts)
+			var cerr error
+			action, newText, cerr = llmClassify(ep.Content, simTexts)
+			if cerr != nil {
+				return nil, cerr
+			}
 		} else {
 			action, newText = offlineClassify(ep.Content, candHash, similar, threshold)
 		}

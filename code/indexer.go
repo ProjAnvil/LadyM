@@ -2,6 +2,7 @@ package code
 
 import (
 	"encoding/hex"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -71,7 +72,7 @@ func IndexCodebase(root string, store *storage.SQLiteStore, embedder storage.Emb
 	report := &IndexReport{}
 	icfg := cfg.CodeIndex
 
-	paths, err := walkFiles(absRoot)
+	paths, err := walkFiles(absRoot, icfg.ExtraIgnoreGlobs)
 	if err != nil {
 		return nil, err
 	}
@@ -111,7 +112,10 @@ func IndexCodebase(root string, store *storage.SQLiteStore, embedder storage.Emb
 
 		moduleName := moduleName(rel, lang)
 		spec := GetSpec(lang)
-		syms := ExtractSymbols(data, lang, moduleName, rel, icfg.MaxBodyLinesPerSymbol)
+		syms, err := ExtractSymbols(data, lang, moduleName, rel, icfg.MaxBodyLinesPerSymbol)
+		if err != nil { // parse error ⇒ graceful fallback (mirrors Python)
+			report.Errors = append(report.Errors, fmt.Sprintf("%s: parse failed (%v); using chunk fallback", path, err))
+		}
 
 		if len(syms) == 0 && spec.FallbackChunkLines > 0 {
 			syms = chunkFallback(data, moduleName, rel, lang, spec.FallbackChunkLines)
@@ -143,7 +147,7 @@ func IndexCodebase(root string, store *storage.SQLiteStore, embedder storage.Emb
 		report.RefsWritten += len(refs)
 	}
 
-	report.ElapsedMs = float64(time.Since(start).Milliseconds())
+	report.ElapsedMs = float64(time.Since(start).Nanoseconds()) / 1e6
 	return report, nil
 }
 
@@ -156,19 +160,21 @@ func contains(list []string, s string) bool {
 	return false
 }
 
-func walkFiles(root string) ([]string, error) {
+func walkFiles(root string, ignoreGlobs []string) ([]string, error) {
 	var out []string
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return nil // skip unreadable entries
 		}
 		if d.IsDir() {
+			// Directories are pruned only via the built-in skipDirs set,
+			// mirroring Python's `_walk` (extra globs match file basenames only).
 			if shouldIgnore(path, nil) && path != root {
 				return filepath.SkipDir
 			}
 			return nil
 		}
-		if shouldIgnore(path, nil) {
+		if shouldIgnore(path, ignoreGlobs) {
 			return nil
 		}
 		out = append(out, path)
@@ -303,8 +309,9 @@ func chunkFallback(data []byte, moduleName, rel, lang string, chunkLines int) []
 			Kind: "chunk", Name: "lines_" + itoa(i+1),
 			QualifiedName: moduleName + ".lines_" + itoa(i+1),
 			LineStart:     i + 1, LineEnd: end,
-			Body:  strings.Join(chunk, "\n"),
-			Calls: extractCalls(strings.Join(chunk, "\n")),
+			Body: strings.Join(chunk, "\n"),
+			// Calls stays nil: Python's `_chunk_fallback` sets calls=[],
+			// so chunked files produce no code_refs.
 		})
 	}
 	return out

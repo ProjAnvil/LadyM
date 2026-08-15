@@ -91,6 +91,32 @@ func TestSetMasterKeyRefusesWhenSecretsExist(t *testing.T) {
 	}
 }
 
+func TestSplitTruncatedCiphertext(t *testing.T) {
+	// Decodes to fewer bytes than the 12-byte GCM nonce: must return an
+	// error, not panic on raw[:12].
+	short := base64.StdEncoding.EncodeToString([]byte("tiny"))
+	if _, _, err := split(short); err == nil {
+		t.Error("split should reject ciphertext shorter than the nonce")
+	}
+}
+
+func TestGetCorruptedEntryReturnsError(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), ".ladyM")
+	s := NewStore(dir)
+	if _, err := s.SetMasterKey("key"); err != nil {
+		t.Fatal(err)
+	}
+	// Simulate a corrupted secrets.enc: value decodes to < 12 bytes.
+	truncated := base64.StdEncoding.EncodeToString([]byte("tiny"))
+	if err := os.WriteFile(filepath.Join(dir, "secrets.enc"),
+		[]byte("BAD = "+truncated+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Get("BAD"); err == nil {
+		t.Error("Get on truncated ciphertext should return an error, not panic")
+	}
+}
+
 func readFile(t *testing.T, path string) string {
 	t.Helper()
 	b, err := os.ReadFile(path)

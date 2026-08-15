@@ -2,6 +2,7 @@ package operations
 
 import (
 	"sort"
+	"strings"
 
 	"github.com/ProjAnvil/LadyM/config"
 	"github.com/ProjAnvil/LadyM/providers"
@@ -60,9 +61,14 @@ func PredictL6(store *storage.SQLiteStore, embedder storage.EmbeddingProvider, c
 		if IsRetired(m) {
 			continue
 		}
+		// Python: float(m.metadata.get("valid_to", 0)) — missing counts as 0
+		// (expired); a present but non-numeric value raises and is skipped.
 		validTo, ok := m.MetaFloat("valid_to")
 		if !ok {
-			continue
+			if _, exists := m.Metadata["valid_to"]; exists {
+				continue
+			}
+			validTo = 0
 		}
 		if now > validTo {
 			if err := Retire(store, m, ""); err != nil {
@@ -101,10 +107,11 @@ func PredictL6(store *storage.SQLiteStore, embedder storage.EmbeddingProvider, c
 	}
 
 	// 3. predict
-	corpus := ""
+	lines := make([]string, 0, len(recent))
 	for _, e := range recent {
-		corpus += "- " + e.Content + "\n"
+		lines = append(lines, "- "+e.Content)
 	}
+	corpus := strings.Join(lines, "\n")
 	msgs := []providers.Message{
 		{Role: "system", Content: prompt},
 		{Role: "user", Content: "Predict likely next intents from these recent episodes:\n" + corpus},
@@ -122,6 +129,7 @@ func PredictL6(store *storage.SQLiteStore, embedder storage.EmbeddingProvider, c
 			continue
 		}
 		intentText, _ := obj["intent"].(string)
+		intentText = strings.TrimSpace(intentText)
 		if intentText == "" {
 			continue
 		}

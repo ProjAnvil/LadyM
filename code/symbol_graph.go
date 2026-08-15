@@ -1,8 +1,8 @@
 package code
 
 import (
-	"regexp"
 	"strings"
+	"unicode"
 
 	"github.com/odvcencio/gotreesitter"
 )
@@ -29,25 +29,27 @@ type RawRef struct {
 
 // ExtractSymbols extracts symbols from src for the given language, using the
 // gotreesitter grammar when a detailed spec exists, otherwise returning nil so
-// the indexer falls back to line-window chunking.
-func ExtractSymbols(src []byte, lang, moduleName, filePath string, maxBodyLines int) []RawSymbol {
+// the indexer falls back to line-window chunking. A parse failure is returned
+// as an error so the indexer can record it (mirroring the Python indexer,
+// which logs "parse failed ...; using chunk fallback" and degrades to chunks).
+func ExtractSymbols(src []byte, lang, moduleName, filePath string, maxBodyLines int) ([]RawSymbol, error) {
 	if maxBodyLines <= 0 {
 		maxBodyLines = 40
 	}
 	spec := GetSpec(lang)
 	if len(spec.DefinitionKinds) == 0 || spec.Grammar == nil {
-		return nil
+		return nil, nil
 	}
 	grammar := spec.Grammar()
 	if grammar == nil {
-		return nil
+		return nil, nil
 	}
 	parser := gotreesitter.NewParser(grammar)
 	tree, err := parser.Parse(src)
 	if err != nil {
-		return nil
+		return nil, err
 	}
-	return extractTree(tree.RootNode(), src, spec, grammar, moduleName, maxBodyLines)
+	return extractTree(tree.RootNode(), src, spec, grammar, moduleName, maxBodyLines), nil
 }
 
 func extractTree(root *gotreesitter.Node, src []byte, spec *LanguageSpec, grammar *gotreesitter.Language, moduleName string, maxBodyLines int) []RawSymbol {
@@ -75,7 +77,7 @@ func extractTree(root *gotreesitter.Node, src []byte, spec *LanguageSpec, gramma
 			LineStart:     int(node.StartPoint().Row) + 1,
 			LineEnd:       int(node.EndPoint().Row) + 1,
 			Body:          body,
-			Calls:         extractCalls(body),
+			Calls:         extractCalls(node, src, spec, grammar),
 		})
 		// recurse into class bodies for methods
 		if kind == "class" {
@@ -240,41 +242,56 @@ func BuildRefs(symbols []RawSymbol, filePath string) []RawRef {
 	return refs
 }
 
-var callRe = regexp.MustCompile(`([a-zA-Z_][a-zA-Z0-9_]*)\s*\(`)
-
-var callKeywords = map[string]bool{
-	"def": true, "class": true, "if": true, "elif": true, "for": true, "while": true,
-	"return": true, "import": true, "from": true, "print": true, "with": true,
-	"assert": true, "lambda": true, "not": true, "in": true, "is": true, "and": true,
-	"or": true, "else": true, "try": true, "except": true, "finally": true, "raise": true,
-	"func": true, "type": true, "struct": true, "interface": true, "fn": true, "impl": true,
-	"switch": true, "case": true, "default": true, "package": true, "new": true, "go": true,
-	"defer": true, "match": true, "await": true, "yield": true, "typeof": true, "delete": true,
-	"void": true, "sizeof": true,
+// extractCalls walks the AST for call nodes (mirrors Python's `_calls_in`):
+// for each call it takes the `function` field's text (falling back to the
+// first child), keeps the tail segment of qualified calls (obj.foo -> foo),
+// and filters to identifiers. Calls are NOT deduplicated here — BuildRefs
+// dedups via its seen set, matching the Python port.
+func extractCalls(node *gotreesitter.Node, src []byte, spec *LanguageSpec, grammar *gotreesitter.Language) []string {
+	var out []string
+	var walk func(n *gotreesitter.Node)
+	walk = func(n *gotreesitter.Node) {
+		if contains(spec.CallKinds, n.Type(grammar)) {
+			fn := n.ChildByFieldName("function", grammar)
+			if fn == nil {
+				if children := n.Children(); len(children) > 0 {
+					fn = children[0]
+				}
+			}
+			if fn != nil {
+				txt := strings.TrimSpace(fn.Text(src))
+				tail := txt
+				if i := strings.LastIndex(txt, "."); i >= 0 {
+					tail = txt[i+1:]
+				}
+				if isIdentifier(tail) {
+					out = append(out, tail)
+				}
+			}
+		}
+		for _, child := range n.Children() {
+			walk(child)
+		}
+	}
+	walk(node)
+	return out
 }
 
-func extractCalls(body string) []string {
-	var out []string
-	for _, m := range callRe.FindAllStringSubmatch(body, -1) {
-		name := m[1]
-		if callKeywords[name] {
+// isIdentifier mirrors Python's str.isidentifier for call-target names.
+func isIdentifier(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i, r := range s {
+		if r == '_' || unicode.IsLetter(r) {
 			continue
 		}
-		out = append(out, name)
-	}
-	return dedupStrings(out)
-}
-
-func dedupStrings(in []string) []string {
-	seen := map[string]bool{}
-	var out []string
-	for _, s := range in {
-		if !seen[s] {
-			seen[s] = true
-			out = append(out, s)
+		if i > 0 && unicode.IsDigit(r) {
+			continue
 		}
+		return false
 	}
-	return out
+	return true
 }
 
 func qualify(moduleName, parentQname, name string) string {

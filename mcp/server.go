@@ -144,30 +144,108 @@ func (s *server) handle(req rpcRequest) (rpcResponse, error) {
 	}
 }
 
-func strSchema(desc string, required ...string) map[string]any {
-	props := map[string]any{}
-	for _, r := range required {
-		props[r] = map[string]any{"type": "string"}
-	}
-	schema := map[string]any{"type": "object", "properties": props}
+// JSON-Schema property helpers for tools/list. The schemas mirror the
+// signatures FastMCP generates from the Python server (src/ladym/mcp/server.py).
+func objSchema(props map[string]any, required ...string) map[string]any {
+	s := map[string]any{"type": "object", "properties": props}
 	if len(required) > 0 {
-		schema["required"] = required
+		s["required"] = required
 	}
-	return schema
+	return s
+}
+
+func strProp() map[string]any { return map[string]any{"type": "string"} }
+
+func strDefProp(def string) map[string]any {
+	return map[string]any{"type": "string", "default": def}
+}
+
+func intProp(def int) map[string]any { return map[string]any{"type": "integer", "default": def} }
+
+func boolProp(def bool) map[string]any { return map[string]any{"type": "boolean", "default": def} }
+
+func strListProp() map[string]any {
+	return map[string]any{"type": "array", "items": map[string]any{"type": "string"}}
 }
 
 func (s *server) tools() []toolDef {
-	str := func(desc string, req ...string) map[string]any { return strSchema(desc, req...) }
 	return []toolDef{
-		{Name: "recall", Description: "Recall memories matching a natural-language query.", InputSchema: str("recall", "query")},
-		{Name: "remember", Description: "Write a semantic fact / note that future recall can retrieve.", InputSchema: str("remember", "content")},
-		{Name: "record_event", Description: "Record an L1 episodic event.", InputSchema: str("record_event", "agent", "action")},
-		{Name: "search_code", Description: "Search indexed code symbols + file summaries by keyword.", InputSchema: str("search_code", "query")},
-		{Name: "index_code", Description: "Index (or re-index) a codebase.", InputSchema: str("index_code", "root")},
-		{Name: "consolidate", Description: "Promote episodic events into consolidated semantic facts.", InputSchema: str("consolidate")},
-		{Name: "stats", Description: "Return memory-store statistics.", InputSchema: str("stats")},
-		{Name: "link", Description: "Create an associative edge between two memory ids.", InputSchema: str("link", "src", "dst")},
-		{Name: "forget", Description: "Delete a single memory by id.", InputSchema: str("forget", "memory_id")},
+		{
+			Name: "recall",
+			Description: "Recall memories matching a natural-language query.\n\n" +
+				"Use code_only=true to restrict to codebase analysis (symbols + file summaries). " +
+				"Returns ranked results with tier (1=lightweight, 2=deep) and activation score.",
+			InputSchema: objSchema(map[string]any{
+				"query": strProp(), "top_k": intProp(8),
+				"code_only": boolProp(false), "workspace": strProp(),
+			}, "query"),
+		},
+		{
+			Name: "remember",
+			Description: "Write a semantic fact / note that future recall can retrieve.\n\n" +
+				"Routes through the attention gate (via eng.Remember): noise / recent-duplicate " +
+				"content is dropped (not persisted); the response then carries " +
+				`{"gated":"dropped","reason":...}` + " with null id/hash so the caller can tell the write was filtered.",
+			InputSchema: objSchema(map[string]any{
+				"content": strProp(), "tags": strListProp(),
+				"source": strDefProp(""), "workspace": strProp(),
+			}, "content"),
+		},
+		{
+			Name: "record_event",
+			Description: "Record an L1 episodic event (agent, action, observation, outcome).\n\n" +
+				"Episodic events feed the System2 worker's consolidation (L1 → L2) and the " +
+				"gated L5 mental-model / L6 forward-intent extractors — record ~3+ to arm " +
+				"those cycles. Note: this bypasses the attention gate (explicit event " +
+				"logging), unlike remember which writes a consolidated L2 fact directly.",
+			InputSchema: objSchema(map[string]any{
+				"agent": strProp(), "action": strProp(),
+				"observation": strDefProp(""), "outcome": strDefProp(""),
+				"tags": strListProp(), "workspace": strProp(),
+			}, "agent", "action"),
+		},
+		{
+			Name:        "search_code",
+			Description: "Search indexed code symbols + file summaries by keyword.",
+			InputSchema: objSchema(map[string]any{
+				"query": strProp(), "top_k": intProp(10), "workspace": strProp(),
+			}, "query"),
+		},
+		{
+			Name: "index_code",
+			Description: "Index (or re-index) a codebase at root. Incremental by default; pass " +
+				"force=true to rebuild from scratch. languages filters by language id.",
+			InputSchema: objSchema(map[string]any{
+				"root": strProp(), "force": boolProp(false),
+				"languages": strListProp(), "workspace": strProp(),
+			}, "root"),
+		},
+		{
+			Name:        "consolidate",
+			Description: "Promote episodic events into consolidated semantic facts (L1 → L2).",
+			InputSchema: objSchema(map[string]any{
+				"workspace": strProp(),
+			}),
+		},
+		{
+			Name:        "stats",
+			Description: "Return memory-store statistics.",
+			InputSchema: objSchema(map[string]any{}),
+		},
+		{
+			Name:        "link",
+			Description: "Create an associative edge between two memory ids (Zettelkasten link).",
+			InputSchema: objSchema(map[string]any{
+				"src": strProp(), "dst": strProp(), "relation": strDefProp("related_to"),
+			}, "src", "dst"),
+		},
+		{
+			Name:        "forget",
+			Description: "Delete a single memory by id.",
+			InputSchema: objSchema(map[string]any{
+				"memory_id": strProp(),
+			}, "memory_id"),
+		},
 	}
 }
 
@@ -229,7 +307,12 @@ func (s *server) call(name string, args map[string]any) (string, error) {
 		content := getStr("content", "")
 		ws := getStr("workspace", "")
 		s.eng.SetWorkspace(ws)
-		m, err := s.eng.Remember(content, schema.LayerSemantic, schema.TypeFact, getStrList("tags"), nil, getStr("source", "mcp"), "")
+		// Python: `source or "mcp"` — an explicitly empty source falls back too.
+		source := getStr("source", "mcp")
+		if source == "" {
+			source = "mcp"
+		}
+		m, err := s.eng.Remember(content, schema.LayerSemantic, schema.TypeFact, getStrList("tags"), nil, source, "")
 		if err != nil {
 			return "", err
 		}

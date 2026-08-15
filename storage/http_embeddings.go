@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 )
@@ -110,28 +111,37 @@ func toFloat32Slice(v any) ([]float32, error) {
 // OllamaEmbedding targets the Ollama /api/embeddings endpoint. Dim is deferred
 // until the first embed call.
 type OllamaEmbedding struct {
-	baseURL string
-	model   string
-	client  HTTPPoster
-	dim     int
+	baseURL  string
+	model    string
+	timeoutS float64
+	client   HTTPPoster
+	dim      int
 }
 
 // NewOllamaEmbedding builds an OllamaEmbedding (client may be nil for real HTTP).
 func NewOllamaEmbedding(baseURL, model string, timeoutS float64, client HTTPPoster) *OllamaEmbedding {
+	if timeoutS <= 0 {
+		timeoutS = 10.0
+	}
 	return &OllamaEmbedding{
-		baseURL: strings.TrimRight(baseURL, "/"),
-		model:   model,
-		client:  client,
+		baseURL:  strings.TrimRight(baseURL, "/"),
+		model:    model,
+		timeoutS: timeoutS,
+		client:   client,
 	}
 }
 
 func (o *OllamaEmbedding) Dim() int { return o.dim }
 
-func (o *OllamaEmbedding) post(prompt string) ([]float32, error) {
-	client := o.client
-	if client == nil {
-		client = NewRealHTTPPoster(10.0)
+func (o *OllamaEmbedding) httpClient() HTTPPoster {
+	if o.client != nil {
+		return o.client
 	}
+	return NewRealHTTPPoster(o.timeoutS)
+}
+
+func (o *OllamaEmbedding) post(prompt string) ([]float32, error) {
+	client := o.httpClient()
 	resp, err := client.Post(o.baseURL+"/api/embeddings", map[string]any{"model": o.model, "prompt": prompt}, nil)
 	if err != nil {
 		return nil, err
@@ -162,29 +172,42 @@ func (o *OllamaEmbedding) HealthCheck() (bool, string) { return healthCheckDefau
 
 // OpenAIEmbedding targets the OpenAI (or OpenAI-compatible) embeddings API.
 type OpenAIEmbedding struct {
-	model   string
-	baseURL string
-	apiKey  string
-	client  HTTPPoster
-	dim     int
+	model    string
+	baseURL  string
+	apiKey   string
+	timeoutS float64
+	client   HTTPPoster
+	dim      int
 }
 
 // NewOpenAIEmbedding builds an OpenAIEmbedding. Empty baseURL defaults to
 // https://api.openai.com/v1.
-func NewOpenAIEmbedding(model, baseURL, apiKey string) *OpenAIEmbedding {
+func NewOpenAIEmbedding(model, baseURL, apiKey string, timeoutS float64) *OpenAIEmbedding {
 	if baseURL == "" {
 		baseURL = "https://api.openai.com/v1"
 	}
-	return &OpenAIEmbedding{model: model, baseURL: strings.TrimRight(baseURL, "/"), apiKey: apiKey}
+	if timeoutS <= 0 {
+		timeoutS = 10.0
+	}
+	return &OpenAIEmbedding{
+		model:    model,
+		baseURL:  strings.TrimRight(baseURL, "/"),
+		apiKey:   apiKey,
+		timeoutS: timeoutS,
+	}
 }
 
 func (o *OpenAIEmbedding) Dim() int { return o.dim }
 
-func (o *OpenAIEmbedding) Embed(text string) ([]float32, error) {
-	client := o.client
-	if client == nil {
-		client = NewRealHTTPPoster(10.0)
+func (o *OpenAIEmbedding) httpClient() HTTPPoster {
+	if o.client != nil {
+		return o.client
 	}
+	return NewRealHTTPPoster(o.timeoutS)
+}
+
+func (o *OpenAIEmbedding) Embed(text string) ([]float32, error) {
+	client := o.httpClient()
 	headers := map[string]string{}
 	if o.apiKey != "" {
 		headers["Authorization"] = "Bearer " + o.apiKey
@@ -216,10 +239,7 @@ func (o *OpenAIEmbedding) Embed(text string) ([]float32, error) {
 }
 
 func (o *OpenAIEmbedding) EmbedBatch(texts []string) ([][]float32, error) {
-	client := o.client
-	if client == nil {
-		client = NewRealHTTPPoster(10.0)
-	}
+	client := o.httpClient()
 	headers := map[string]string{}
 	if o.apiKey != "" {
 		headers["Authorization"] = "Bearer " + o.apiKey
@@ -236,12 +256,27 @@ func (o *OpenAIEmbedding) EmbedBatch(texts []string) ([][]float32, error) {
 	if !ok {
 		return nil, fmt.Errorf("openai embeddings response missing data")
 	}
-	out := make([][]float32, 0, len(data))
+	objs := make([]map[string]any, 0, len(data))
+	allIndexed := len(data) > 0
 	for _, d := range data {
 		obj, ok := d.(map[string]any)
 		if !ok {
 			return nil, fmt.Errorf("openai embeddings item is not an object")
 		}
+		if _, ok := obj["index"].(float64); !ok {
+			allIndexed = false
+		}
+		objs = append(objs, obj)
+	}
+	// Align results to input order via the "index" field (Python sorts
+	// resp.data by index); fall back to response order when index is absent.
+	if allIndexed {
+		sort.SliceStable(objs, func(i, j int) bool {
+			return objs[i]["index"].(float64) < objs[j]["index"].(float64)
+		})
+	}
+	out := make([][]float32, 0, len(objs))
+	for _, obj := range objs {
 		vec, err := toFloat32Slice(obj["embedding"])
 		if err != nil {
 			return nil, err
@@ -264,6 +299,8 @@ type HTTPEmbeddingOptions struct {
 	Dim          int
 	Model        string
 	TimeoutS     float64
+	// Poster, when non-nil, overrides the default real HTTP client (tests).
+	Poster HTTPPoster
 }
 
 // HTTPEmbedding is a generic, template-driven embedding provider.
@@ -279,13 +316,17 @@ type HTTPEmbedding struct {
 
 // NewHTTPEmbedding builds a generic HTTP embedding provider.
 func NewHTTPEmbedding(opts HTTPEmbeddingOptions) *HTTPEmbedding {
+	client := opts.Poster
+	if client == nil {
+		client = NewRealHTTPPoster(opts.TimeoutS)
+	}
 	return &HTTPEmbedding{
 		baseURL:      opts.BaseURL,
 		requestTmpl:  opts.Request,
 		responsePath: opts.ResponsePath,
 		dim:          opts.Dim,
 		model:        opts.Model,
-		client:       NewRealHTTPPoster(opts.TimeoutS),
+		client:       client,
 	}
 }
 

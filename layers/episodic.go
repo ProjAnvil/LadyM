@@ -1,6 +1,7 @@
 package layers
 
 import (
+	"sort"
 	"strings"
 
 	"github.com/ProjAnvil/LadyM/schema"
@@ -39,8 +40,13 @@ func (e *EpisodicMemory) Record(agent, action, observation, outcome string, tags
 	for k, v := range metadata {
 		meta[k] = v
 	}
-	meta["agent"] = agent
-	meta["action"] = action
+	// setdefault semantics (Python): caller-supplied agent/action keys win.
+	if _, ok := meta["agent"]; !ok {
+		meta["agent"] = agent
+	}
+	if _, ok := meta["action"]; !ok {
+		meta["action"] = action
+	}
 	if observation != "" {
 		meta["observation"] = observation
 	}
@@ -69,7 +75,16 @@ func (e *EpisodicMemory) Record(agent, action, observation, outcome string, tags
 	return m, nil
 }
 
-// Recent returns the most recent episodes.
+// Recent returns the most recent episodes, newest first (created_at DESC).
+// limit <= 0 returns all episodes in the workspace.
 func (e *EpisodicMemory) Recent(limit int) ([]*schema.Memory, error) {
-	return e.Store.IterMemories(e.Workspace, string(schema.LayerEpisodic), "")
+	mems, err := e.Store.IterMemories(e.Workspace, string(schema.LayerEpisodic), "")
+	if err != nil {
+		return nil, err
+	}
+	sort.SliceStable(mems, func(i, j int) bool { return mems[i].CreatedAt > mems[j].CreatedAt })
+	if limit > 0 && len(mems) > limit {
+		mems = mems[:limit]
+	}
+	return mems, nil
 }

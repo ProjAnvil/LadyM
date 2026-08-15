@@ -130,7 +130,7 @@ func Recall(store *storage.SQLiteStore, embedder storage.EmbeddingProvider, quer
 		return &schema.RecallResponse{
 			Query: query, Results: tier1, TierReached: 1,
 			ReflectedSufficient: verdict.sufficient,
-			ElapsedMs:           float64(time.Since(start).Milliseconds()),
+			ElapsedMs:           float64(time.Since(start).Nanoseconds()) / 1e6,
 		}, nil
 	}
 
@@ -172,7 +172,7 @@ func Recall(store *storage.SQLiteStore, embedder storage.EmbeddingProvider, quer
 	return &schema.RecallResponse{
 		Query: query, Results: merged, TierReached: 2,
 		ReflectedSufficient: true,
-		ElapsedMs:           float64(time.Since(start).Milliseconds()),
+		ElapsedMs:           float64(time.Since(start).Nanoseconds()) / 1e6,
 	}, nil
 }
 
@@ -275,8 +275,14 @@ func tier2Expand(store *storage.SQLiteStore, tier1 []*schema.RecallResult, cfg *
 		}
 	}
 
-	// backtrack: for code symbols, pull their file memory too
+	// backtrack: for code symbols, pull their file memory too.
+	// Iterate over a snapshot (Python: for mem_id in list(seen)) — the loop
+	// body adds file memories to seen, and they must not be visited here.
+	seenIDs := make([]string, 0, len(seen))
 	for memID := range seen {
+		seenIDs = append(seenIDs, memID)
+	}
+	for _, memID := range seenIDs {
 		mem, err := store.GetMemory(memID)
 		if err != nil {
 			return nil, err

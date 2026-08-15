@@ -24,15 +24,20 @@ func NewProceduralMemory(store *storage.SQLiteStore, embedder storage.EmbeddingP
 }
 
 // PlaybookContent is the canonical content string for a playbook — the single
-// source of truth shared by PutPlaybook and proceduralize.
+// source of truth shared by PutPlaybook and proceduralize. Matches Python
+// “name + "\n" + "\n".join(steps)“: empty steps keeps the trailing newline;
+// non-empty steps end without one.
 func PlaybookContent(name string, steps []string) string {
 	var sb strings.Builder
 	sb.WriteString(name)
 	sb.WriteString("\n")
 	for i, s := range steps {
-		fmt.Fprintf(&sb, "%d. %s\n", i+1, s)
+		if i > 0 {
+			sb.WriteString("\n")
+		}
+		fmt.Fprintf(&sb, "%d. %s", i+1, s)
 	}
-	return strings.TrimRight(sb.String(), "\n")
+	return sb.String()
 }
 
 // PutPlaybook writes a playbook.

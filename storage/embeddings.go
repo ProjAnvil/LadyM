@@ -17,7 +17,7 @@ import (
 
 // tokenRe splits text into word runs or single punctuation chars, matching
 // Python's _TOKEN_RE.
-var tokenRe = regexp.MustCompile(`[A-Za-z0-9_]+|[.,;()\[\]{}]`)
+var tokenRe = regexp.MustCompile(`[A-Za-z0-9_]+|[.,;:()\[\]{}]`)
 
 func isUpper(c byte) bool { return c >= 'A' && c <= 'Z' }
 func isLower(c byte) bool { return c >= 'a' && c <= 'z' }
@@ -296,7 +296,7 @@ func MakeProvider(cfg *config.Config) (EmbeddingProvider, error) {
 		if model == "" {
 			model = "text-embedding-3-small"
 		}
-		provider = NewOpenAIEmbedding(model, cfg.EmbeddingBaseURL, apiKey)
+		provider = NewOpenAIEmbedding(model, cfg.EmbeddingBaseURL, apiKey, cfg.EmbeddingTimeoutS)
 	case "ollama":
 		base := cfg.EmbeddingBaseURL
 		if base == "" {

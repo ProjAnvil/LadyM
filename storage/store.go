@@ -528,19 +528,25 @@ func (s *SQLiteStore) PutCodeSymbol(sym *schema.CodeSymbol) error {
 	return err
 }
 
-// PutCodeRefs bulk-inserts cross references.
+// PutCodeRefs bulk-inserts cross references atomically: one transaction, so a
+// failure rolls back the whole batch (Python: executemany in a single commit).
 func (s *SQLiteStore) PutCodeRefs(refs []*schema.CodeRef) error {
 	if len(refs) == 0 {
 		return nil
 	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
 	for _, r := range refs {
-		if _, err := s.db.Exec(
+		if _, err := tx.Exec(
 			"INSERT INTO code_refs (src_symbol, dst_symbol, ref_kind) VALUES (?,?,?)",
 			r.SrcSymbol, r.DstSymbol, r.RefKind); err != nil {
+			_ = tx.Rollback()
 			return err
 		}
 	}
-	return nil
+	return tx.Commit()
 }
 
 // SymbolsForFile returns code symbols for a file, ordered by line.

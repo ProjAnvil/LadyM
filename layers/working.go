@@ -28,6 +28,12 @@ func NewWorkingMemory(capacity int, workspace string) *WorkingMemory {
 
 // Push appends an L0 note (dropping the oldest when at capacity).
 func (w *WorkingMemory) Push(content string, tags []string, metadata map[string]any, source string) *schema.Memory {
+	if tags == nil {
+		tags = []string{}
+	}
+	if metadata == nil {
+		metadata = map[string]any{}
+	}
 	m := schema.NewMemory(schema.LayerWorking, schema.TypeNote)
 	m.Content = content
 	m.Summary = truncate(content, 80)

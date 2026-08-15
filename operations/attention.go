@@ -57,8 +57,10 @@ func AttentionGate(content string, cfg *config.Config, store *storage.SQLiteStor
 	for k := range builtinNoise {
 		noise[k] = true
 	}
+	// Config noise words are used as-is (Python parity: they must be
+	// pre-lowercased in the config; tokens are already lower-cased above).
 	for _, w := range cfg.Attention.NoiseWords {
-		noise[strings.ToLower(w)] = true
+		noise[w] = true
 	}
 	allNoise := len(tokens) > 0
 	for t := range tokens {

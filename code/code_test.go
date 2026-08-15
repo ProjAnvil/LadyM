@@ -46,7 +46,10 @@ class AuthService:
     def _issue_token(self, username: str) -> str:
         return "jwt." + username
 `
-	syms := ExtractSymbols([]byte(src), "python", "auth.service", "auth/service.py", 40)
+	syms, err := ExtractSymbols([]byte(src), "python", "auth.service", "auth/service.py", 40)
+	if err != nil {
+		t.Fatal(err)
+	}
 	names := map[string]bool{}
 	for _, s := range syms {
 		names[s.QualifiedName] = true

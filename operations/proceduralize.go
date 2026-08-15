@@ -121,20 +121,27 @@ func Proceduralize(store *storage.SQLiteStore, embedder storage.EmbeddingProvide
 		if len(cluster) >= minClusterSize {
 			assigned[i] = true
 			report.ClustersExamined++
+			// Python: Counter(c.metadata.get("action", "do") ...).most_common(1)
+			// — missing action counts as "do", ties keep first-occurrence order.
 			actionCounts := map[string]int{}
+			var actionOrder []string
 			for _, c := range cluster {
-				actionCounts[c.MetaString("action")]++
+				a := c.MetaString("action")
+				if a == "" {
+					a = "do"
+				}
+				if _, ok := actionCounts[a]; !ok {
+					actionOrder = append(actionOrder, a)
+				}
+				actionCounts[a]++
 			}
 			topAction := ""
 			topN := 0
-			for a, n := range actionCounts {
-				if n > topN || (n == topN && a < topAction) {
+			for _, a := range actionOrder {
+				if actionCounts[a] > topN {
 					topAction = a
-					topN = n
+					topN = actionCounts[a]
 				}
-			}
-			if topAction == "" {
-				topAction = "do"
 			}
 			steps := deriveSteps(cluster)
 			name := "How to " + topAction + " (" + strconv.Itoa(len(cluster)) + " episodes)"

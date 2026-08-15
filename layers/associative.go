@@ -15,13 +15,15 @@ func NewAssociativeMemory(store *storage.SQLiteStore) *AssociativeMemory {
 	return &AssociativeMemory{Store: store}
 }
 
-// Link creates an edge between two memories.
-func (a *AssociativeMemory) Link(srcID, dstID, relation string, weight float64, metadata map[string]any, validFrom, validTo *float64) (*schema.Edge, error) {
+// Link creates an edge between two memories. A nil weight defaults to 1.0; an
+// explicitly supplied weight (including 0) is stored verbatim.
+func (a *AssociativeMemory) Link(srcID, dstID, relation string, weight *float64, metadata map[string]any, validFrom, validTo *float64) (*schema.Edge, error) {
 	if relation == "" {
 		relation = "related_to"
 	}
-	if weight == 0 {
-		weight = 1.0
+	w := 1.0
+	if weight != nil {
+		w = *weight
 	}
 	if metadata == nil {
 		metadata = map[string]any{}
@@ -35,7 +37,7 @@ func (a *AssociativeMemory) Link(srcID, dstID, relation string, weight float64, 
 		SrcID:     srcID,
 		Relation:  relation,
 		DstID:     dstID,
-		Weight:    weight,
+		Weight:    w,
 		ValidFrom: *validFrom,
 		ValidTo:   validTo,
 		Metadata:  metadata,

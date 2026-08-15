@@ -5,9 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
+	"sort"
 	"strings"
 
+	"github.com/ProjAnvil/LadyM/code"
 	"github.com/ProjAnvil/LadyM/config"
 	"github.com/ProjAnvil/LadyM/engine"
 	"github.com/ProjAnvil/LadyM/mcp"
@@ -22,10 +25,21 @@ var (
 	globalDebug      bool
 )
 
+// exitError carries a process exit code with no message — used when the
+// command already printed its own diagnostic (mirrors Python's typer.Exit).
+// Execute exits with the code WITHOUT printing a second error line.
+type exitError struct{ code int }
+
+func (e *exitError) Error() string { return fmt.Sprintf("exit %d", e.code) }
+
 // Execute runs the CLI and exits non-zero on error.
 func Execute() {
 	root := newRootCmd()
 	if err := root.Execute(); err != nil {
+		var exitErr *exitError
+		if errors.As(err, &exitErr) {
+			os.Exit(exitErr.code)
+		}
 		var cfgErr *config.ConfigError
 		if errors.As(err, &cfgErr) && !globalDebug {
 			fmt.Fprintf(os.Stderr, "ladym: %s\n", cfgErr.Msg)
@@ -229,20 +243,7 @@ func indexCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			fmt.Printf("indexed %d/%d files (%d symbols, %d refs) in %.0fms\n",
-				report.FilesIndexed, report.FilesSeen, report.SymbolsWritten, report.RefsWritten, report.ElapsedMs)
-			if report.FilesSkippedUnchanged > 0 {
-				fmt.Printf("  skipped unchanged: %d\n", report.FilesSkippedUnchanged)
-			}
-			if len(report.Errors) > 0 {
-				fmt.Printf("  errors: %d\n", len(report.Errors))
-				for _, e := range report.Errors {
-					if len(e) > 5 {
-						break
-					}
-					fmt.Printf("    %s\n", e)
-				}
-			}
+			writeIndexReport(os.Stdout, report)
 			return nil
 		},
 	}
@@ -292,10 +293,7 @@ func statsCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			fmt.Printf("LadyM stats  db=%s\n", s.DBPath)
-			fmt.Printf("  total memories: %d\n", s.TotalMemories)
-			fmt.Printf("  edges: %d    code symbols: %d\n", s.Edges, s.CodeSymbols)
-			fmt.Printf("  workspaces: %s\n", strings.Join(s.Workspaces, ", "))
+			writeStats(os.Stdout, s)
 			return nil
 		},
 	}
@@ -361,6 +359,9 @@ func serveCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			// MCP stdio: stdout must carry ONLY JSON-RPC frames — the startup
+			// banner goes to stderr (mirrors the Python `ladym serve`).
+			fmt.Fprint(os.Stderr, serveBanner(cfg))
 			return mcp.Run(cfg)
 		},
 	}
@@ -507,10 +508,12 @@ func configRMCmd() *cobra.Command {
 				return err
 			}
 			if removed {
-				fmt.Printf("removed %s\n", args[0])
+				fmt.Fprintf(c.OutOrStdout(), "removed %s\n", args[0])
 			} else {
-				fmt.Printf("no such key %s\n", args[0])
-				return fmt.Errorf("no such key")
+				// Python: print "no such key KEY" once and exit(1) — return a
+				// silent exitError so Execute does not print a second line.
+				fmt.Fprintf(c.OutOrStdout(), "no such key %s\n", args[0])
+				return &exitError{code: 1}
 			}
 			return nil
 		},
@@ -518,6 +521,55 @@ func configRMCmd() *cobra.Command {
 }
 
 // ---- small helpers ----
+
+// serveBanner is the stderr startup banner printed by `ladym serve` (mirrors
+// the Python CLI).
+func serveBanner(cfg *config.Config) string {
+	return fmt.Sprintf("LadyM MCP server starting (db=%s, ws=%s)\n", cfg.DBPath, cfg.Workspace)
+}
+
+// writeIndexReport prints the `index` summary; only the first 5 errors are
+// listed (mirrors Python's report.errors[:5]).
+func writeIndexReport(w io.Writer, report *code.IndexReport) {
+	fmt.Fprintf(w, "indexed %d/%d files (%d symbols, %d refs) in %.0fms\n",
+		report.FilesIndexed, report.FilesSeen, report.SymbolsWritten, report.RefsWritten, report.ElapsedMs)
+	if report.FilesSkippedUnchanged > 0 {
+		fmt.Fprintf(w, "  skipped unchanged: %d\n", report.FilesSkippedUnchanged)
+	}
+	if len(report.Errors) > 0 {
+		fmt.Fprintf(w, "  errors: %d\n", len(report.Errors))
+		for i, e := range report.Errors {
+			if i >= 5 {
+				break
+			}
+			fmt.Fprintf(w, "    %s\n", e)
+		}
+	}
+}
+
+// writeStats prints the `stats` output, including the by-layer breakdown and
+// "(none)" for empty workspaces (mirrors Python cli.py stats()).
+func writeStats(w io.Writer, s *schema.Stats) {
+	fmt.Fprintf(w, "LadyM stats  db=%s\n", s.DBPath)
+	fmt.Fprintf(w, "  total memories: %d\n", s.TotalMemories)
+	fmt.Fprintf(w, "  edges: %d    code symbols: %d\n", s.Edges, s.CodeSymbols)
+	ws := strings.Join(s.Workspaces, ", ")
+	if ws == "" {
+		ws = "(none)"
+	}
+	fmt.Fprintf(w, "  workspaces: %s\n", ws)
+	if len(s.ByLayer) > 0 {
+		fmt.Fprintln(w, "  by layer:")
+		layers := make([]string, 0, len(s.ByLayer))
+		for k := range s.ByLayer {
+			layers = append(layers, k)
+		}
+		sort.Strings(layers)
+		for _, k := range layers {
+			fmt.Fprintf(w, "    %-16s %d\n", k, s.ByLayer[k])
+		}
+	}
+}
 
 func splitTags(s string) []string {
 	if s == "" {

@@ -15,6 +15,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -297,6 +298,9 @@ func split(enc string) ([]byte, []byte, error) {
 	raw, err := base64.StdEncoding.DecodeString(enc)
 	if err != nil {
 		return nil, nil, err
+	}
+	if len(raw) < nonceLen {
+		return nil, nil, fmt.Errorf("corrupt secret: decoded ciphertext is %d bytes, shorter than the %d-byte nonce", len(raw), nonceLen)
 	}
 	return raw[:nonceLen], raw[nonceLen:], nil
 }
