@@ -90,7 +90,17 @@ class AsyncLadymClient:
         if result.is_error:
             raise LadymError(f"{tool} failed: {result.content}")
         if result.structured_content is not None:
-            return result.structured_content
+            # MCP backward-compat wrapping: when the server declares no
+            # outputSchema (the Go `ladym serve` doesn't), the SDK wraps the
+            # text payload as {"result": <raw text>}. Unwrap it and parse the
+            # JSON text the server actually sent.
+            sc = result.structured_content
+            if set(sc) == {"result"} and isinstance(sc["result"], str):
+                try:
+                    return json.loads(sc["result"])
+                except json.JSONDecodeError:
+                    return sc["result"]
+            return sc
         for block in result.content:
             if block.type == "text":
                 try:
