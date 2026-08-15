@@ -89,6 +89,19 @@ g.AddNode("recall", ladymgraph.CreateRecallNode(eng, 6, "", nil))
 g.AddNode("retain", ladymgraph.CreateRetainNode(eng, nil))
 ```
 
+Flexible engine construction and per-request workspace resolution mirror
+Python's `langgraph/_runtime.py`:
+
+```go
+// ResolveEngine accepts *engine.Engine (as-is), *config.Config, a db path
+// string, or nil (defaults) — with an optional workspace override.
+eng, _ = ladymgraph.ResolveEngine("./mem.db", "team")
+
+// WorkspaceFromUserID resolves the workspace from the run context's
+// user_id (mirrors Python's config["configurable"]["user_id"]).
+g.AddNode("retain", ladymgraph.CreateRetainNode(eng, ladymgraph.WorkspaceFromUserID()))
+```
+
 ## Parity
 
 The following behaviour is ported 1:1 and covered by tests, including
