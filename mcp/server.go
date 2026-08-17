@@ -114,7 +114,7 @@ func (s *server) handle(req rpcRequest) (rpcResponse, error) {
 		return rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: map[string]any{
 			"protocolVersion": "2024-11-05",
 			"capabilities":    map[string]any{"tools": map[string]any{}},
-			"serverInfo":      map[string]any{"name": "ladym", "version": "0.3.0"},
+			"serverInfo":      map[string]any{"name": "ladym", "version": "0.3.1"},
 		}}, nil
 	case "ping":
 		base.Result = map[string]any{}
