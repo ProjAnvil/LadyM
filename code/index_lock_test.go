@@ -80,3 +80,15 @@ func TestIndexLockReleasedBetweenRuns(t *testing.T) {
 		}
 	}
 }
+
+func TestAcquireIndexLockBadPath(t *testing.T) {
+	release, err := acquireIndexLock(filepath.Join(t.TempDir(), "no", "such", "dir", "db.sqlite"))
+	if err == nil {
+		release()
+		t.Fatal("expected error opening lock file in missing directory")
+	}
+	var inProg *IndexInProgressError
+	if errors.As(err, &inProg) {
+		t.Errorf("err = %v, want a plain open error, not IndexInProgressError", err)
+	}
+}

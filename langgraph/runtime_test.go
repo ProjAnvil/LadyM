@@ -61,6 +61,18 @@ func TestResolveEngineNil(t *testing.T) {
 	defer eng.Close()
 }
 
+func TestResolveEngineNilWithWorkspace(t *testing.T) {
+	t.Chdir(t.TempDir()) // keep the default db path inside the sandbox
+	eng, err := ResolveEngine(nil, "team-nil")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer eng.Close()
+	if eng.Config.Workspace != "team-nil" {
+		t.Fatalf("workspace = %q, want team-nil", eng.Config.Workspace)
+	}
+}
+
 func TestResolveEngineUnsupported(t *testing.T) {
 	if _, err := ResolveEngine(42, ""); err == nil {
 		t.Fatal("expected error for unsupported source type")
@@ -76,9 +88,9 @@ func TestWorkspaceFromUserID(t *testing.T) {
 	}
 
 	for name, rt := range map[string]lgruntime.Runtime{
-		"no context":   {},
-		"no user_id":   {Context: map[string]any{"other": "x"}},
-		"non-string":   {Context: map[string]any{"user_id": 7}},
+		"no context":    {},
+		"no user_id":    {Context: map[string]any{"other": "x"}},
+		"non-string":    {Context: map[string]any{"user_id": 7}},
 		"empty user_id": {Context: map[string]any{"user_id": ""}},
 	} {
 		if got := wsFn(rt); got != "" {
