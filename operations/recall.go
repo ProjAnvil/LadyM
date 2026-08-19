@@ -65,7 +65,7 @@ type candidate struct {
 }
 
 // Recall runs the full two-tier retrieval pipeline.
-func Recall(store *storage.SQLiteStore, embedder storage.EmbeddingProvider, query string, cfg *config.Config, workspace string, topK int, layers []schema.Layer, types []schema.MemoryType, minSimilarity float64) (*schema.RecallResponse, error) {
+func Recall(store storage.Store, embedder storage.EmbeddingProvider, query string, cfg *config.Config, workspace string, topK int, layers []schema.Layer, types []schema.MemoryType, minSimilarity float64) (*schema.RecallResponse, error) {
 	start := time.Now()
 	ws := workspace
 	if ws == "" {
@@ -89,7 +89,7 @@ func Recall(store *storage.SQLiteStore, embedder storage.EmbeddingProvider, quer
 	if fetchK < k1 {
 		fetchK = k1
 	}
-	rawHits := store.VectorIndex().Search(queryVec, fetchK)
+	rawHits := store.VectorSearch(queryVec, fetchK)
 	var cand []candidate
 	for _, h := range rawHits {
 		if h.Similarity < minSimilarity {
@@ -208,7 +208,7 @@ type expandedItem struct {
 	Via    []string
 }
 
-func tier2Expand(store *storage.SQLiteStore, tier1 []*schema.RecallResult, cfg *config.Config, workspace string) ([]expandedItem, error) {
+func tier2Expand(store storage.Store, tier1 []*schema.RecallResult, cfg *config.Config, workspace string) ([]expandedItem, error) {
 	var out []expandedItem
 	seen := map[string]bool{}
 	for _, r := range tier1 {
@@ -315,7 +315,7 @@ func maxF(a, b float64) float64 {
 	return b
 }
 
-func commitAccess(store *storage.SQLiteStore, ids []string) {
+func commitAccess(store storage.Store, ids []string) {
 	now := schema.Now()
 	for _, id := range ids {
 		_ = store.TouchMemory(id, now)

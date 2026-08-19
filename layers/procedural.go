@@ -10,13 +10,13 @@ import (
 
 // ProceduralMemory is L3 — reusable playbooks and verified snippets.
 type ProceduralMemory struct {
-	Store     *storage.SQLiteStore
+	Store     storage.Store
 	Embedder  storage.EmbeddingProvider
 	Workspace string
 }
 
 // NewProceduralMemory builds a ProceduralMemory.
-func NewProceduralMemory(store *storage.SQLiteStore, embedder storage.EmbeddingProvider, workspace string) *ProceduralMemory {
+func NewProceduralMemory(store storage.Store, embedder storage.EmbeddingProvider, workspace string) *ProceduralMemory {
 	if workspace == "" {
 		workspace = "default"
 	}

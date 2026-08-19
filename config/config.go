@@ -105,6 +105,12 @@ type LLMConfig struct {
 	TimeoutS         float64
 }
 
+// StoreConfig mirrors the flat store_* fields (populated by the loader).
+type StoreConfig struct {
+	Backend string
+	DSN     string
+}
+
 // System2Config holds background reflection cycle knobs.
 type System2Config struct {
 	Enabled              bool
@@ -137,6 +143,12 @@ type Config struct {
 	Workspace       string
 	PreferSQLiteVec bool
 	EnableWAL       bool
+
+	// store backend (flat — source of truth for storage.OpenStore)
+	StoreBackend string // "sqlite" (default) or "postgres"
+	StoreDSN     string // postgres DSN; may be written directly (not a secret literal)
+	StoreDSNEnv  string // env var name to read the DSN from (secrets-off-disk pattern)
+	Store        StoreConfig
 
 	// embedding (flat — source of truth for make_provider)
 	EmbeddingProvider         string
@@ -204,6 +216,10 @@ func Default() *Config {
 		// share a single db. Disable with enable_wal=false or
 		// LADYM_ENABLE_WAL=false on filesystems without WAL support.
 		EnableWAL: true,
+
+		StoreBackend: envOr("LADYM_STORE_BACKEND", "sqlite"),
+		StoreDSN:     envOr("LADYM_STORE_DSN", ""),
+		StoreDSNEnv:  "",
 
 		EmbeddingProvider:         envOr("LADYM_EMBEDDING", "hashing"),
 		EmbeddingModel:            envOr("LADYM_EMBEDDING_MODEL", ""),
@@ -486,6 +502,19 @@ func applyToml(cfg *Config, data map[string]any) {
 					}
 				}
 			}
+		case "store":
+			if t, ok := v.(map[string]any); ok {
+				for sk, sv := range t {
+					switch sk {
+					case "backend", "dsn", "dsn_env":
+						applyFlat(cfg, "store_"+sk, sv)
+					default:
+						if !isSecret(sk) {
+							fmt.Fprintf(os.Stderr, "WARNING: ignoring unknown store key %q\n", sk)
+						}
+					}
+				}
+			}
 		case "agents":
 			if t, ok := v.(map[string]any); ok {
 				for op, overrides := range t {
@@ -659,6 +688,12 @@ func applyFlat(cfg *Config, key string, v any) {
 		cfg.PreferSQLiteVec = asBool(v)
 	case "enable_wal":
 		cfg.EnableWAL = asBool(v)
+	case "store_backend":
+		cfg.StoreBackend = asString(v)
+	case "store_dsn":
+		cfg.StoreDSN = asString(v)
+	case "store_dsn_env":
+		cfg.StoreDSNEnv = asString(v)
 	case "embedding_provider":
 		cfg.EmbeddingProvider = asString(v)
 	case "embedding_model":
@@ -706,8 +741,17 @@ func applyFlat(cfg *Config, key string, v any) {
 	}
 }
 
-// syncNested rebuilds the nested embedding/llm structs from the flat fields.
+// syncNested rebuilds the nested embedding/llm/store structs from the flat
+// fields. It also resolves store.dsn_env (env-var indirection) into StoreDSN;
+// a directly-set dsn always wins over dsn_env.
 func syncNested(cfg *Config) {
+	if cfg.StoreDSN == "" && cfg.StoreDSNEnv != "" {
+		cfg.StoreDSN = os.Getenv(cfg.StoreDSNEnv)
+	}
+	cfg.Store = StoreConfig{
+		Backend: cfg.StoreBackend,
+		DSN:     cfg.StoreDSN,
+	}
 	cfg.Embedding = EmbeddingConfig{
 		Provider:         cfg.EmbeddingProvider,
 		BaseURL:          cfg.EmbeddingBaseURL,
@@ -788,6 +832,12 @@ func applyEnv(cfg *Config) {
 	}
 	if v := os.Getenv("LADYM_ENABLE_WAL"); v != "" {
 		cfg.EnableWAL = toBool(v)
+	}
+	if v := os.Getenv("LADYM_STORE_BACKEND"); v != "" {
+		cfg.StoreBackend = v
+	}
+	if v := os.Getenv("LADYM_STORE_DSN"); v != "" {
+		cfg.StoreDSN = v
 	}
 }
 

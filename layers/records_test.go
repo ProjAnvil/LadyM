@@ -166,20 +166,18 @@ func TestEpisodicRecordEmbedderFailure(t *testing.T) {
 }
 
 func TestEpisodicRecordStoreFailure(t *testing.T) {
-	e := newTestEpisodic(t)
-	if _, err := e.Store.DB().Exec("DROP TABLE memories"); err != nil {
-		t.Fatal(err)
-	}
+	store, dbPath := newTestStoreWithPath(t)
+	e := NewEpisodicMemory(store, newTestEmbedder(), "test")
+	backdoorExec(t, dbPath, "DROP TABLE memories")
 	if _, err := e.Record("agent", "act", "", "", nil, nil); err == nil {
 		t.Error("Record should fail when the memories table is gone")
 	}
 }
 
 func TestEpisodicRecentStoreFailure(t *testing.T) {
-	e := newTestEpisodic(t)
-	if _, err := e.Store.DB().Exec("DROP TABLE memories"); err != nil {
-		t.Fatal(err)
-	}
+	store, dbPath := newTestStoreWithPath(t)
+	e := NewEpisodicMemory(store, newTestEmbedder(), "test")
+	backdoorExec(t, dbPath, "DROP TABLE memories")
 	if _, err := e.Recent(5); err == nil {
 		t.Error("Recent should fail when the memories table is gone")
 	}
@@ -229,10 +227,9 @@ func TestSemanticPutFact(t *testing.T) {
 }
 
 func TestSemanticPutFactStoreFailure(t *testing.T) {
-	s := NewSemanticMemory(newTestStore(t), newTestEmbedder(), "ws")
-	if _, err := s.Store.DB().Exec("DROP TABLE memories"); err != nil {
-		t.Fatal(err)
-	}
+	store, dbPath := newTestStoreWithPath(t)
+	s := NewSemanticMemory(store, newTestEmbedder(), "ws")
+	backdoorExec(t, dbPath, "DROP TABLE memories")
 	if _, err := s.PutFact("content", "", nil, nil, ""); err == nil {
 		t.Error("PutFact should fail when the memories table is gone")
 	}
@@ -286,10 +283,9 @@ func TestSemanticPutCodeFile(t *testing.T) {
 }
 
 func TestSemanticPutCodeFileStoreFailure(t *testing.T) {
-	s := NewSemanticMemory(newTestStore(t), newTestEmbedder(), "ws")
-	if _, err := s.Store.DB().Exec("DROP TABLE memories"); err != nil {
-		t.Fatal(err)
-	}
+	store, dbPath := newTestStoreWithPath(t)
+	s := NewSemanticMemory(store, newTestEmbedder(), "ws")
+	backdoorExec(t, dbPath, "DROP TABLE memories")
 	if _, err := s.PutCodeFile("f.go", "s", "go"); err == nil {
 		t.Error("PutCodeFile should fail when the memories table is gone")
 	}
@@ -343,10 +339,9 @@ func TestProceduralPutPlaybook(t *testing.T) {
 }
 
 func TestProceduralPutPlaybookStoreFailure(t *testing.T) {
-	p := NewProceduralMemory(newTestStore(t), newTestEmbedder(), "ws")
-	if _, err := p.Store.DB().Exec("DROP TABLE memories"); err != nil {
-		t.Fatal(err)
-	}
+	store, dbPath := newTestStoreWithPath(t)
+	p := NewProceduralMemory(store, newTestEmbedder(), "ws")
+	backdoorExec(t, dbPath, "DROP TABLE memories")
 	if _, err := p.PutPlaybook("pb", nil, nil, "", nil); err == nil {
 		t.Error("PutPlaybook should fail when the memories table is gone")
 	}
@@ -388,10 +383,9 @@ func TestProceduralPutSnippet(t *testing.T) {
 }
 
 func TestProceduralPutSnippetStoreFailure(t *testing.T) {
-	p := NewProceduralMemory(newTestStore(t), newTestEmbedder(), "ws")
-	if _, err := p.Store.DB().Exec("DROP TABLE memories"); err != nil {
-		t.Fatal(err)
-	}
+	store, dbPath := newTestStoreWithPath(t)
+	p := NewProceduralMemory(store, newTestEmbedder(), "ws")
+	backdoorExec(t, dbPath, "DROP TABLE memories")
 	if _, err := p.PutSnippet("t", "c", "", nil); err == nil {
 		t.Error("PutSnippet should fail when the memories table is gone")
 	}
@@ -501,11 +495,9 @@ func TestAssociativeGraph(t *testing.T) {
 }
 
 func TestAssociativeLinkStoreFailure(t *testing.T) {
-	store := newTestStore(t)
+	store, dbPath := newTestStoreWithPath(t)
 	a := NewAssociativeMemory(store)
-	if _, err := store.DB().Exec("DROP TABLE edges"); err != nil {
-		t.Fatal(err)
-	}
+	backdoorExec(t, dbPath, "DROP TABLE edges")
 	if _, err := a.Link("s", "d", "", nil, nil, nil, nil); err == nil {
 		t.Error("Link should fail when the edges table is gone")
 	}

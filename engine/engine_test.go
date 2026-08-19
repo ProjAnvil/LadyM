@@ -1,11 +1,13 @@
 package engine
 
 import (
+	"database/sql"
 	"os"
 	"testing"
 
 	"github.com/ProjAnvil/LadyM/config"
 	"github.com/ProjAnvil/LadyM/schema"
+	_ "modernc.org/sqlite"
 )
 
 func newTestEngine(t *testing.T) *Engine {
@@ -16,6 +18,21 @@ func newTestEngine(t *testing.T) *Engine {
 	}
 	t.Cleanup(func() { eng.Close() })
 	return eng
+}
+
+// backdoorExec runs raw SQL on a private connection — used only to simulate
+// storage-level failures (dropped tables) and forced timestamps. The Store
+// interface intentionally hides *sql.DB, so tests open their own connection.
+func backdoorExec(t *testing.T, dbPath, query string, args ...any) {
+	t.Helper()
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(query, args...); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestRememberAndRecall(t *testing.T) {

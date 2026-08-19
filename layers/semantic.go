@@ -7,13 +7,13 @@ import (
 
 // SemanticMemory is L2 — consolidated facts and codebase analysis.
 type SemanticMemory struct {
-	Store     *storage.SQLiteStore
+	Store     storage.Store
 	Embedder  storage.EmbeddingProvider
 	Workspace string
 }
 
 // NewSemanticMemory builds a SemanticMemory.
-func NewSemanticMemory(store *storage.SQLiteStore, embedder storage.EmbeddingProvider, workspace string) *SemanticMemory {
+func NewSemanticMemory(store storage.Store, embedder storage.EmbeddingProvider, workspace string) *SemanticMemory {
 	if workspace == "" {
 		workspace = "default"
 	}

@@ -22,7 +22,7 @@ func TestBusyTimeoutPragma(t *testing.T) {
 	// immediately with "database is locked".
 	s := openTestStore(t)
 	var ms int
-	if err := s.DB().QueryRow("PRAGMA busy_timeout").Scan(&ms); err != nil {
+	if err := s.db.QueryRow("PRAGMA busy_timeout").Scan(&ms); err != nil {
 		t.Fatal(err)
 	}
 	if ms != 10000 {

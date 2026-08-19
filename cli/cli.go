@@ -16,6 +16,7 @@ import (
 	"github.com/ProjAnvil/LadyM/mcp"
 	"github.com/ProjAnvil/LadyM/schema"
 	"github.com/ProjAnvil/LadyM/secrets"
+	"github.com/ProjAnvil/LadyM/storage"
 	"github.com/ProjAnvil/LadyM/web"
 	"github.com/spf13/cobra"
 )
@@ -58,6 +59,7 @@ func newRootCmd() *cobra.Command {
 	root := &cobra.Command{
 		Use:           "ladym",
 		Short:         "LadyM — brain-inspired memory for LLM agents & codebase RAG.",
+		Version:       storage.Edition,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}

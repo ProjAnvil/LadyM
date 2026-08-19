@@ -217,10 +217,8 @@ func TestFullMemoryLifecycle(t *testing.T) {
 
 	// 5. decay does not touch the promoted semantic/procedural items
 	old := schema.Now() - 100*365*24*3600
-	if _, err := eng.Store.DB().Exec(
-		"UPDATE memories SET last_access_at = ? WHERE layer = ?", old, string(schema.LayerEpisodic)); err != nil {
-		t.Fatal(err)
-	}
+	backdoorExec(t, eng.Config.DBPath,
+		"UPDATE memories SET last_access_at = ? WHERE layer = ?", old, string(schema.LayerEpisodic))
 	if _, err := eng.Decay("", false, 1.0, 0.9); err != nil {
 		t.Fatal(err)
 	}

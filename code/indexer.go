@@ -2,6 +2,7 @@ package code
 
 import (
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -64,9 +65,12 @@ func shouldIgnore(path string, ignoreGlobs []string) bool {
 // the Python indexer): a second concurrent index — from another CLI, MCP
 // server, or worker — fails fast with IndexInProgressError instead of
 // interleaving writes.
-func IndexCodebase(root string, store *storage.SQLiteStore, embedder storage.EmbeddingProvider, cfg *config.Config, workspace string, force bool, languageFilter []string) (*IndexReport, error) {
-	release, err := acquireIndexLock(store.DBPath)
+func IndexCodebase(root string, store storage.Store, embedder storage.EmbeddingProvider, cfg *config.Config, workspace string, force bool, languageFilter []string) (*IndexReport, error) {
+	release, err := store.TryAcquireIndexLock()
 	if err != nil {
+		if errors.Is(err, storage.ErrIndexLockHeld) {
+			return nil, &IndexInProgressError{DBPath: cfg.DBPath}
+		}
 		return nil, err
 	}
 	defer release()
@@ -238,10 +242,8 @@ func fileSummary(rel, lang string, syms []RawSymbol) string {
 	return rel + " (" + lang + "): " + strings.Join(kindParts, ", ") + ". Top symbols: " + strings.Join(top, ", ") + "."
 }
 
-func putFileMemory(store *storage.SQLiteStore, embedder storage.EmbeddingProvider, ws, rel, lang, summary string) error {
-	if _, err := store.DB().Exec(
-		"DELETE FROM memories WHERE type = ? AND source = ? AND workspace = ?",
-		string(schema.TypeCodeFile), rel, ws); err != nil {
+func putFileMemory(store storage.Store, embedder storage.EmbeddingProvider, ws, rel, lang, summary string) error {
+	if err := store.DeleteMemoriesByTypeSource(string(schema.TypeCodeFile), rel, ws); err != nil {
 		return err
 	}
 	m := schema.NewMemory(schema.LayerSemantic, schema.TypeCodeFile)
@@ -259,10 +261,8 @@ func putFileMemory(store *storage.SQLiteStore, embedder storage.EmbeddingProvide
 	return store.PutMemory(m, vec)
 }
 
-func putSymbolMemory(store *storage.SQLiteStore, embedder storage.EmbeddingProvider, ws, rel, lang string, sym RawSymbol) error {
-	if _, err := store.DB().Exec(
-		"DELETE FROM memories WHERE type = ? AND workspace = ? AND id IN (SELECT memory_id FROM code_symbols WHERE qualified_name = ?)",
-		string(schema.TypeCodeSymbol), ws, sym.QualifiedName); err != nil {
+func putSymbolMemory(store storage.Store, embedder storage.EmbeddingProvider, ws, rel, lang string, sym RawSymbol) error {
+	if err := store.DeleteSymbolMemories(sym.QualifiedName, ws); err != nil {
 		return err
 	}
 	content := renderSymbolContent(sym)

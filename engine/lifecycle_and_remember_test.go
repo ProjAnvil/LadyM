@@ -583,9 +583,7 @@ func TestStatsForDefaultsAndTableErrors(t *testing.T) {
 	}
 
 	// a missing projection table surfaces as an error, not a panic
-	if _, err := eng.Store.DB().Exec("DROP TABLE code_symbols"); err != nil {
-		t.Fatal(err)
-	}
+	backdoorExec(t, eng.Config.DBPath, "DROP TABLE code_symbols")
 	if _, err := eng.Stats(); err == nil {
 		t.Error("Stats with dropped code_symbols table should fail")
 	}
@@ -593,9 +591,7 @@ func TestStatsForDefaultsAndTableErrors(t *testing.T) {
 
 func TestStatsForEdgesTableDropped(t *testing.T) {
 	eng := newTestEngine(t)
-	if _, err := eng.Store.DB().Exec("DROP TABLE edges"); err != nil {
-		t.Fatal(err)
-	}
+	backdoorExec(t, eng.Config.DBPath, "DROP TABLE edges")
 	if _, err := eng.Stats(); err == nil {
 		t.Error("Stats with dropped edges table should fail")
 	}
@@ -612,9 +608,7 @@ func TestListEqualTimestampsTiebreak(t *testing.T) {
 		ids = append(ids, m.ID)
 	}
 	// force identical UpdatedAt so the sort hits the id tiebreak
-	if _, err := eng.Store.DB().Exec("UPDATE memories SET updated_at = 12345.0"); err != nil {
-		t.Fatal(err)
-	}
+	backdoorExec(t, eng.Config.DBPath, "UPDATE memories SET updated_at = 12345.0")
 	got, err := eng.List("", nil, 10, 0)
 	if err != nil {
 		t.Fatal(err)

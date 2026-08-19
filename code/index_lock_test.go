@@ -27,10 +27,11 @@ func TestIndexLockConflict(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg := config.ForTesting(tmp)
+	cfg.DBPath = dbPath // the error message must name the locked db
 	emb := storage.NewHashingEmbedding(256)
 
 	// Hold the lock (as a competing process would).
-	release, err := acquireIndexLock(dbPath)
+	release, err := store.TryAcquireIndexLock()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,17 +79,5 @@ func TestIndexLockReleasedBetweenRuns(t *testing.T) {
 		if _, err := IndexCodebase(root, store, emb, cfg, "test", false, nil); err != nil {
 			t.Fatalf("run %d: %v", i+1, err)
 		}
-	}
-}
-
-func TestAcquireIndexLockBadPath(t *testing.T) {
-	release, err := acquireIndexLock(filepath.Join(t.TempDir(), "no", "such", "dir", "db.sqlite"))
-	if err == nil {
-		release()
-		t.Fatal("expected error opening lock file in missing directory")
-	}
-	var inProg *IndexInProgressError
-	if errors.As(err, &inProg) {
-		t.Errorf("err = %v, want a plain open error, not IndexInProgressError", err)
 	}
 }

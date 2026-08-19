@@ -15,7 +15,7 @@ import (
 // --- helpers ---------------------------------------------------------------
 
 // putCustomMem stores a fully customized memory (caller sets fields first).
-func putCustomMem(t *testing.T, store *storage.SQLiteStore, emb *storage.HashingEmbedding, m *schema.Memory) *schema.Memory {
+func putCustomMem(t *testing.T, store storage.Store, emb *storage.HashingEmbedding, m *schema.Memory) *schema.Memory {
 	t.Helper()
 	vec, err := emb.Embed(m.Content)
 	if err != nil {
@@ -122,7 +122,7 @@ func TestParseFloatOrZero(t *testing.T) {
 
 // --- decay --------------------------------------------------------------------
 
-func decayableMem(t *testing.T, store *storage.SQLiteStore, emb *storage.HashingEmbedding, content string, lastAccess float64) *schema.Memory {
+func decayableMem(t *testing.T, store storage.Store, emb *storage.HashingEmbedding, content string, lastAccess float64) *schema.Memory {
 	t.Helper()
 	m := newCustomMem(schema.LayerEpisodic, schema.TypeEvent, content, "test")
 	m.LastAccessAt = lastAccess
@@ -309,7 +309,7 @@ func TestConsolidateSinceFilter(t *testing.T) {
 }
 
 func TestConsolidateLLMClassifier(t *testing.T) {
-	newStoreWithFact := func(t *testing.T) (*storage.SQLiteStore, *storage.HashingEmbedding, *schema.Memory) {
+	newStoreWithFact := func(t *testing.T) (storage.Store, *storage.HashingEmbedding, *schema.Memory) {
 		store, emb := newParityStore(t)
 		fact := newCustomMem(schema.LayerSemantic, schema.TypeFact, "auth uses jwt tokens", "test")
 		fact.ContentHash = schema.ContentHash(fact.Content)
@@ -766,7 +766,7 @@ func TestExtractL5TitleDefaultAndSummariseError(t *testing.T) {
 }
 
 // seedMergeableModels creates two similar L5 models each abstracting one fact.
-func seedMergeableModels(t *testing.T, store *storage.SQLiteStore, emb *storage.HashingEmbedding) (m1, m2 *schema.Memory) {
+func seedMergeableModels(t *testing.T, store storage.Store, emb *storage.HashingEmbedding) (m1, m2 *schema.Memory) {
 	t.Helper()
 	f1 := putParityMem(t, store, emb, schema.LayerSemantic, schema.TypeFact, "deployments need rollback plans", nil)
 	f2 := putParityMem(t, store, emb, schema.LayerSemantic, schema.TypeFact, "releases need smoke tests", nil)
@@ -948,7 +948,7 @@ func TestPredictL6StoresIntentsAndWatermark(t *testing.T) {
 
 // --- proceduralize ----------------------------------------------------------------
 
-func putSuccessEpisodes(t *testing.T, store *storage.SQLiteStore, emb *storage.HashingEmbedding, content, action, outcome string, n int) {
+func putSuccessEpisodes(t *testing.T, store storage.Store, emb *storage.HashingEmbedding, content, action, outcome string, n int) {
 	t.Helper()
 	for i := 0; i < n; i++ {
 		putParityMem(t, store, emb, schema.LayerEpisodic, schema.TypeEvent, content,

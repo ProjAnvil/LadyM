@@ -15,7 +15,7 @@ type DecayReport struct {
 
 // Decay forgets episodic events whose activation has fallen below the floor.
 // Code analysis, playbooks, and edges are never auto-forgotten.
-func Decay(store *storage.SQLiteStore, workspace string, weights *config.ActivationWeights, maxAgeS, activationFloor, now float64, dryRun bool) (*DecayReport, error) {
+func Decay(store storage.Store, workspace string, weights *config.ActivationWeights, maxAgeS, activationFloor, now float64, dryRun bool) (*DecayReport, error) {
 	if weights == nil {
 		weights = &config.ActivationWeights{
 			Similarity: 1.0, Recency: 0.3, Frequency: 0.2, Graph: 0.15,

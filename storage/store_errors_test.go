@@ -195,8 +195,8 @@ func TestNewStoreAddsEmbeddingColumnToLegacyDB(t *testing.T) {
 	if err := s2.PutMemory(m, []float32{1, 0, 0, 0, 0, 0, 0, 0}); err != nil {
 		t.Fatal(err)
 	}
-	if s2.VectorIndex().Len() != 1 {
-		t.Errorf("index len = %d, want 1", s2.VectorIndex().Len())
+	if s2.vectorIndex.Len() != 1 {
+		t.Errorf("index len = %d, want 1", s2.vectorIndex.Len())
 	}
 }
 

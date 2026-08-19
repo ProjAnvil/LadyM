@@ -1,21 +1,45 @@
 package layers
 
 import (
+	"database/sql"
 	"path/filepath"
 	"testing"
 
 	"github.com/ProjAnvil/LadyM/schema"
 	"github.com/ProjAnvil/LadyM/storage"
+	_ "modernc.org/sqlite"
 )
 
-func newTestStore(t *testing.T) *storage.SQLiteStore {
+func newTestStoreWithPath(t *testing.T) (storage.Store, string) {
 	t.Helper()
-	s, err := storage.NewStore(filepath.Join(t.TempDir(), "db.sqlite"), 16, false, false)
+	dbPath := filepath.Join(t.TempDir(), "db.sqlite")
+	s, err := storage.NewStore(dbPath, 16, false, false)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { s.Close() })
+	return s, dbPath
+}
+
+func newTestStore(t *testing.T) storage.Store {
+	t.Helper()
+	s, _ := newTestStoreWithPath(t)
 	return s
+}
+
+// backdoorExec runs raw SQL on a private connection — used only to simulate
+// storage-level failures (dropped tables) and forced timestamps. The Store
+// interface intentionally hides *sql.DB, so tests open their own connection.
+func backdoorExec(t *testing.T, dbPath, query string, args ...any) {
+	t.Helper()
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(query, args...); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func newTestEpisodic(t *testing.T) *EpisodicMemory {
@@ -25,7 +49,8 @@ func newTestEpisodic(t *testing.T) *EpisodicMemory {
 
 // Fix 3: Recent must honour limit and return newest-first (created_at DESC).
 func TestEpisodicRecentOrdersAndLimits(t *testing.T) {
-	e := newTestEpisodic(t)
+	store, dbPath := newTestStoreWithPath(t)
+	e := NewEpisodicMemory(store, storage.NewHashingEmbedding(16), "test")
 	ids := make([]string, 4)
 	for i := 0; i < 4; i++ {
 		m, err := e.Record("agent", "act"+string(rune('a'+i)), "", "", nil, nil)
@@ -34,9 +59,7 @@ func TestEpisodicRecentOrdersAndLimits(t *testing.T) {
 		}
 		ids[i] = m.ID
 		// Deterministic increasing timestamps: ids[0] oldest … ids[3] newest.
-		if _, err := e.Store.DB().Exec("UPDATE memories SET created_at = ? WHERE id = ?", float64(i+1), m.ID); err != nil {
-			t.Fatal(err)
-		}
+		backdoorExec(t, dbPath, "UPDATE memories SET created_at = ? WHERE id = ?", float64(i+1), m.ID)
 	}
 
 	recent, err := e.Recent(2)

@@ -18,7 +18,7 @@ func IsRetired(mem *schema.Memory) bool {
 // old→new (UPDATE chain); otherwise it sets superseded=true (DELETE). Outgoing
 // still-valid edges of old are closed so the graph does not leak through a
 // retired node.
-func Retire(store *storage.SQLiteStore, old *schema.Memory, newID string) error {
+func Retire(store storage.Store, old *schema.Memory, newID string) error {
 	now := schema.Now()
 	if old.Metadata == nil {
 		old.Metadata = map[string]any{}
@@ -52,7 +52,7 @@ func Retire(store *storage.SQLiteStore, old *schema.Memory, newID string) error 
 }
 
 // LatestInChain walks supersedes edges forward and returns the newest version id.
-func LatestInChain(store *storage.SQLiteStore, memID string) (string, error) {
+func LatestInChain(store storage.Store, memID string) (string, error) {
 	seen := map[string]bool{}
 	cur := memID
 	for !seen[cur] {

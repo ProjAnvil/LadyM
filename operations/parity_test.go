@@ -14,7 +14,7 @@ import (
 
 // --- helpers ---------------------------------------------------------------
 
-func newParityStore(t *testing.T) (*storage.SQLiteStore, *storage.HashingEmbedding) {
+func newParityStore(t *testing.T) (storage.Store, *storage.HashingEmbedding) {
 	t.Helper()
 	emb := storage.NewHashingEmbedding(256)
 	store, err := storage.NewStore(filepath.Join(t.TempDir(), "t.db"), emb.Dim(), false, false)
@@ -25,7 +25,7 @@ func newParityStore(t *testing.T) (*storage.SQLiteStore, *storage.HashingEmbeddi
 	return store, emb
 }
 
-func putParityMem(t *testing.T, store *storage.SQLiteStore, emb *storage.HashingEmbedding, layer schema.Layer, typ schema.MemoryType, content string, meta map[string]any) *schema.Memory {
+func putParityMem(t *testing.T, store storage.Store, emb *storage.HashingEmbedding, layer schema.Layer, typ schema.MemoryType, content string, meta map[string]any) *schema.Memory {
 	t.Helper()
 	m := schema.NewMemory(layer, typ)
 	m.Content = content

@@ -10,13 +10,13 @@ import (
 
 // EpisodicMemory is L1 — time-stamped events.
 type EpisodicMemory struct {
-	Store     *storage.SQLiteStore
+	Store     storage.Store
 	Embedder  storage.EmbeddingProvider
 	Workspace string
 }
 
 // NewEpisodicMemory builds an EpisodicMemory.
-func NewEpisodicMemory(store *storage.SQLiteStore, embedder storage.EmbeddingProvider, workspace string) *EpisodicMemory {
+func NewEpisodicMemory(store storage.Store, embedder storage.EmbeddingProvider, workspace string) *EpisodicMemory {
 	if workspace == "" {
 		workspace = "default"
 	}

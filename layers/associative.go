@@ -7,11 +7,11 @@ import (
 
 // AssociativeMemory is L4 — the Zettelkasten graph.
 type AssociativeMemory struct {
-	Store *storage.SQLiteStore
+	Store storage.Store
 }
 
 // NewAssociativeMemory builds an AssociativeMemory.
-func NewAssociativeMemory(store *storage.SQLiteStore) *AssociativeMemory {
+func NewAssociativeMemory(store storage.Store) *AssociativeMemory {
 	return &AssociativeMemory{Store: store}
 }
 
@@ -64,6 +64,5 @@ func (a *AssociativeMemory) Retire(edgeID string, when *float64) error {
 	if when != nil {
 		t = *when
 	}
-	_, err := a.Store.DB().Exec("UPDATE edges SET valid_to = ? WHERE id = ?", t, edgeID)
-	return err
+	return a.Store.InvalidateEdge(edgeID, t)
 }

@@ -59,7 +59,7 @@ func offlineClassify(candidate, candidateHash string, similar []similarFact, thr
 }
 
 // Consolidate promotes salient episodic events into semantic facts.
-func Consolidate(store *storage.SQLiteStore, embedder storage.EmbeddingProvider, cfg *config.Config, workspace string, llmClassify LLMClassifier, since float64) (*ConsolidationReport, error) {
+func Consolidate(store storage.Store, embedder storage.EmbeddingProvider, cfg *config.Config, workspace string, llmClassify LLMClassifier, since float64) (*ConsolidationReport, error) {
 	ws := workspace
 	if ws == "" {
 		ws = cfg.Workspace
@@ -100,7 +100,7 @@ func Consolidate(store *storage.SQLiteStore, embedder storage.EmbeddingProvider,
 
 	for i, ep := range episodes {
 		vec := candVecs[i]
-		raw := store.VectorIndex().Search(vec, cfg.Consolidate.MinEpisodesToTrigger+5)
+		raw := store.VectorSearch(vec, cfg.Consolidate.MinEpisodesToTrigger+5)
 		var similar []similarFact
 		for _, h := range raw {
 			if h.Similarity < 0.1 {

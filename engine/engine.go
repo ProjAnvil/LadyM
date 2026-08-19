@@ -29,7 +29,7 @@ const consolidatePrompt = "You classify a candidate fact against similar existin
 type Engine struct {
 	Config   *config.Config
 	Provider storage.EmbeddingProvider
-	Store    *storage.SQLiteStore
+	Store    storage.Store
 
 	Working     *layers.WorkingMemory
 	Episodic    *layers.EpisodicMemory
@@ -74,7 +74,7 @@ func NewWithModels(cfg *config.Config, models *adapter.ModelRouting) (*Engine, e
 		return nil, err
 	}
 
-	store, err := storage.NewStore(cfg.DBPath, e.Provider.Dim(), cfg.PreferSQLiteVec, cfg.EnableWAL)
+	store, err := storage.OpenStore(cfg, e.Provider.Dim())
 	if err != nil {
 		return nil, err
 	}
@@ -545,7 +545,7 @@ func (e *Engine) StatsFor(workspace string) (*schema.Stats, error) {
 		byLayer[layer] += n
 		byType[typ] += n
 	}
-	nCodeSyms, err := countCodeSymbols(e.Store)
+	nCodeSyms, err := e.Store.CountCodeSymbols()
 	if err != nil {
 		return nil, err
 	}
@@ -578,12 +578,6 @@ func (e *Engine) StatsFor(workspace string) (*schema.Stats, error) {
 		Edges: edges, CodeSymbols: nCodeSyms, Workspaces: workspaces,
 		DBPath: e.Config.DBPath, AvgTokensPerMemory: avg,
 	}, nil
-}
-
-func countCodeSymbols(store *storage.SQLiteStore) (int, error) {
-	var n int
-	err := store.DB().QueryRow("SELECT COUNT(*) FROM code_symbols").Scan(&n)
-	return n, err
 }
 
 func splitCountKey(k string) (string, string) {

@@ -8,7 +8,7 @@ import (
 	"github.com/ProjAnvil/LadyM/storage"
 )
 
-func newTestStore(t *testing.T) *storage.SQLiteStore {
+func newTestStore(t *testing.T) storage.Store {
 	t.Helper()
 	s, err := storage.NewStore(filepath.Join(t.TempDir(), "db.sqlite"), 16, false, false)
 	if err != nil {

@@ -24,8 +24,8 @@ func newProceduralizeReport() *ProceduralizeReport {
 	}}
 }
 
-func retrieveExistingPlaybooks(store *storage.SQLiteStore, candidateVec []float32, ws string, topK int) ([]similarFact, error) {
-	raw := store.VectorIndex().Search(candidateVec, topK)
+func retrieveExistingPlaybooks(store storage.Store, candidateVec []float32, ws string, topK int) ([]similarFact, error) {
+	raw := store.VectorSearch(candidateVec, topK)
 	var similar []similarFact
 	for _, h := range raw {
 		if h.Similarity < 0.1 {
@@ -63,7 +63,7 @@ func classifyPlaybook(candidateHash string, similar []similarFact, threshold flo
 }
 
 // Proceduralize clusters successful episodic events into L3 playbooks.
-func Proceduralize(store *storage.SQLiteStore, embedder storage.EmbeddingProvider, cfg *config.Config, workspace string, minClusterSize int, similarityThreshold float64) (*ProceduralizeReport, error) {
+func Proceduralize(store storage.Store, embedder storage.EmbeddingProvider, cfg *config.Config, workspace string, minClusterSize int, similarityThreshold float64) (*ProceduralizeReport, error) {
 	ws := workspace
 	if ws == "" {
 		ws = cfg.Workspace

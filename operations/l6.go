@@ -37,7 +37,7 @@ type L6PredictionReport struct {
 }
 
 // PredictL6 predicts next intents from recent episodes, with TTL expiry.
-func PredictL6(store *storage.SQLiteStore, embedder storage.EmbeddingProvider, cfg *config.Config, workspace string, llm providers.LLMProvider, prompt string) (*L6PredictionReport, error) {
+func PredictL6(store storage.Store, embedder storage.EmbeddingProvider, cfg *config.Config, workspace string, llm providers.LLMProvider, prompt string) (*L6PredictionReport, error) {
 	ws := workspace
 	if ws == "" {
 		ws = cfg.Workspace

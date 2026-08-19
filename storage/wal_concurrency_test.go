@@ -30,7 +30,7 @@ func openWALStore(t *testing.T, dbPath string) *SQLiteStore {
 func TestWALJournalModeEnabled(t *testing.T) {
 	s := openWALStore(t, filepath.Join(t.TempDir(), "w.db"))
 	var mode string
-	if err := s.DB().QueryRow("PRAGMA journal_mode").Scan(&mode); err != nil {
+	if err := s.db.QueryRow("PRAGMA journal_mode").Scan(&mode); err != nil {
 		t.Fatal(err)
 	}
 	if mode != "wal" {
@@ -94,7 +94,7 @@ func TestWALConcurrentReadWhileWriting(t *testing.T) {
 				errCh <- err
 				return
 			}
-			reader.VectorIndex().Search(qvec, 8)
+			reader.vectorIndex.Search(qvec, 8)
 			time.Sleep(5 * time.Millisecond)
 		}
 	}()

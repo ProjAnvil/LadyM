@@ -11,7 +11,7 @@ import (
 	"github.com/odvcencio/gotreesitter"
 )
 
-func newTestStore(t *testing.T) (*storage.SQLiteStore, storage.EmbeddingProvider) {
+func newTestStore(t *testing.T) (storage.Store, storage.EmbeddingProvider) {
 	t.Helper()
 	store, err := storage.NewStore(filepath.Join(t.TempDir(), "db.sqlite"), 256, false, false)
 	if err != nil {

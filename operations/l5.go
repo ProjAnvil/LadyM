@@ -43,7 +43,7 @@ type L5ExtractionReport struct {
 	Skipped      bool
 }
 
-func coveredMemberIDs(store *storage.SQLiteStore, workspace string) (map[string]bool, error) {
+func coveredMemberIDs(store storage.Store, workspace string) (map[string]bool, error) {
 	covered := map[string]bool{}
 	l5s, err := store.IterMemories(workspace, string(l5Layer), "")
 	if err != nil {
@@ -156,7 +156,7 @@ func summarise(llm providers.LLMProvider, prompt string, members []*schema.Memor
 	})
 }
 
-func storeModel(store *storage.SQLiteStore, embedder storage.EmbeddingProvider, title, body, workspace, source string, extraMeta map[string]any) (*schema.Memory, error) {
+func storeModel(store storage.Store, embedder storage.EmbeddingProvider, title, body, workspace, source string, extraMeta map[string]any) (*schema.Memory, error) {
 	content := title
 	if body != "" {
 		content = title + ": " + body
@@ -182,7 +182,7 @@ func storeModel(store *storage.SQLiteStore, embedder storage.EmbeddingProvider, 
 	return m, nil
 }
 
-func mergeL5(store *storage.SQLiteStore, embedder storage.EmbeddingProvider, cfg *config.Config, workspace string, llm providers.LLMProvider, prompt string, report *L5ExtractionReport) (*L5ExtractionReport, error) {
+func mergeL5(store storage.Store, embedder storage.EmbeddingProvider, cfg *config.Config, workspace string, llm providers.LLMProvider, prompt string, report *L5ExtractionReport) (*L5ExtractionReport, error) {
 	all, err := store.IterMemories(workspace, string(l5Layer), "")
 	if err != nil {
 		return nil, err
@@ -282,7 +282,7 @@ func mergeL5(store *storage.SQLiteStore, embedder storage.EmbeddingProvider, cfg
 }
 
 // ExtractL5 clusters uncovered L2/L3 memories into mental models.
-func ExtractL5(store *storage.SQLiteStore, embedder storage.EmbeddingProvider, cfg *config.Config, workspace string, llm providers.LLMProvider, prompt string) (*L5ExtractionReport, error) {
+func ExtractL5(store storage.Store, embedder storage.EmbeddingProvider, cfg *config.Config, workspace string, llm providers.LLMProvider, prompt string) (*L5ExtractionReport, error) {
 	ws := workspace
 	if ws == "" {
 		ws = cfg.Workspace

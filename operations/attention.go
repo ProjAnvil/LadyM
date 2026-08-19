@@ -43,7 +43,7 @@ const (
 
 // AttentionGate applies the pre-remember filter to content destined for layer.
 // getAgent resolves the LLM agent bound to "attention_gate" (nil for offline).
-func AttentionGate(content string, cfg *config.Config, store *storage.SQLiteStore, getAgent func(string) (providers.LLMProvider, error), layer schema.Layer) (GateDecision, error) {
+func AttentionGate(content string, cfg *config.Config, store storage.Store, getAgent func(string) (providers.LLMProvider, error), layer schema.Layer) (GateDecision, error) {
 	if layer == schema.LayerWorking {
 		return GateDecision{Action: "pass", Reason: "working memory never gated"}, nil
 	}
