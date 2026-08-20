@@ -364,7 +364,8 @@ chat/log/commit 泄露。它**不**防御 `~/.ladyM/` 整目录被窃：master k
 
 | 命令 | 功能 |
 |---|---|
-| `ladym config` | 本地网页配置编辑器（Go `net/http` + `html/template`，编辑 `ladym.toml`；flags：`--port`、`--no-browser`） |
+| `ladym serve --http :8080` | HTTP 数据面 API（`/api/*`，可选 Basic 认证）+ 挂在 `/` 的嵌入式管理台（登录、记忆 CRUD、用户管理、统计） |
+| `ladym config <sub>` | 加密 secret store：`set` / `set-master-key` / `reset-master-key` / `list` / `rm` |
 | `ladym worker` | 后台 System 2 合并守护进程；flags：`--once`、`--interval N`（秒） |
 
 ## 测试
@@ -393,8 +394,8 @@ go vet ./...             # lint
 ✅ 六层引擎、两层召回、ADD/UPDATE/DELETE/NOOP 合并、proceduralize、衰减、纯 Go tree-sitter
 索引器（Python/JS/TS/Go/Rust/Java/C/C++ 有完整符号规格，Kotlin/C#/Ruby/PHP/Swift/Scala/
 Bash/Lua/SQL/HTML/CSS 退化为行窗口切片）、MCP server、CLI、Skill、Go SDK、可插拔 provider +
-TOML 配置、System 2 后台 worker、L5 心智模型 / L6 前瞻意图抽取、`ladym config` 网页编辑器、
-加密 secret store。
+TOML 配置、System 2 后台 worker、L5 心智模型 / L6 前瞻意图抽取、嵌入式管理台
+（`ladym serve --http`，Vue 3 SPA，源码在 `console/`）、加密 secret store。
 
 🚧 下一步：GraphRAG 风格的跨文件引用解析，以及多模态事件。
 

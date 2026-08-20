@@ -1,0 +1,120 @@
+# LadyM ENTERPRISE edition — three-tier reference deployment showcasing the
+# microservice / distributed topology:
+#
+#   tier 1  gateway  nginx reverse proxy — the ONLY node with a host port
+#                    (18080 -> 80). Routes: / -> console, /api/* and
+#                    /healthz -> ladym_api upstream (api-1 + api-2).
+#   tier 2  api-1 / api-2  stateless HTTP data-plane x2 (horizontal scaling),
+#           console        ladymconsole (config/management console: full /api
+#                          data-plane + Vue SPA at /),
+#           worker         System 2 consolidation loop.
+#           None of these map host ports — reachable only via the gateway.
+#   tier 3  pg         Postgres 17 + pgvector, internal-only (no host port).
+#
+# For local development/debugging (single api mapped to host 8080, pg to
+# 55433) use docker-compose.dev.yml instead. See docs/deployment.md.
+#
+#   docker compose -f docker-compose.enterprise.yml -p ladym-ent up -d --build
+#   docker compose -f docker-compose.enterprise.yml -p ladym-ent down -v
+name: ladym-ent
+
+# Shared environment for every ladym role (api-1 / api-2 / worker / console):
+# same Postgres backend + DSN. Anchored once, referenced with *ladym-env.
+x-ladym-env: &ladym-env
+  LADYM_STORE_BACKEND: postgres
+  LADYM_STORE_DSN: "postgres://postgres:ladym@pg:5432/ladym?sslmode=disable"
+
+services:
+  pg:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ladym
+      POSTGRES_DB: ladym
+    # No host port mapping: in the three-tier topology PG is internal-only,
+    # reachable by the ladym services on the internal 5432.
+    volumes:
+      - ent-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d ladym"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - internal
+
+  api-1:
+    build: .
+    image: ladym-enterprise:local
+    depends_on:
+      pg:
+        condition: service_healthy
+    environment: *ladym-env
+    command: ["serve", "--http", ":8080"]
+    # No host port / container healthcheck: the distroless runtime has no
+    # shell/curl/wget and ladym has no health subcommand. The gateway (and any
+    # external LB) probes /healthz over HTTP instead, see docs/deployment.md.
+    networks:
+      - internal
+
+  api-2:
+    build: .
+    image: ladym-enterprise:local
+    depends_on:
+      pg:
+        condition: service_healthy
+    environment: *ladym-env
+    command: ["serve", "--http", ":8080"]
+    networks:
+      - internal
+
+  worker:
+    build: .
+    image: ladym-enterprise:local
+    depends_on:
+      pg:
+        condition: service_healthy
+    environment: *ladym-env
+    # The worker role IS the `worker` command (System 2 loop). There is no
+    # LADYM_SYSTEM2_ENABLED env in config applyEnv — cycle knobs
+    # (interval etc.) are the command's flags / ladym.toml [system2].
+    command: ["worker"]
+    networks:
+      - internal
+
+  console:
+    build: .
+    image: ladym-enterprise:local
+    depends_on:
+      pg:
+        condition: service_healthy
+    environment: *ladym-env
+    # The console role is the SEPARATE /ladymconsole binary in the same image:
+    # compose `command:` only replaces args to the default /ladym entrypoint,
+    # so switching binaries requires an entrypoint override. --http :8080
+    # matches the nginx `location /` upstream (console:8080).
+    entrypoint: ["/ladymconsole"]
+    command: ["--http", ":8080"]
+    networks:
+      - internal
+
+  gateway:
+    image: nginx:1.27-alpine
+    depends_on:
+      - api-1
+      - api-2
+      - console
+      - worker
+    volumes:
+      - ./deploy/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    ports:
+      # The ONLY host-exposed node of the enterprise topology.
+      - "18080:80"
+    networks:
+      - internal
+
+networks:
+  internal:
+
+volumes:
+  ent-pgdata:

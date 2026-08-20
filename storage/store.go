@@ -11,11 +11,22 @@ type Store interface {
 	// lifecycle
 	Close() error
 
+	// Ping checks storage connectivity (health probe): SQLite runs SELECT 1,
+	// Postgres pings the pool.
+	Ping() error
+
 	// memory CRUD
 	PutMemory(mem *schema.Memory, vector []float32) error
 	GetMemory(id string) (*schema.Memory, error)
 	DeleteMemory(id string) error
-	TouchMemory(id string, now float64) error
+	// UpdateMemoryContent patches one memory's content/summary/tags and bumps
+	// updated_at (now==0 falls back to the wall clock). Unlike PutMemory's
+	// upsert — where a nil vector NULLs the embedding column — a nil vector
+	// here leaves embedding and content_hash untouched; a non-nil vector
+	// rewrites the embedding and recomputes content_hash from content. A
+	// missing id is a no-op (callers 404 beforehand).
+	UpdateMemoryContent(id, content, summary string, tags []string, vector []float32, now float64) error
+	TouchMemories(ids []string, now float64) error // one batched UPDATE; empty slice is a no-op
 	IterMemories(workspace, layer, typ string) ([]*schema.Memory, error)
 	FindByHash(contentHash, workspace string) (*schema.Memory, error)
 	EpisodicContentsSince(workspace string, since float64) ([]string, error)
@@ -45,6 +56,12 @@ type Store interface {
 	Workspaces() ([]string, error)
 	GetMeta(key string) (string, error)
 	SetMeta(key, value string) error
+
+	// users (HTTP data-plane Basic auth accounts)
+	PutUser(u *schema.User) error                  // upsert by username
+	GetUser(username string) (*schema.User, error) // nil when absent
+	DeleteUser(username string) error              // missing username is a no-op
+	ListUsers() ([]*schema.User, error)            // sorted by username
 
 	// Cross-process mutex for code indexing. The SQLite implementation is the
 	// existing flock(<db>.index.lock); it returns the release function. When

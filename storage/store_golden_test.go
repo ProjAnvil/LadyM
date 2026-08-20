@@ -1,3 +1,5 @@
+//go:build !enterprise
+
 package storage
 
 // Golden cross-backend consistency: a fixed deterministic dataset and fixed

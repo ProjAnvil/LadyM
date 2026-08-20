@@ -386,7 +386,8 @@ encrypted storage and rely on OS file permissions (dir `0700`, files `0600`). **
 
 | Command | What it does |
 |---|---|
-| `ladym config` | Local web config editor (Go `net/http` + `html/template`, edits `ladym.toml`; flags: `--port`, `--no-browser`) |
+| `ladym serve --http :8080` | HTTP data-plane API (`/api/*`, optional Basic auth) plus the embedded management console at `/` (login, memory CRUD, user admin, stats) |
+| `ladym config <sub>` | Encrypted secret store: `set` / `set-master-key` / `reset-master-key` / `list` / `rm` |
 | `ladym worker` | Background System 2 consolidation daemon; flags: `--once`, `--interval N` (seconds) |
 
 ## Testing
@@ -408,7 +409,9 @@ The whole suite runs **without network and without model downloads** — the def
 - **[scenarios/](scenarios/)** — executable end-to-end scenarios (S01 write/recall, S03
   code index, S07 L5 mental model, S08 L6 forward intent, S09 attention gate, …) that
   double as a living spec. [scenarios/README.md](scenarios/README.md) is in Chinese.
-- **[docs/](docs/)** — deep dives (code-indexing analysis, LangGraph integration).
+- **[docs/](docs/)** — deep dives (code-indexing analysis, LangGraph integration) and
+  the [enterprise deployment guide](docs/deployment.md) (container image, docker-compose
+  reference deployment, workspace isolation, ops baseline).
 - **The Go test suite** (`*_test.go` beside each package) — the executable specification.
 
 ## Status & roadmap
@@ -418,7 +421,8 @@ proceduralization, decay, pure-Go tree-sitter indexer (full symbol specs for
 Python/JS/TS/Go/Rust/Java/C/C++, line-window chunking for Kotlin/C#/Ruby/PHP/Swift/Scala/
 Bash/Lua/SQL/HTML/CSS), MCP server, CLI, Skill, Go SDK, pluggable providers + TOML
 config, System 2 background worker, L5 mental-model / L6 forward-intent extraction,
-`ladym config` web editor, encrypted secret store.
+embedded management console (`ladym serve --http`, Vue 3 SPA under `console/`),
+encrypted secret store.
 
 🚧 Next: GraphRAG-style cross-file ref resolution and multi-modal episodes.
 

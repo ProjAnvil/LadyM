@@ -1,10 +1,11 @@
+//go:build !enterprise
+
 package cli
 
 import (
 	"bytes"
 	"encoding/json"
 	"errors"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -16,7 +17,6 @@ import (
 	"github.com/ProjAnvil/LadyM/code"
 	"github.com/ProjAnvil/LadyM/config"
 	"github.com/ProjAnvil/LadyM/engine"
-	"github.com/spf13/cobra"
 )
 
 // ---- helpers ----
@@ -35,35 +35,6 @@ func setGlobalConfigPath(t *testing.T, p string) {
 	old := globalConfigPath
 	globalConfigPath = p
 	t.Cleanup(func() { globalConfigPath = old })
-}
-
-// captureStdout swaps os.Stdout for a pipe while fn runs — the commands print
-// via fmt.Printf (os.Stdout), not cmd.OutOrStdout().
-func captureStdout(t *testing.T, fn func() error) (string, error) {
-	t.Helper()
-	old := os.Stdout
-	r, w, err := os.Pipe()
-	if err != nil {
-		t.Fatalf("os.Pipe: %v", err)
-	}
-	os.Stdout = w
-	fnErr := fn()
-	_ = w.Close()
-	os.Stdout = old
-	out, _ := io.ReadAll(r)
-	return string(out), fnErr
-}
-
-// runCmd executes a command with args and returns combined stdout (both the
-// cobra buffer and the real os.Stdout) plus the error.
-func runCmd(t *testing.T, cmd *cobra.Command, args ...string) (string, error) {
-	t.Helper()
-	var buf bytes.Buffer
-	cmd.SetOut(&buf)
-	cmd.SetErr(&buf)
-	cmd.SetArgs(args)
-	out, err := captureStdout(t, func() error { return cmd.Execute() })
-	return out + buf.String(), err
 }
 
 var idRe = regexp.MustCompile(`id=(\S+)`)
@@ -664,14 +635,6 @@ func TestConfigCmdStructure(t *testing.T) {
 	}
 	if _, err := runCmd(t, configCmd(), "extra-arg"); err == nil {
 		t.Error("expected error for positional arg (NoArgs)")
-	}
-}
-
-func TestConfigCmdWebEditorBadPort(t *testing.T) {
-	// ListenAndServe rejects the invalid port immediately — covers the RunE
-	// wiring without blocking on a real server.
-	if _, err := runCmd(t, configCmd(), "--port", "-1", "--no-browser"); err == nil {
-		t.Error("expected listen error for invalid port")
 	}
 }
 

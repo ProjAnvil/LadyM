@@ -2,14 +2,15 @@
 package cli
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"sort"
 	"strings"
 
+	"github.com/ProjAnvil/LadyM/api"
 	"github.com/ProjAnvil/LadyM/code"
 	"github.com/ProjAnvil/LadyM/config"
 	"github.com/ProjAnvil/LadyM/engine"
@@ -17,7 +18,6 @@ import (
 	"github.com/ProjAnvil/LadyM/schema"
 	"github.com/ProjAnvil/LadyM/secrets"
 	"github.com/ProjAnvil/LadyM/storage"
-	"github.com/ProjAnvil/LadyM/web"
 	"github.com/spf13/cobra"
 )
 
@@ -37,21 +37,7 @@ func (e *exitError) Error() string { return fmt.Sprintf("exit %d", e.code) }
 func Execute() {
 	root := newRootCmd()
 	if err := root.Execute(); err != nil {
-		var exitErr *exitError
-		if errors.As(err, &exitErr) {
-			os.Exit(exitErr.code)
-		}
-		var cfgErr *config.ConfigError
-		if errors.As(err, &cfgErr) && !globalDebug {
-			fmt.Fprintf(os.Stderr, "ladym: %s\n", cfgErr.Msg)
-			os.Exit(1)
-		}
-		if !globalDebug {
-			fmt.Fprintf(os.Stderr, "ladym: %v\n", err)
-			os.Exit(1)
-		}
-		fmt.Fprintf(os.Stderr, "%+v\n", err)
-		os.Exit(1)
+		fatalOnError(err)
 	}
 }
 
@@ -68,9 +54,30 @@ func newRootCmd() *cobra.Command {
 
 	root.AddCommand(
 		rememberCmd(), recordCmd(), recallCmd(), indexCmd(), consolidateCmd(),
-		statsCmd(), forgetCmd(), linkCmd(), serveCmd(), workerCmd(), configCmd(),
+		statsCmd(), forgetCmd(), linkCmd(), userCmd(), serveCmd(), workerCmd(), configCmd(),
 	)
 	return root
+}
+
+// fatalOnError is the shared error tail of Execute / ExecuteConsole: exitError
+// exits silently with its code, ConfigError prints a one-liner unless --debug,
+// everything else prints the error (full detail under --debug).
+func fatalOnError(err error) {
+	var exitErr *exitError
+	if errors.As(err, &exitErr) {
+		os.Exit(exitErr.code)
+	}
+	var cfgErr *config.ConfigError
+	if errors.As(err, &cfgErr) && !globalDebug {
+		fmt.Fprintf(os.Stderr, "ladym: %s\n", cfgErr.Msg)
+		os.Exit(1)
+	}
+	if !globalDebug {
+		fmt.Fprintf(os.Stderr, "ladym: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Fprintf(os.Stderr, "%+v\n", err)
+	os.Exit(1)
 }
 
 func loadConfig(db, workspace string) (*config.Config, error) {
@@ -98,56 +105,77 @@ func addDBWS(cmd *cobra.Command, db, workspace *string) {
 }
 
 func rememberCmd() *cobra.Command {
-	var db, workspace, tags, source string
+	var db, workspace, tags, source, server, user, password string
 	cmd := &cobra.Command{
 		Use:   "remember <content>",
 		Short: "Write a semantic memory (fact).",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
+			if err := remoteGuard(db, server); err != nil {
+				return err
+			}
+			tagList := splitTags(tags)
+			if server != "" {
+				res, err := newRemoteClient(server, resolveRemoteAuth(user, password)).remember(args[0], source, tagList, workspace)
+				if err != nil {
+					return err
+				}
+				printRemembered(res.ID, res.Hash, res.Gated, res.Reason)
+				return nil
+			}
 			eng, err := newEngine(db, workspace)
 			if err != nil {
 				return err
 			}
 			defer eng.Close()
-			tagList := splitTags(tags)
 			m, err := eng.Remember(args[0], schema.LayerSemantic, schema.TypeFact, tagList, nil, source, "")
 			if err != nil {
 				return err
 			}
-			if m.MetaString("gated") == "dropped" {
-				fmt.Printf("dropped reason=%s (gated; not persisted)\n", m.MetaString("reason"))
-			} else {
-				fmt.Printf("remembered id=%s hash=%s\n", m.ID, shortHash(m.ContentHash))
-			}
+			printRemembered(m.ID, m.ContentHash, m.MetaString("gated"), m.MetaString("reason"))
 			return nil
 		},
 	}
 	addDBWS(cmd, &db, &workspace)
+	addRemoteFlags(cmd, &server, &user, &password)
 	cmd.Flags().StringVar(&tags, "tags", "", "Comma-separated tags")
 	cmd.Flags().StringVar(&source, "source", "cli", "Source label")
 	return cmd
 }
 
 func recordCmd() *cobra.Command {
-	var db, workspace, agent, action, observation, outcome, tags string
+	var db, workspace, agent, action, observation, outcome, tags, server, user, password string
 	cmd := &cobra.Command{
 		Use:   "record",
 		Short: "Record an L1 episodic event.",
 		RunE: func(c *cobra.Command, args []string) error {
+			if err := remoteGuard(db, server); err != nil {
+				return err
+			}
+			tagList := splitTags(tags)
+			if server != "" {
+				res, err := newRemoteClient(server, resolveRemoteAuth(user, password)).recordEvent(agent, action, observation, outcome, tagList, workspace)
+				if err != nil {
+					return err
+				}
+				printRecorded(res.ID, res.Layer, res.Type)
+				return nil
+			}
 			eng, err := newEngine(db, workspace)
 			if err != nil {
 				return err
 			}
 			defer eng.Close()
-			m, err := eng.RecordEvent(agent, action, observation, outcome, splitTags(tags), nil)
+			m, err := eng.RecordEvent(agent, action, observation, outcome, tagList, nil)
 			if err != nil {
 				return err
 			}
-			fmt.Printf("recorded id=%s layer=%s type=%s\n", m.ID, m.Layer, m.Type)
+			printRecorded(m.ID, string(m.Layer), string(m.Type))
 			return nil
 		},
 	}
 	addDBWS(cmd, &db, &workspace)
+	addRemoteFlags(cmd, &server, &user, &password)
 	cmd.Flags().StringVar(&agent, "agent", "", "Who/what performed the action.")
 	cmd.Flags().StringVar(&action, "action", "", "What was done.")
 	cmd.Flags().StringVar(&observation, "observation", "", "What was seen/learned.")
@@ -159,7 +187,7 @@ func recordCmd() *cobra.Command {
 }
 
 func recallCmd() *cobra.Command {
-	var db, workspace string
+	var db, workspace, server, user, password string
 	var topK int
 	var codeOnly, jsonOut bool
 	cmd := &cobra.Command{
@@ -167,40 +195,34 @@ func recallCmd() *cobra.Command {
 		Short: "Recall memories matching the query.",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
-			eng, err := newEngine(db, workspace)
-			if err != nil {
+			if err := remoteGuard(db, server); err != nil {
 				return err
 			}
-			defer eng.Close()
 			var resp *schema.RecallResponse
-			if codeOnly {
-				resp, err = eng.SearchCode(args[0], topK, "")
+			var err error
+			if server != "" {
+				resp, err = newRemoteClient(server, resolveRemoteAuth(user, password)).recall(args[0], topK, codeOnly, workspace)
 			} else {
-				resp, err = eng.Recall(args[0], "", topK, nil, nil, 0)
+				var eng *engine.Engine
+				eng, err = newEngine(db, workspace)
+				if err != nil {
+					return err
+				}
+				defer eng.Close()
+				if codeOnly {
+					resp, err = eng.SearchCode(args[0], topK, "")
+				} else {
+					resp, err = eng.Recall(args[0], "", topK, nil, nil, 0)
+				}
 			}
 			if err != nil {
 				return err
 			}
-			if jsonOut {
-				payload := map[string]any{
-					"query": resp.Query, "tier_reached": resp.TierReached,
-					"reflected_sufficient": resp.ReflectedSufficient, "elapsed_ms": resp.ElapsedMs,
-					"results": recallResultsJSON(resp.Results),
-				}
-				b, _ := json.MarshalIndent(payload, "", "  ")
-				fmt.Println(string(b))
-				return nil
-			}
-			if len(resp.Results) == 0 {
-				fmt.Println("no memories matched")
-				return nil
-			}
-			fmt.Printf("recall: %s  (tier %d, %.1fms)\n", resp.Query, resp.TierReached, resp.ElapsedMs)
-			writeRecallTable(os.Stdout, resp)
-			return nil
+			return printRecall(resp, jsonOut)
 		},
 	}
 	addDBWS(cmd, &db, &workspace)
+	addRemoteFlags(cmd, &server, &user, &password)
 	cmd.Flags().IntVarP(&topK, "top-k", "n", 8, "Number of results")
 	cmd.Flags().BoolVar(&codeOnly, "code", false, "Restrict to code items.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit JSON.")
@@ -262,11 +284,22 @@ func indexCmd() *cobra.Command {
 }
 
 func consolidateCmd() *cobra.Command {
-	var db, workspace string
+	var db, workspace, server, user, password string
 	cmd := &cobra.Command{
 		Use:   "consolidate",
 		Short: "Promote episodic events into semantic facts.",
 		RunE: func(c *cobra.Command, args []string) error {
+			if err := remoteGuard(db, server); err != nil {
+				return err
+			}
+			if server != "" {
+				res, err := newRemoteClient(server, resolveRemoteAuth(user, password)).consolidate(workspace)
+				if err != nil {
+					return err
+				}
+				printConsolidated(res.KeptEpisodes, res.Actions)
+				return nil
+			}
 			eng, err := newEngine(db, workspace)
 			if err != nil {
 				return err
@@ -276,22 +309,32 @@ func consolidateCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			fmt.Printf("consolidated %d episodes: ADD=%d UPDATE=%d DELETE=%d NOOP=%d\n",
-				report.KeptEpisodes, report.Actions["ADD"], report.Actions["UPDATE"],
-				report.Actions["DELETE"], report.Actions["NOOP"])
+			printConsolidated(report.KeptEpisodes, report.Actions)
 			return nil
 		},
 	}
 	addDBWS(cmd, &db, &workspace)
+	addRemoteFlags(cmd, &server, &user, &password)
 	return cmd
 }
 
 func statsCmd() *cobra.Command {
-	var db, workspace string
+	var db, workspace, server, user, password string
 	cmd := &cobra.Command{
 		Use:   "stats",
 		Short: "Show memory statistics.",
 		RunE: func(c *cobra.Command, args []string) error {
+			if err := remoteGuard(db, server); err != nil {
+				return err
+			}
+			if server != "" {
+				s, err := newRemoteClient(server, resolveRemoteAuth(user, password)).stats(workspace)
+				if err != nil {
+					return err
+				}
+				writeStats(os.Stdout, s, workspace)
+				return nil
+			}
 			eng, err := newEngine(db, workspace)
 			if err != nil {
 				return err
@@ -306,16 +349,27 @@ func statsCmd() *cobra.Command {
 		},
 	}
 	addDBWS(cmd, &db, &workspace)
+	addRemoteFlags(cmd, &server, &user, &password)
 	return cmd
 }
 
 func forgetCmd() *cobra.Command {
-	var db, workspace string
+	var db, workspace, server, user, password string
 	cmd := &cobra.Command{
 		Use:   "forget <memory_id>",
 		Short: "Delete a single memory by id.",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
+			if err := remoteGuard(db, server); err != nil {
+				return err
+			}
+			if server != "" {
+				if err := newRemoteClient(server, resolveRemoteAuth(user, password)).forget(args[0]); err != nil {
+					return err
+				}
+				fmt.Printf("forgot %s\n", args[0])
+				return nil
+			}
 			eng, err := newEngine(db, workspace)
 			if err != nil {
 				return err
@@ -329,16 +383,28 @@ func forgetCmd() *cobra.Command {
 		},
 	}
 	addDBWS(cmd, &db, &workspace)
+	addRemoteFlags(cmd, &server, &user, &password)
 	return cmd
 }
 
 func linkCmd() *cobra.Command {
-	var db, workspace, relation string
+	var db, workspace, relation, server, user, password string
 	cmd := &cobra.Command{
 		Use:   "link <src> <dst>",
 		Short: "Create an associative edge between two memories.",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(c *cobra.Command, args []string) error {
+			if err := remoteGuard(db, server); err != nil {
+				return err
+			}
+			if server != "" {
+				edgeID, err := newRemoteClient(server, resolveRemoteAuth(user, password)).link(args[0], args[1], relation)
+				if err != nil {
+					return err
+				}
+				printLinked(args[0], relation, args[1], edgeID)
+				return nil
+			}
 			eng, err := newEngine(db, workspace)
 			if err != nil {
 				return err
@@ -348,24 +414,28 @@ func linkCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			fmt.Printf("linked %s -[%s]-> %s (id=%s)\n", args[0], relation, args[1], edge.ID)
+			printLinked(args[0], relation, args[1], edge.ID)
 			return nil
 		},
 	}
 	addDBWS(cmd, &db, &workspace)
+	addRemoteFlags(cmd, &server, &user, &password)
 	cmd.Flags().StringVarP(&relation, "relation", "r", "related_to", "Edge relation")
 	return cmd
 }
 
 func serveCmd() *cobra.Command {
-	var db, workspace string
+	var db, workspace, httpAddr string
 	cmd := &cobra.Command{
 		Use:   "serve",
-		Short: "Run the LadyM MCP server over stdio.",
+		Short: "Run the LadyM MCP server over stdio (HTTP data-plane with --http).",
 		RunE: func(c *cobra.Command, args []string) error {
 			cfg, err := loadConfig(db, workspace)
 			if err != nil {
 				return err
+			}
+			if httpAddr != "" {
+				return serveHTTP(cfg, httpAddr)
 			}
 			// MCP stdio: stdout must carry ONLY JSON-RPC frames — the startup
 			// banner goes to stderr (mirrors the Python `ladym serve`).
@@ -374,7 +444,47 @@ func serveCmd() *cobra.Command {
 		},
 	}
 	addDBWS(cmd, &db, &workspace)
+	cmd.Flags().StringVar(&httpAddr, "http", "", "Listen address for the HTTP data-plane API (e.g. :8080 or 8080) instead of MCP stdio")
 	return cmd
+}
+
+// buildServeHTTPHandler constructs the HTTP data-plane handler. Split from
+// serveHTTP so tests exercise construction without binding a port. The store
+// is returned alongside for the startup banner's auth summary.
+func buildServeHTTPHandler(cfg *config.Config) (http.Handler, storage.Store, func() error, error) {
+	eng, err := engine.New(cfg)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	return api.NewHandler(eng, cfg), eng.Store, eng.Close, nil
+}
+
+// serveHTTPBanner is the stderr startup banner for `ladym serve --http`:
+// listen address, store backend (with the sqlite db path only when sqlite is
+// the backend — under postgres DBPath is empty), workspace and the auth mode
+// (auth=off/on; auth on with an empty users table carries a bootstrap
+// warning).
+func serveHTTPBanner(cfg *config.Config, addr string, store storage.Store) string {
+	s := "backend=" + cfg.StoreBackend
+	if cfg.StoreBackend != "postgres" {
+		s += fmt.Sprintf(", db=%s", cfg.DBPath)
+	}
+	return fmt.Sprintf("LadyM HTTP server listening on %s (%s, ws=%s)\n  auth=%s\n",
+		addr, s, cfg.Workspace, api.DescribeAuth(cfg, store))
+}
+
+// serveHTTP runs the HTTP data-plane front-end instead of MCP stdio.
+func serveHTTP(cfg *config.Config, addr string) error {
+	if !strings.Contains(addr, ":") {
+		addr = ":" + addr
+	}
+	h, store, closeFn, err := buildServeHTTPHandler(cfg)
+	if err != nil {
+		return err
+	}
+	defer closeFn()
+	fmt.Fprint(os.Stderr, serveHTTPBanner(cfg, addr, store))
+	return http.ListenAndServe(addr, h)
 }
 
 func workerCmd() *cobra.Command {
@@ -404,21 +514,20 @@ func workerCmd() *cobra.Command {
 	return cmd
 }
 
+// configCmd groups the secret-store subcommands. With no subcommand it prints
+// help (the old local web config editor was retired together with the web/
+// package; data management now lives in the embedded console served by
+// `ladym serve --http`).
 func configCmd() *cobra.Command {
-	var port int
-	var noBrowser bool
 	cmd := &cobra.Command{
 		Use:   "config",
-		Short: "Manage ladym.toml (web editor) and the encrypted secret store.",
-		// With no subcommand, launch the local web config editor (mirrors the
-		// Python `ladym config` behaviour).
-		Args: cobra.NoArgs,
+		Short: "Manage the encrypted secret store.",
+		Args:  cobra.NoArgs,
+		// With no subcommand, print help (the old web config editor is gone).
 		RunE: func(c *cobra.Command, args []string) error {
-			return web.Run(globalConfigPath, port, noBrowser)
+			return c.Help()
 		},
 	}
-	cmd.Flags().IntVar(&port, "port", 8765, "Listen port")
-	cmd.Flags().BoolVar(&noBrowser, "no-browser", false, "Do not open a browser")
 	cmd.AddCommand(
 		configSetCmd(), configSetMasterKeyCmd(), configResetMasterKeyCmd(),
 		configListCmd(), configRMCmd(),

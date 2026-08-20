@@ -112,6 +112,13 @@ func pgSchema(dim int) []string {
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
 )`,
+		`CREATE TABLE IF NOT EXISTS users (
+    username      TEXT PRIMARY KEY,
+    password_hash TEXT NOT NULL DEFAULT '',
+    workspace     TEXT NOT NULL DEFAULT '',
+    admin         BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at    DOUBLE PRECISION NOT NULL
+)`,
 	}
 }
 
@@ -126,6 +133,19 @@ func NewPostgresStore(dsn string, dim int) (*PostgresStore, error) {
 	poolCfg.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
 		// The vector extension must exist before the codec can resolve its
 		// type OID (fresh databases hit this hook before schema setup).
+		// CREATE EXTENSION ... IF NOT EXISTS is only idempotent when run
+		// serially: two processes cold-starting a fresh database can still
+		// race it into a pg_extension_name_index 23505. Serialise on the same
+		// session-level advisory lock applyPGSchema uses, so extension +
+		// schema setup across processes form one serialised phase.
+		if _, err := conn.Exec(ctx, "SELECT pg_advisory_lock($1)", schemaSetupAdvisoryKey); err != nil {
+			return err
+		}
+		// Unlock on every exit path, with a background context so a cancelled
+		// setup ctx cannot strand the session-level lock.
+		defer func() {
+			_, _ = conn.Exec(context.Background(), "SELECT pg_advisory_unlock($1)", schemaSetupAdvisoryKey)
+		}()
 		if _, err := conn.Exec(ctx, `CREATE EXTENSION IF NOT EXISTS vector`); err != nil {
 			return err
 		}
@@ -368,12 +388,44 @@ func (s *PostgresStore) DeleteMemory(id string) error {
 	return err
 }
 
-// TouchMemory bumps access_count / last_access_at.
-func (s *PostgresStore) TouchMemory(id string, now float64) error {
-	_, err := s.pool.Exec(context.Background(),
-		"UPDATE memories SET last_access_at = $1, access_count = access_count + 1 WHERE id = $2",
-		now, id)
+// UpdateMemoryContent patches content/summary/tags/updated_at in place. A nil
+// vector leaves the embedding column and content_hash alone (unlike the
+// PutMemory upsert, which would NULL them); a non-nil vector rewrites the
+// embedding and recomputes content_hash. A missing id is a no-op.
+func (s *PostgresStore) UpdateMemoryContent(id, content, summary string, tags []string, vector []float32, now float64) error {
+	if now == 0 {
+		now = schema.Now()
+	}
+	tagsJSON, _ := json.Marshal(tags)
+	var err error
+	if vector == nil {
+		_, err = s.pool.Exec(context.Background(),
+			"UPDATE memories SET content = $1, summary = $2, tags = $3, updated_at = $4 WHERE id = $5",
+			content, summary, string(tagsJSON), now, id)
+	} else {
+		_, err = s.pool.Exec(context.Background(),
+			"UPDATE memories SET content = $1, summary = $2, tags = $3, updated_at = $4, embedding = $5, content_hash = $6 WHERE id = $7",
+			content, summary, string(tagsJSON), now, pgvector.NewVector(vector), schema.ContentHash(content), id)
+	}
 	return err
+}
+
+// TouchMemories bumps access_count / last_access_at for every listed id in a
+// single UPDATE (recall's access bookkeeping used to issue one UPDATE per id).
+// An empty slice is a no-op.
+func (s *PostgresStore) TouchMemories(ids []string, now float64) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	_, err := s.pool.Exec(context.Background(),
+		"UPDATE memories SET last_access_at = $1, access_count = access_count + 1 WHERE id = ANY($2)",
+		now, ids)
+	return err
+}
+
+// Ping checks storage connectivity (health probe).
+func (s *PostgresStore) Ping() error {
+	return s.pool.Ping(context.Background())
 }
 
 // IterMemories returns memories matching the optional filters.
@@ -754,6 +806,63 @@ func (s *PostgresStore) SetMeta(key, value string) error {
 		"INSERT INTO meta (key, value) VALUES ($1,$2) ON CONFLICT (key) DO UPDATE SET value=excluded.value",
 		key, value)
 	return err
+}
+
+// ---- users (HTTP data-plane Basic auth accounts) ----
+
+// PutUser inserts or updates a user (upsert by username).
+func (s *PostgresStore) PutUser(u *schema.User) error {
+	_, err := s.pool.Exec(context.Background(),
+		`INSERT INTO users (username, password_hash, workspace, admin, created_at)
+		 VALUES ($1,$2,$3,$4,$5)
+		 ON CONFLICT (username) DO UPDATE SET
+		   password_hash=excluded.password_hash, workspace=excluded.workspace,
+		   admin=excluded.admin, created_at=excluded.created_at`,
+		u.Username, u.PasswordHash, u.Workspace, u.Admin, u.CreatedAt)
+	return err
+}
+
+// GetUser returns the user with the given username, or nil.
+func (s *PostgresStore) GetUser(username string) (*schema.User, error) {
+	rows, err := s.pool.Query(context.Background(),
+		"SELECT username, password_hash, workspace, admin, created_at FROM users WHERE username = $1", username)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	if !rows.Next() {
+		return nil, rows.Err()
+	}
+	var u schema.User
+	if err := rows.Scan(&u.Username, &u.PasswordHash, &u.Workspace, &u.Admin, &u.CreatedAt); err != nil {
+		return nil, err
+	}
+	return &u, nil
+}
+
+// DeleteUser deletes a user; a missing username is a no-op.
+func (s *PostgresStore) DeleteUser(username string) error {
+	_, err := s.pool.Exec(context.Background(), "DELETE FROM users WHERE username = $1", username)
+	return err
+}
+
+// ListUsers returns all users sorted by username.
+func (s *PostgresStore) ListUsers() ([]*schema.User, error) {
+	rows, err := s.pool.Query(context.Background(),
+		"SELECT username, password_hash, workspace, admin, created_at FROM users ORDER BY username")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*schema.User
+	for rows.Next() {
+		var u schema.User
+		if err := rows.Scan(&u.Username, &u.PasswordHash, &u.Workspace, &u.Admin, &u.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, &u)
+	}
+	return out, rows.Err()
 }
 
 // ---- cross-process index lock (pg advisory lock) ----

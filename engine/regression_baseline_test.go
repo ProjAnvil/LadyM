@@ -1,3 +1,5 @@
+//go:build !enterprise
+
 package engine
 
 // Port of main:tests/test_regression_baseline.py — pins the public surface

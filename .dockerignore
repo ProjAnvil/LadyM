@@ -1,0 +1,53 @@
+# Docker build context — keep it to what `go build ./cmd/ladym` needs
+# (Go sources + go.mod/go.sum). Mirrors .gitignore.
+
+# VCS / agent / scratch
+.git/
+.gitignore
+.superpowers/
+.claude*
+.codex*
+.mcp.json
+.agents/
+.localProfile
+
+# Build outputs / local binaries
+/bin/
+*.test
+coverage.out
+
+# Console dependencies (reinstalled in the image's node stage)
+console/node_modules/
+
+# Local runtime data (never ship a personal sqlite db into the image)
+*.ladym.db
+*.ladym.db-*
+*.ladym.db.*
+ladym.db
+ladym.db-*
+.ladym/
+ladym_data/
+ladym.toml
+
+# Python / benchmarks
+**/__pycache__/
+.venv/
+venv/
+.pytest_cache/
+benchmarks/.venv/
+benchmarks/.pytest_cache/
+benchmarks/.cache/
+
+# IDE / OS noise
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# Not needed to compile the binary
+docs/
+scenarios/
+wrapper/
+*.md
+!go.mod
+!go.sum

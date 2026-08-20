@@ -1,3 +1,5 @@
+//go:build !enterprise
+
 package storage
 
 // Backend-parametrised behaviour suite: every test here runs the same case
@@ -5,72 +7,20 @@ package storage
 // set), pinning the Store contract to identical observable behaviour on both
 // backends. SQLite-specific tests (PRAGMA, BLOB codec, in-memory index
 // internals, flock file) stay in store_crud_test.go.
+//
+// Personal edition only: the sqlite leg needs SQLiteStore/NewStore, which
+// enterprise builds exclude. The shared PG gate (freshPGDatabase, suiteDim)
+// lives in pg_gate_test.go so PG-only tests still run under -tags enterprise.
 
 import (
 	"context"
-	crand "crypto/rand"
-	"encoding/hex"
 	"errors"
-	"net"
-	"net/url"
 	"os"
 	"path/filepath"
-	"strconv"
 	"testing"
 
 	"github.com/ProjAnvil/LadyM/schema"
-	"github.com/jackc/pgx/v5"
 )
-
-// suiteDim is the vector dim used across the suite (small on purpose).
-const suiteDim = 8
-
-// freshPGDatabase creates a random per-test database on the server named by
-// dsn and returns a DSN pointing at it. The database is dropped on test
-// cleanup, so PG subtests never pollute each other or the shared ladym db.
-func freshPGDatabase(t *testing.T, dsn string) string {
-	t.Helper()
-	cfg, err := pgx.ParseConfig(dsn)
-	if err != nil {
-		t.Fatalf("parse LADYM_TEST_PG_DSN: %v", err)
-	}
-	var suffix [8]byte
-	if _, err := crand.Read(suffix[:]); err != nil {
-		t.Fatal(err)
-	}
-	dbName := "ladym_test_" + hex.EncodeToString(suffix[:])
-	adminCfg := cfg.Copy()
-	adminCfg.Database = "postgres"
-	ctx := context.Background()
-	admin, err := pgx.ConnectConfig(ctx, adminCfg)
-	if err != nil {
-		t.Fatalf("connect to postgres admin database: %v", err)
-	}
-	if _, err := admin.Exec(ctx, "CREATE DATABASE "+dbName); err != nil {
-		admin.Close(ctx)
-		t.Fatalf("create test database %s: %v", dbName, err)
-	}
-	t.Cleanup(func() {
-		if _, err := admin.Exec(ctx, "DROP DATABASE "+dbName+" WITH (FORCE)"); err != nil {
-			t.Logf("drop test database %s: %v", dbName, err)
-		}
-		admin.Close(ctx)
-	})
-	testCfg := cfg.Copy()
-	testCfg.Database = dbName
-	// NOTE: ConnConfig.ConnString() returns the *original* DSN string and
-	// drops the Database override, so rebuild a URL DSN from the fields.
-	u := &url.URL{
-		Scheme: "postgres",
-		User:   url.UserPassword(testCfg.User, testCfg.Password),
-		Host:   net.JoinHostPort(testCfg.Host, strconv.Itoa(int(testCfg.Port))),
-		Path:   "/" + testCfg.Database,
-	}
-	q := u.Query()
-	q.Set("sslmode", "disable")
-	u.RawQuery = q.Encode()
-	return u.String()
-}
 
 // runStoreBackends runs fn against every Store implementation: sqlite always
 // (temp-dir database), postgres when LADYM_TEST_PG_DSN is set (the postgres
@@ -176,17 +126,62 @@ func TestSuiteDeleteAndTouch(t *testing.T) {
 	runStoreBackends(t, func(t *testing.T, s Store) {
 		m := schema.NewMemory(schema.LayerEpisodic, schema.TypeEvent)
 		m.Content = "event"
+		m2 := schema.NewMemory(schema.LayerEpisodic, schema.TypeEvent)
+		m2.Content = "event2"
 		suitePutMemory(t, s, m, []float32{1, 0, 0, 0, 0, 0, 0, 0})
+		suitePutMemory(t, s, m2, nil)
 
-		if err := s.TouchMemory(m.ID, 123.5); err != nil {
+		// One batch call bumps every listed id in a single UPDATE.
+		if err := s.TouchMemories([]string{m.ID, m2.ID}, 123.5); err != nil {
+			t.Fatal(err)
+		}
+		for _, id := range []string{m.ID, m2.ID} {
+			got, err := s.GetMemory(id)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.AccessCount != 1 || got.LastAccessAt != 123.5 {
+				t.Errorf("%s after touch: access_count=%d last_access_at=%v", id, got.AccessCount, got.LastAccessAt)
+			}
+		}
+
+		// A second batch touches only the listed ids.
+		if err := s.TouchMemories([]string{m.ID}, 200); err != nil {
 			t.Fatal(err)
 		}
 		got, err := s.GetMemory(m.ID)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if got.AccessCount != 1 || got.LastAccessAt != 123.5 {
-			t.Errorf("after touch: access_count=%d last_access_at=%v", got.AccessCount, got.LastAccessAt)
+		if got.AccessCount != 2 || got.LastAccessAt != 200 {
+			t.Errorf("m after second touch: access_count=%d last_access_at=%v", got.AccessCount, got.LastAccessAt)
+		}
+		got2, err := s.GetMemory(m2.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got2.AccessCount != 1 || got2.LastAccessAt != 123.5 {
+			t.Errorf("m2 must be untouched by second batch: access_count=%d last_access_at=%v", got2.AccessCount, got2.LastAccessAt)
+		}
+
+		// Empty slice is a no-op (no SQL round-trip).
+		if err := s.TouchMemories(nil, 300); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.TouchMemories([]string{}, 300); err != nil {
+			t.Fatal(err)
+		}
+		got, err = s.GetMemory(m.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.AccessCount != 2 || got.LastAccessAt != 200 {
+			t.Errorf("empty touch changed state: access_count=%d last_access_at=%v", got.AccessCount, got.LastAccessAt)
+		}
+
+		// Ping succeeds on a live store.
+		if err := s.Ping(); err != nil {
+			t.Errorf("Ping on live store: %v", err)
 		}
 
 		if err := s.DeleteMemory(m.ID); err != nil {
@@ -664,6 +659,207 @@ func TestSuiteWorkspacesAndMeta(t *testing.T) {
 		}
 		if v != "v2" {
 			t.Errorf("GetMeta(k) = %q, want v2", v)
+		}
+	})
+}
+
+// TestSuiteUsersCRUD pins the users-table contract (HTTP Basic auth accounts)
+// to identical behaviour on both backends.
+func TestSuiteUsersCRUD(t *testing.T) {
+	runStoreBackends(t, func(t *testing.T, s Store) {
+		// Missing user → nil, nil.
+		got, err := s.GetUser("nope")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != nil {
+			t.Errorf("GetUser(nope) = %v, want nil", got)
+		}
+
+		// Empty store lists no users.
+		users, err := s.ListUsers()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(users) != 0 {
+			t.Errorf("ListUsers on empty store = %v", users)
+		}
+
+		admin := &schema.User{Username: "root", PasswordHash: "$2a$10$bcrypt-hash", Workspace: "", Admin: true, CreatedAt: 100.5}
+		alice := &schema.User{Username: "alice", PasswordHash: "", Workspace: "acme", Admin: false, CreatedAt: 200}
+		bob := &schema.User{Username: "bob", PasswordHash: "hash-b", Workspace: "globex", Admin: false, CreatedAt: 300}
+		for _, u := range []*schema.User{bob, admin, alice} {
+			if err := s.PutUser(u); err != nil {
+				t.Fatal(err)
+			}
+		}
+
+		got, err = s.GetUser("alice")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got == nil {
+			t.Fatal("GetUser(alice) = nil")
+		}
+		if got.Username != "alice" || got.PasswordHash != "" || got.Workspace != "acme" ||
+			got.Admin || got.CreatedAt != 200 {
+			t.Errorf("roundtrip mismatch: %+v", got)
+		}
+
+		// ListUsers is sorted by username.
+		users, err = s.ListUsers()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(users) != 3 || users[0].Username != "alice" || users[1].Username != "bob" || users[2].Username != "root" {
+			names := []string{}
+			for _, u := range users {
+				names = append(names, u.Username)
+			}
+			t.Errorf("ListUsers order = %v, want [alice bob root]", names)
+		}
+
+		// Upsert: same username updates in place (passwd flow).
+		alice.PasswordHash = "new-hash"
+		alice.Admin = true
+		if err := s.PutUser(alice); err != nil {
+			t.Fatal(err)
+		}
+		got, err = s.GetUser("alice")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.PasswordHash != "new-hash" || !got.Admin {
+			t.Errorf("after upsert: %+v", got)
+		}
+
+		if err := s.DeleteUser("bob"); err != nil {
+			t.Fatal(err)
+		}
+		if got, _ := s.GetUser("bob"); got != nil {
+			t.Errorf("GetUser(bob) after delete = %v, want nil", got)
+		}
+		// Deleting a missing user is a no-op.
+		if err := s.DeleteUser("bob"); err != nil {
+			t.Fatal(err)
+		}
+	})
+}
+
+// embeddingColumnPresent reports whether the memory row still carries a
+// non-NULL embedding, checked on the raw column of whichever backend s is.
+func embeddingColumnPresent(t *testing.T, s Store, id string) bool {
+	t.Helper()
+	switch st := s.(type) {
+	case *SQLiteStore:
+		var n int
+		if err := st.db.QueryRow(
+			"SELECT COUNT(*) FROM memories WHERE id = ? AND embedding IS NOT NULL", id).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n == 1
+	case *PostgresStore:
+		var ok bool
+		if err := st.pool.QueryRow(context.Background(),
+			"SELECT embedding IS NOT NULL FROM memories WHERE id = $1", id).Scan(&ok); err != nil {
+			t.Fatal(err)
+		}
+		return ok
+	default:
+		t.Fatalf("unknown store type %T", s)
+		return false
+	}
+}
+
+// TestSuiteUpdateMemoryContent pins the targeted memory-update contract used
+// by the console CRUD API: fields and updated_at always change; a nil vector
+// leaves the embedding column (and content_hash) untouched, a non-nil vector
+// rewrites both. This is the guard against the PutMemory(mem, nil) trap,
+// which NULLs the embedding column on upsert.
+func TestSuiteUpdateMemoryContent(t *testing.T) {
+	runStoreBackends(t, func(t *testing.T, s Store) {
+		v1 := []float32{1, 0, 0, 0, 0, 0, 0, 0}
+		v2 := []float32{0, 1, 0, 0, 0, 0, 0, 0}
+
+		m := schema.NewMemory(schema.LayerSemantic, schema.TypeFact)
+		m.Content = "original content"
+		m.Summary = "original summary"
+		m.Tags = []string{"a"}
+		m.Workspace = "w1"
+		m.ContentHash = schema.ContentHash(m.Content)
+		suitePutMemory(t, s, m, v1)
+
+		// nil vector: fields update, embedding column and content_hash stay.
+		if err := s.UpdateMemoryContent(m.ID, "rewritten content", "rewritten summary",
+			[]string{"b", "c"}, nil, 555.0); err != nil {
+			t.Fatal(err)
+		}
+		got, err := s.GetMemory(m.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.Content != "rewritten content" || got.Summary != "rewritten summary" ||
+			got.UpdatedAt != 555.0 {
+			t.Errorf("after nil-vector update: %+v", got)
+		}
+		if len(got.Tags) != 2 || got.Tags[0] != "b" || got.Tags[1] != "c" {
+			t.Errorf("tags after update = %v", got.Tags)
+		}
+		if got.ContentHash != schema.ContentHash("original content") {
+			t.Errorf("content_hash changed on nil-vector update: %q", got.ContentHash)
+		}
+		if !embeddingColumnPresent(t, s, m.ID) {
+			t.Error("nil-vector update NULLed the embedding column (PutMemory trap)")
+		}
+		// The old vector still scores the memory (index untouched).
+		hits := s.VectorSearch(v1, 5)
+		if len(hits) == 0 || hits[0].ID != m.ID {
+			t.Errorf("VectorSearch(v1) after nil-vector update = %v, want top hit %s", hits, m.ID)
+		}
+
+		// Non-nil vector: embedding + content_hash move with the content.
+		if err := s.UpdateMemoryContent(m.ID, "rewritten again", "summary2",
+			nil, v2, 556.0); err != nil {
+			t.Fatal(err)
+		}
+		got, err = s.GetMemory(m.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.Content != "rewritten again" || got.Summary != "summary2" || got.UpdatedAt != 556.0 {
+			t.Errorf("after vector update: %+v", got)
+		}
+		if len(got.Tags) != 0 {
+			t.Errorf("tags after nil-tags update = %v, want empty", got.Tags)
+		}
+		if got.ContentHash != schema.ContentHash("rewritten again") {
+			t.Errorf("content_hash after vector update = %q, want hash of new content", got.ContentHash)
+		}
+		hits = s.VectorSearch(v2, 5)
+		if len(hits) == 0 || hits[0].ID != m.ID {
+			t.Errorf("VectorSearch(v2) after vector update = %v, want top hit %s", hits, m.ID)
+		}
+		hits = s.VectorSearch(v1, 5)
+		if len(hits) != 0 && hits[0].ID == m.ID && hits[0].Similarity > 0.9 {
+			t.Errorf("stale vector v1 still scores %s at %.3f after vector update", m.ID, hits[0].Similarity)
+		}
+
+		// now==0 falls back to the wall clock.
+		before := schema.Now()
+		if err := s.UpdateMemoryContent(m.ID, "c", "s", nil, nil, 0); err != nil {
+			t.Fatal(err)
+		}
+		got, err = s.GetMemory(m.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.UpdatedAt < before {
+			t.Errorf("updated_at with now=0 = %v, want >= %v (wall clock)", got.UpdatedAt, before)
+		}
+
+		// Updating a missing id is a no-op (the api layer 404s beforehand).
+		if err := s.UpdateMemoryContent("missing", "c", "s", nil, v2, 1); err != nil {
+			t.Fatal(err)
 		}
 	})
 }

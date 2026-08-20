@@ -111,6 +111,12 @@ type StoreConfig struct {
 	DSN     string
 }
 
+// AuthConfig mirrors the flat auth_* fields (populated by the loader) — the
+// HTTP data-plane's Basic-auth master switch (`ladym serve --http`).
+type AuthConfig struct {
+	Enabled bool
+}
+
 // System2Config holds background reflection cycle knobs.
 type System2Config struct {
 	Enabled              bool
@@ -149,6 +155,10 @@ type Config struct {
 	StoreDSN     string // postgres DSN; may be written directly (not a secret literal)
 	StoreDSNEnv  string // env var name to read the DSN from (secrets-off-disk pattern)
 	Store        StoreConfig
+
+	// HTTP server auth (flat — source of truth for api.NewHandler)
+	AuthEnabled bool // [auth] enabled: users-table Basic auth; default false = allow all
+	Auth        AuthConfig
 
 	// embedding (flat — source of truth for make_provider)
 	EmbeddingProvider         string
@@ -515,6 +525,19 @@ func applyToml(cfg *Config, data map[string]any) {
 					}
 				}
 			}
+		case "auth":
+			if t, ok := v.(map[string]any); ok {
+				for ak, av := range t {
+					switch ak {
+					case "enabled":
+						applyFlat(cfg, "auth_enabled", av)
+					default:
+						if !isSecret(ak) {
+							fmt.Fprintf(os.Stderr, "WARNING: ignoring unknown auth key %q\n", ak)
+						}
+					}
+				}
+			}
 		case "agents":
 			if t, ok := v.(map[string]any); ok {
 				for op, overrides := range t {
@@ -694,6 +717,8 @@ func applyFlat(cfg *Config, key string, v any) {
 		cfg.StoreDSN = asString(v)
 	case "store_dsn_env":
 		cfg.StoreDSNEnv = asString(v)
+	case "auth_enabled":
+		cfg.AuthEnabled = asBool(v)
 	case "embedding_provider":
 		cfg.EmbeddingProvider = asString(v)
 	case "embedding_model":
@@ -752,6 +777,7 @@ func syncNested(cfg *Config) {
 		Backend: cfg.StoreBackend,
 		DSN:     cfg.StoreDSN,
 	}
+	cfg.Auth = AuthConfig{Enabled: cfg.AuthEnabled}
 	cfg.Embedding = EmbeddingConfig{
 		Provider:         cfg.EmbeddingProvider,
 		BaseURL:          cfg.EmbeddingBaseURL,
@@ -838,6 +864,9 @@ func applyEnv(cfg *Config) {
 	}
 	if v := os.Getenv("LADYM_STORE_DSN"); v != "" {
 		cfg.StoreDSN = v
+	}
+	if v := os.Getenv("LADYM_AUTH_ENABLED"); v != "" {
+		cfg.AuthEnabled = toBool(v)
 	}
 }
 

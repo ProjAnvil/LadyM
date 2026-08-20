@@ -1,3 +1,5 @@
+//go:build !enterprise
+
 package engine
 
 // Port of main:tests/perf/test_read_path_budget.py (NFR-1) and

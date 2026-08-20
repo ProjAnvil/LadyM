@@ -241,6 +241,20 @@ type RecallResponse struct {
 	ElapsedMs           float64         `json:"elapsed_ms"`
 }
 
+// User is one row in the users table: a database-level account for the HTTP
+// data-plane's Basic auth (see docs/superpowers/specs
+// /2026-08-19-auth-console-client.md §2). PasswordHash holds a bcrypt hash;
+// "" means the user is passwordless (only an empty password authenticates).
+// Workspace is the forced workspace for non-admin users. The hash is produced
+// and checked in the api/cli layers — the Store only persists the string.
+type User struct {
+	Username     string  `json:"username"`
+	PasswordHash string  `json:"password_hash"`
+	Workspace    string  `json:"workspace"`
+	Admin        bool    `json:"admin"`
+	CreatedAt    float64 `json:"created_at"`
+}
+
 // Stats holds aggregate statistics for the stats tool/command.
 type Stats struct {
 	TotalMemories      int            `json:"total_memories"`

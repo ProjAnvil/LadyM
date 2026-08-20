@@ -1,3 +1,5 @@
+//go:build !enterprise
+
 package storage
 
 // SQLite-specific store tests. Backend-agnostic behaviour cases live in the

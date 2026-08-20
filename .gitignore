@@ -5,6 +5,9 @@ __pycache__/
 *.egg-info/
 build/
 dist/
+# ...except the console build output: console/dist is committed on purpose
+# (go:embed'ed into the binary, so plain `go build` needs no node).
+!console/dist/
 .eggs/
 
 # Virtual envs

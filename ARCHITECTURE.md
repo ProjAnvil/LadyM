@@ -205,8 +205,9 @@ All front-ends call the same `engine` package so behaviour is identical:
 - **LangGraph (Go)** — the `langgraph` package: `CreateTools` for ReAct-style agents,
   `CreateRecallNode`/`CreateRetainNode` for automatic per-turn memory injection, with
   per-user workspace isolation via `WorkspaceFromUserID`.
-- **Web config editor** — `ladym config` serves a local net/http + html/template editor
-  for `ladym.toml` and the encrypted secret store.
+- **Management console** — `ladym serve --http` serves the embedded Vue 3 SPA
+  (`console/`, go:embed'ed `console/dist`) at `/`: login, memory CRUD, user admin
+  and stats against the `/api/*` data plane (optional Basic auth).
 
 ## 9. Project layout
 
@@ -215,7 +216,8 @@ github.com/ProjAnvil/LadyM
 ├── cmd/ladym/        CLI entry point
 ├── cli/              cobra CLI (remember/record/recall/index/consolidate/stats/forget/link/serve/worker/config)
 ├── mcp/              MCP server (JSON-RPC 2.0 over stdio)
-├── web/              local config editor (net/http + html/template)
+├── api/              HTTP data plane (serve --http): /api/* endpoints, Basic auth, embedded console at /
+├── console/          management console (Vue 3 + Vite; dist/ committed, go:embed'ed)
 ├── engine/           the Engine orchestrator — single entry point for all front-ends
 ├── operations/       activation, recall, consolidate, decay, proceduralize, supersedes, attention, L5, L6, system2
 ├── layers/           L0–L4 memory layers

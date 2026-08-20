@@ -1,3 +1,5 @@
+//go:build !enterprise
+
 package operations
 
 // Cross-backend recall parity: the same deterministic corpus (hashing

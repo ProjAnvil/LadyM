@@ -1,3 +1,5 @@
+//go:build !enterprise
+
 package engine
 
 // Engine lifecycle and Remember write-path tests: constructor error paths,

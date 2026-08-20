@@ -1,3 +1,5 @@
+//go:build !enterprise
+
 package storage
 
 import (
@@ -42,7 +44,8 @@ func TestStoreErrorsOnClosedDB(t *testing.T) {
 	checks := map[string]func() error{
 		"PutMemory":     func() error { return s.PutMemory(m, nil) },
 		"DeleteMemory":  func() error { return s.DeleteMemory("x") },
-		"TouchMemory":   func() error { return s.TouchMemory("x", 1) },
+		"TouchMemories": func() error { return s.TouchMemories([]string{"x"}, 1) },
+		"Ping":          func() error { return s.Ping() },
 		"PutEdge":       func() error { return s.PutEdge(e) },
 		"PutCodeSymbol": func() error { return s.PutCodeSymbol(&schema.CodeSymbol{MemoryID: "m"}) },
 		"PutCodeRefs":   func() error { return s.PutCodeRefs([]*schema.CodeRef{{SrcSymbol: "a"}}) },

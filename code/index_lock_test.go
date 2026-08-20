@@ -1,3 +1,5 @@
+//go:build !enterprise
+
 package code
 
 import (

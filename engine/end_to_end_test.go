@@ -1,3 +1,5 @@
+//go:build !enterprise
+
 package engine
 
 // Port of main:tests/integration/test_end_to_end.py — the full memory

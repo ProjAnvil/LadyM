@@ -1,0 +1,227 @@
+:root {
+  --bg: #0f141a;
+  --panel: #171e26;
+  --panel-2: #1e2731;
+  --border: #2b3642;
+  --text: #dbe4ec;
+  --muted: #8b98a5;
+  --accent: #4f9cf9;
+  --accent-hover: #6cb0ff;
+  --danger: #e5636f;
+  --ok: #4cc38a;
+  --radius: 8px;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 14px;
+}
+
+a { color: var(--accent); text-decoration: none; }
+
+/* ---------- layout ---------- */
+.layout { display: flex; min-height: 100vh; }
+
+.sidebar {
+  width: 200px;
+  flex-shrink: 0;
+  background: var(--panel);
+  border-right: 1px solid var(--border);
+  padding: 16px 0;
+  display: flex;
+  flex-direction: column;
+}
+.sidebar .brand {
+  font-weight: 700;
+  font-size: 16px;
+  padding: 0 20px 16px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 12px;
+}
+.sidebar nav a {
+  display: block;
+  padding: 9px 20px;
+  color: var(--muted);
+  border-left: 3px solid transparent;
+}
+.sidebar nav a:hover { color: var(--text); background: var(--panel-2); }
+.sidebar nav a.active {
+  color: var(--text);
+  border-left-color: var(--accent);
+  background: var(--panel-2);
+}
+.sidebar .who {
+  margin-top: auto;
+  padding: 12px 20px 0;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 12px;
+}
+.sidebar .who button {
+  margin-top: 8px;
+  width: 100%;
+}
+
+.content { flex: 1; padding: 24px 32px; max-width: 1200px; }
+
+.page-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 18px;
+}
+.page-head h1 { font-size: 20px; margin: 0; }
+
+/* ---------- panels & cards ---------- */
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; }
+.card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+}
+.card .num { font-size: 26px; font-weight: 700; }
+.card .label { color: var(--muted); font-size: 12px; margin-top: 4px; }
+
+/* ---------- table ---------- */
+table { width: 100%; border-collapse: collapse; }
+th, td {
+  text-align: left;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+th { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+td .snippet {
+  max-width: 420px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: inline-block;
+  vertical-align: bottom;
+}
+.badge {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--muted);
+  margin-right: 4px;
+}
+
+/* ---------- forms ---------- */
+input[type="text"], input[type="password"], input[type="number"], select, textarea {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 6px;
+  padding: 7px 10px;
+  font-size: 14px;
+  font-family: inherit;
+}
+input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent); }
+input:disabled { opacity: .55; }
+textarea { width: 100%; resize: vertical; }
+label { display: block; margin-bottom: 10px; color: var(--muted); }
+label > span { display: block; margin-bottom: 4px; font-size: 12px; }
+label > input, label > select, label > textarea { width: 100%; }
+.checkbox-label { display: flex; align-items: center; gap: 8px; color: var(--text); }
+
+button {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 7px 14px;
+  font-size: 14px;
+  cursor: pointer;
+}
+button:hover { background: var(--accent-hover); }
+button:disabled { opacity: .45; cursor: not-allowed; }
+button.secondary { background: var(--panel-2); border: 1px solid var(--border); color: var(--text); }
+button.secondary:hover { border-color: var(--muted); }
+button.danger { background: transparent; border: 1px solid var(--danger); color: var(--danger); }
+button.danger:hover { background: var(--danger); color: #fff; }
+button.link { background: none; color: var(--accent); padding: 2px 6px; }
+button.link:hover { text-decoration: underline; }
+
+/* ---------- filters / toolbar ---------- */
+.toolbar { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; margin-bottom: 14px; }
+.toolbar label { margin-bottom: 0; }
+.toolbar .spacer { flex: 1; }
+
+.pager { display: flex; align-items: center; gap: 12px; margin-top: 12px; color: var(--muted); }
+
+/* ---------- modal ---------- */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, .55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+}
+.modal {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+  width: 560px;
+  max-width: calc(100vw - 40px);
+}
+.modal h2 { margin: 0 0 14px; font-size: 16px; }
+.modal .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 14px; }
+
+/* ---------- feedback ---------- */
+.error-text { color: var(--danger); margin: 8px 0; }
+.ok-text { color: var(--ok); margin: 8px 0; }
+.muted { color: var(--muted); }
+.empty { color: var(--muted); padding: 24px; text-align: center; }
+
+/* toast */
+.toast {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  background: var(--panel-2);
+  border: 1px solid var(--danger);
+  color: var(--text);
+  border-radius: var(--radius);
+  padding: 12px 18px;
+  z-index: 20;
+  max-width: 420px;
+}
+.toast.ok { border-color: var(--ok); }
+
+/* ---------- login ---------- */
+.login-wrap {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.login-box {
+  width: 340px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 28px;
+}
+.login-box h1 { font-size: 18px; margin: 0 0 18px; }
+.login-box button[type="submit"] { width: 100%; margin-top: 6px; }

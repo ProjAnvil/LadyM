@@ -1,0 +1,66 @@
+# LadyM DEVELOPMENT container group — single-node topology for local
+# debugging, NOT the production/reference deployment.
+# Topology: pg (Postgres + pgvector) <- api (stateless HTTP data-plane)
+#                                    <- worker (System 2 consolidation loop)
+# The api node is mapped straight to host 8080 and pg to host 55433 so dev
+# tools / curl can reach them directly. The three-tier production showcase
+# (nginx gateway + api x2 + console + worker, only the gateway exposed) lives
+# in docker-compose.enterprise.yml — see docs/deployment.md.
+# Runs fully offline: hashing embeddings + llm.provider=none are the defaults,
+# no external API key needed.
+#
+#   docker compose -f docker-compose.dev.yml -p ladym-dev up -d --build
+#   docker compose -f docker-compose.dev.yml -p ladym-dev down -v
+name: ladym-dev
+
+services:
+  pg:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ladym
+      POSTGRES_DB: ladym
+    ports:
+      # Host 55433 to avoid clashing with a local postgres / existing test
+      # containers; the api/worker services reach it on the internal 5432.
+      - "55433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d ladym"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build: .
+    image: ladym-enterprise:local
+    depends_on:
+      pg:
+        condition: service_healthy
+    environment:
+      LADYM_STORE_BACKEND: postgres
+      LADYM_STORE_DSN: "postgres://postgres:ladym@pg:5432/ladym?sslmode=disable"
+    command: ["serve", "--http", ":8080"]
+    ports:
+      - "8080:8080"
+    # No container healthcheck: the distroless runtime has no shell/curl/wget
+    # and ladym has no health subcommand. Probe /healthz from outside instead
+    # (load balancer / orchestrator), see docs/deployment.md.
+
+  worker:
+    build: .
+    image: ladym-enterprise:local
+    depends_on:
+      pg:
+        condition: service_healthy
+    environment:
+      LADYM_STORE_BACKEND: postgres
+      LADYM_STORE_DSN: "postgres://postgres:ladym@pg:5432/ladym?sslmode=disable"
+    # The worker role IS the `worker` command (System 2 loop). There is no
+    # LADYM_SYSTEM2_ENABLED env in config applyEnv — cycle knobs
+    # (interval etc.) are the command's flags / ladym.toml [system2].
+    command: ["worker"]
+
+volumes:
+  pgdata:

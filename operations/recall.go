@@ -316,8 +316,7 @@ func maxF(a, b float64) float64 {
 }
 
 func commitAccess(store storage.Store, ids []string) {
-	now := schema.Now()
-	for _, id := range ids {
-		_ = store.TouchMemory(id, now)
-	}
+	// One batched UPDATE for the whole result set (was: one UPDATE per id).
+	// Bookkeeping failures never affect the recall results.
+	_ = store.TouchMemories(ids, schema.Now())
 }

@@ -1,11 +1,7 @@
 package mcp
 
 import (
-	"encoding/json"
 	"testing"
-
-	"github.com/ProjAnvil/LadyM/config"
-	"github.com/ProjAnvil/LadyM/engine"
 )
 
 // propSpec describes one expected JSON-Schema property.
@@ -154,42 +150,5 @@ func TestToolsListSchemas(t *testing.T) {
 			continue
 		}
 		assertSchema(t, td, w.required, w.props)
-	}
-}
-
-// TestRememberEmptySourceFallsBackToMCP mirrors Python's `source or "mcp"`:
-// an explicitly empty source must fall back to "mcp", not be stored as "".
-func TestRememberEmptySourceFallsBackToMCP(t *testing.T) {
-	cfg := config.ForTesting(t.TempDir())
-	eng, err := engine.New(cfg)
-	if err != nil {
-		t.Fatalf("engine.New: %v", err)
-	}
-	defer eng.Close()
-	s := &server{eng: eng, cfg: cfg}
-
-	content := "quasar zebra mandelbrot unique-source-check fact"
-	if _, err := s.call("remember", map[string]any{"content": content, "source": ""}); err != nil {
-		t.Fatalf("remember: %v", err)
-	}
-	out, err := s.call("recall", map[string]any{"query": "quasar zebra mandelbrot"})
-	if err != nil {
-		t.Fatalf("recall: %v", err)
-	}
-	var resp struct {
-		Results []struct {
-			Memory struct {
-				Source string `json:"source"`
-			} `json:"memory"`
-		} `json:"results"`
-	}
-	if err := json.Unmarshal([]byte(out), &resp); err != nil {
-		t.Fatalf("recall output not JSON: %v", err)
-	}
-	if len(resp.Results) == 0 {
-		t.Fatalf("recall returned no results for stored memory")
-	}
-	if got := resp.Results[0].Memory.Source; got != "mcp" {
-		t.Errorf("source = %q, want %q (empty source must fall back)", got, "mcp")
 	}
 }

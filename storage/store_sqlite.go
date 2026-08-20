@@ -10,6 +10,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/ProjAnvil/LadyM/schema"
 	_ "modernc.org/sqlite"
@@ -87,6 +88,14 @@ CREATE TABLE IF NOT EXISTS index_state (
 CREATE TABLE IF NOT EXISTS meta (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS users (
+    username      TEXT PRIMARY KEY,
+    password_hash TEXT NOT NULL DEFAULT '',
+    workspace     TEXT NOT NULL DEFAULT '',
+    admin         INTEGER NOT NULL DEFAULT 0,
+    created_at    REAL NOT NULL
 );
 `
 
@@ -327,12 +336,62 @@ func (s *SQLiteStore) DeleteMemory(id string) error {
 	return nil
 }
 
-// TouchMemory bumps access_count / last_access_at.
-func (s *SQLiteStore) TouchMemory(id string, now float64) error {
-	_, err := s.db.Exec(
-		"UPDATE memories SET last_access_at = ?, access_count = access_count + 1 WHERE id = ?",
-		now, id)
+// UpdateMemoryContent patches content/summary/tags/updated_at in place. A nil
+// vector leaves the embedding column and content_hash alone (unlike the
+// PutMemory upsert, which would NULL them); a non-nil vector rewrites the
+// embedding, recomputes content_hash and re-indexes the vector. A missing id
+// is a no-op.
+func (s *SQLiteStore) UpdateMemoryContent(id, content, summary string, tags []string, vector []float32, now float64) error {
+	if now == 0 {
+		now = schema.Now()
+	}
+	tagsJSON, _ := json.Marshal(tags)
+	var (
+		res sql.Result
+		err error
+	)
+	if vector == nil {
+		res, err = s.db.Exec(
+			"UPDATE memories SET content = ?, summary = ?, tags = ?, updated_at = ? WHERE id = ?",
+			content, summary, string(tagsJSON), now, id)
+	} else {
+		res, err = s.db.Exec(
+			"UPDATE memories SET content = ?, summary = ?, tags = ?, updated_at = ?, embedding = ?, content_hash = ? WHERE id = ?",
+			content, summary, string(tagsJSON), now, encodeVec(vector), schema.ContentHash(content), id)
+	}
+	if err != nil {
+		return err
+	}
+	if vector != nil {
+		if n, _ := res.RowsAffected(); n > 0 {
+			return s.vectorIndex.Upsert(id, vector)
+		}
+	}
+	return nil
+}
+
+// TouchMemories bumps access_count / last_access_at for every listed id in a
+// single UPDATE (recall's access bookkeeping used to issue one UPDATE per id).
+// An empty slice is a no-op.
+func (s *SQLiteStore) TouchMemories(ids []string, now float64) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	q := "UPDATE memories SET last_access_at = ?, access_count = access_count + 1 WHERE id IN (" +
+		strings.TrimSuffix(strings.Repeat("?,", len(ids)), ",") + ")"
+	args := make([]any, 0, len(ids)+1)
+	args = append(args, now)
+	for _, id := range ids {
+		args = append(args, id)
+	}
+	_, err := s.db.Exec(q, args...)
 	return err
+}
+
+// Ping checks storage connectivity (health probe).
+func (s *SQLiteStore) Ping() error {
+	var one int
+	return s.db.QueryRow("SELECT 1").Scan(&one)
 }
 
 // IterMemories returns memories matching the optional filters.
@@ -719,4 +778,61 @@ func (s *SQLiteStore) SetMeta(key, value string) error {
 		"INSERT INTO meta (key, value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
 		key, value)
 	return err
+}
+
+// ---- users (HTTP data-plane Basic auth accounts) ----
+
+// PutUser inserts or updates a user (upsert by username).
+func (s *SQLiteStore) PutUser(u *schema.User) error {
+	_, err := s.db.Exec(
+		`INSERT INTO users (username, password_hash, workspace, admin, created_at)
+		 VALUES (?,?,?,?,?)
+		 ON CONFLICT(username) DO UPDATE SET
+		   password_hash=excluded.password_hash, workspace=excluded.workspace,
+		   admin=excluded.admin, created_at=excluded.created_at`,
+		u.Username, u.PasswordHash, u.Workspace, u.Admin, u.CreatedAt)
+	return err
+}
+
+// GetUser returns the user with the given username, or nil.
+func (s *SQLiteStore) GetUser(username string) (*schema.User, error) {
+	rows, err := s.db.Query(
+		"SELECT username, password_hash, workspace, admin, created_at FROM users WHERE username = ?", username)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	if !rows.Next() {
+		return nil, nil
+	}
+	var u schema.User
+	if err := rows.Scan(&u.Username, &u.PasswordHash, &u.Workspace, &u.Admin, &u.CreatedAt); err != nil {
+		return nil, err
+	}
+	return &u, nil
+}
+
+// DeleteUser deletes a user; a missing username is a no-op.
+func (s *SQLiteStore) DeleteUser(username string) error {
+	_, err := s.db.Exec("DELETE FROM users WHERE username = ?", username)
+	return err
+}
+
+// ListUsers returns all users sorted by username.
+func (s *SQLiteStore) ListUsers() ([]*schema.User, error) {
+	rows, err := s.db.Query(
+		"SELECT username, password_hash, workspace, admin, created_at FROM users ORDER BY username")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*schema.User
+	for rows.Next() {
+		var u schema.User
+		if err := rows.Scan(&u.Username, &u.PasswordHash, &u.Workspace, &u.Admin, &u.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, &u)
+	}
+	return out, rows.Err()
 }

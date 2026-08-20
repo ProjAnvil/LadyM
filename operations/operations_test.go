@@ -70,52 +70,5 @@ func TestActivationScore(t *testing.T) {
 	_ = score
 }
 
-// --- offline contract: L5/L6 skip when no LLM is configured -------------------
-
-func TestExtractL5SkipsWithoutLLM(t *testing.T) {
-	store, emb := newParityStore(t)
-	cfg := config.ForTesting(t.TempDir())
-	cfg.System2.L5ClusterSimilarity = 0.0 // would force one cluster if it ran
-	cfg.System2.L5MinClusterSize = 2
-	cfg.System2.L5MergeEveryNCycles = 0
-	putParityMem(t, store, emb, schema.LayerSemantic, schema.TypeFact, "alpha fact one", nil)
-	putParityMem(t, store, emb, schema.LayerSemantic, schema.TypeFact, "beta fact two", nil)
-	putParityMem(t, store, emb, schema.LayerSemantic, schema.TypeFact, "gamma fact three", nil)
-
-	rep, err := ExtractL5(store, emb, cfg, "test", nil, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !rep.Skipped || rep.NewModels != 0 {
-		t.Errorf("report = %+v, want Skipped=true and no new models", rep)
-	}
-	ms, err := store.IterMemories("test", string(schema.LayerL5Mental), "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(ms) != 0 {
-		t.Errorf("L5_mental memories = %d, want 0 without an LLM", len(ms))
-	}
-}
-
-func TestPredictL6SkipsWithoutLLM(t *testing.T) {
-	store, emb := newParityStore(t)
-	cfg := config.ForTesting(t.TempDir())
-	putParityMem(t, store, emb, schema.LayerEpisodic, "event", "ran the test suite", nil)
-	putParityMem(t, store, emb, schema.LayerEpisodic, "event", "deployed the service", nil)
-
-	rep, err := PredictL6(store, emb, cfg, "test", nil, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !rep.Skipped || rep.Predictions != 0 {
-		t.Errorf("report = %+v, want Skipped=true and no predictions", rep)
-	}
-	ms, err := store.IterMemories("test", string(schema.LayerL6Predictive), "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(ms) != 0 {
-		t.Errorf("L6_predictive memories = %d, want 0 without an LLM", len(ms))
-	}
-}
+// The L5/L6 offline-contract tests that need a real Store live with the
+// other store-backed cases in parity_test.go (personal edition only).

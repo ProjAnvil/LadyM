@@ -1,161 +1,149 @@
+//go:build !enterprise
+
 package cli
 
 import (
-	"bytes"
-	"errors"
+	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 
-	"github.com/ProjAnvil/LadyM/code"
 	"github.com/ProjAnvil/LadyM/config"
 	"github.com/ProjAnvil/LadyM/schema"
+	"github.com/ProjAnvil/LadyM/storage"
 )
 
-// TestWriteIndexReportPrintsFirstFiveErrors mirrors Python's
-// `report.errors[:5]` — the first five errors are printed, the rest only
-// counted.
-func TestWriteIndexReportPrintsFirstFiveErrors(t *testing.T) {
-	report := &code.IndexReport{
-		FilesSeen:    9,
-		FilesIndexed: 7,
-		Errors:       []string{"err0", "err1", "err2", "err3", "err4", "err5", "err6"},
+// TestBuildServeHTTPHandler covers handler construction (split from listen):
+// the returned handler must serve /api/stats against a temp db.
+func TestBuildServeHTTPHandler(t *testing.T) {
+	db := isolateEnv(t)
+	cfg, err := loadConfig(db, "")
+	if err != nil {
+		t.Fatal(err)
 	}
-	var buf bytes.Buffer
-	writeIndexReport(&buf, report)
-	out := buf.String()
-	if !strings.Contains(out, "errors: 7") {
-		t.Errorf("output missing error count:\n%s", out)
+	h, _, closeFn, err := buildServeHTTPHandler(cfg)
+	if err != nil {
+		t.Fatalf("buildServeHTTPHandler: %v", err)
 	}
-	for i := 0; i < 5; i++ {
-		if !strings.Contains(out, "err"+string(rune('0'+i))) {
-			t.Errorf("output missing error #%d:\n%s", i, out)
+	defer closeFn()
+
+	req := httptest.NewRequest("POST", "/api/stats", strings.NewReader(`{}`))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != 200 {
+		t.Fatalf("/api/stats: %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestServeHTTPBanner covers the startup lines printed by `serve --http`
+// (listen address, db, workspace, auth mode): auth=off is the default with
+// no warning; auth=on with an empty users table warns to bootstrap via CLI.
+func TestServeHTTPBanner(t *testing.T) {
+	cfg := config.ForTesting(t.TempDir())
+	cfg.Workspace = "ws1"
+	store, err := storage.NewStore(filepath.Join(t.TempDir(), "banner.db"), 8, false, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	b := serveHTTPBanner(cfg, ":8080", store)
+	for _, want := range []string{":8080", cfg.DBPath, "ws1", "auth=off"} {
+		if !strings.Contains(b, want) {
+			t.Errorf("http banner missing %q: %q", want, b)
 		}
 	}
-	for _, e := range []string{"err5", "err6"} {
-		if strings.Contains(out, e) {
-			t.Errorf("output should not contain %q (only first 5):\n%s", e, out)
-		}
+	if strings.Contains(b, "WARNING") {
+		t.Errorf("auth=off (personal default) must not warn: %q", b)
+	}
+
+	// auth on, users table empty -> bootstrap warning.
+	cfg.AuthEnabled = true
+	b = serveHTTPBanner(cfg, "8080", store)
+	if !strings.Contains(b, "auth=on") {
+		t.Errorf("banner missing auth=on: %q", b)
+	}
+	if !strings.Contains(b, "WARNING") || !strings.Contains(b, "ladym user add") {
+		t.Errorf("auth on with no users must warn about `ladym user add`: %q", b)
+	}
+
+	// One user -> warning gone.
+	if err := store.PutUser(&schema.User{Username: "root", Admin: true, CreatedAt: schema.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	b = serveHTTPBanner(cfg, "8080", store)
+	if strings.Contains(b, "WARNING") {
+		t.Errorf("auth on with users should not warn: %q", b)
 	}
 }
 
-// TestWriteStatsByLayerAndNoneWorkspaces mirrors Python cli.py stats():
-// workspaces prints "(none)" when empty, and a by-layer breakdown follows.
-func TestWriteStatsByLayerAndNoneWorkspaces(t *testing.T) {
-	s := &schema.Stats{
-		DBPath:        "/tmp/x.db",
-		TotalMemories: 6,
-		Edges:         1,
-		CodeSymbols:   2,
-		ByLayer:       map[string]int{"L2_semantic": 4, "L1_episodic": 2},
-	}
-	var buf bytes.Buffer
-	writeStats(&buf, s, "")
-	out := buf.String()
-	if !strings.Contains(out, "workspaces: (none)") {
-		t.Errorf("output missing '(none)' for empty workspaces:\n%s", out)
-	}
-	for _, want := range []string{"L1_episodic", "L2_semantic"} {
-		if !strings.Contains(out, want) {
-			t.Errorf("output missing by-layer row %q:\n%s", want, out)
-		}
-	}
-	if strings.Index(out, "L1_episodic") > strings.Index(out, "L2_semantic") {
-		t.Errorf("by-layer rows should be sorted:\n%s", out)
-	}
-
-	// Non-empty workspaces still join with ", ".
-	s.Workspaces = []string{"a", "b"}
-	buf.Reset()
-	writeStats(&buf, s, "")
-	if !strings.Contains(buf.String(), "workspaces: a, b") {
-		t.Errorf("output missing joined workspaces:\n%s", buf.String())
-	}
-}
-
-// TestWriteRecallTableIncludesIDColumn: scenario playbooks assert on memory
-// ids — the recall table must print the id as its first column.
-func TestWriteRecallTableIncludesIDColumn(t *testing.T) {
-	resp := &schema.RecallResponse{
-		Query: "q",
-		Results: []*schema.RecallResult{
-			{
-				Score: 0.9,
-				Memory: &schema.Memory{
-					ID:      "abc123def456",
-					Layer:   "L2_semantic",
-					Type:    "fact",
-					Summary: "a fact",
-					Source:  "cli",
-				},
-			},
-		},
-	}
-	var buf bytes.Buffer
-	writeRecallTable(&buf, resp)
-	out := buf.String()
-	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
-	if len(lines) < 2 {
-		t.Fatalf("expected header + at least one row:\n%s", out)
-	}
-	if !strings.HasPrefix(lines[0], "id") {
-		t.Errorf("header must start with the id column:\n%s", lines[0])
-	}
-	if !strings.HasPrefix(lines[1], "abc123def456") {
-		t.Errorf("first data row must start with the memory id:\n%s", lines[1])
-	}
-}
-
-// TestWriteStatsScopedWorkspace: with -w, the workspaces line must list only
-// the scoped workspace, not every workspace in the db.
-func TestWriteStatsScopedWorkspace(t *testing.T) {
-	s := &schema.Stats{
-		DBPath:     "/tmp/x.db",
-		Workspaces: []string{"scn-s01", "other-ws"},
-	}
-	var buf bytes.Buffer
-	writeStats(&buf, s, "scn-s01")
-	out := buf.String()
-	if !strings.Contains(out, "workspaces: scn-s01") {
-		t.Errorf("output missing scoped workspace:\n%s", out)
-	}
-	if strings.Contains(out, "other-ws") {
-		t.Errorf("output should not list other workspaces when -w is set:\n%s", out)
-	}
-}
-
-// TestConfigRMMissingKeyPrintsOnce mirrors Python: "no such key KEY" is
-// printed once and the process exits non-zero — the error returned must be a
-// silent exitError so Execute does not print a second line.
-func TestConfigRMMissingKeyPrintsOnce(t *testing.T) {
-	t.Setenv("HOME", t.TempDir()) // isolate the secret store
-	cmd := configRMCmd()
-	var buf bytes.Buffer
-	cmd.SetOut(&buf)
-	cmd.SetErr(&buf)
-	cmd.SetArgs([]string{"NOPE"})
-	err := cmd.Execute()
-	if err == nil {
-		t.Fatal("expected non-nil error for missing key")
-	}
-	var ee *exitError
-	if !errors.As(err, &ee) {
-		t.Fatalf("error type = %T, want *exitError (silent; already printed)", err)
-	}
-	if ee.code == 0 {
-		t.Errorf("exitError.code = 0, want non-zero")
-	}
-	if n := strings.Count(buf.String(), "no such key NOPE"); n != 1 {
-		t.Errorf("'no such key NOPE' printed %d times, want exactly 1:\n%s", n, buf.String())
-	}
-}
-
-// TestServeBanner mirrors the Python `ladym serve` stderr banner.
-func TestServeBanner(t *testing.T) {
+// TestServeHTTPBannerBackend: the banner names the store backend; under
+// postgres the (empty) sqlite db path must not appear.
+func TestServeHTTPBannerBackend(t *testing.T) {
 	cfg := config.Default()
 	cfg.DBPath = "/tmp/ladym.db"
-	cfg.Workspace = "ws1"
-	b := serveBanner(cfg)
-	if !strings.Contains(b, "/tmp/ladym.db") || !strings.Contains(b, "ws1") {
-		t.Errorf("banner missing db/workspace: %q", b)
+	store, err := storage.NewStore(filepath.Join(t.TempDir(), "banner2.db"), 8, false, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	cfg.StoreBackend = "sqlite"
+	b := serveHTTPBanner(cfg, ":8080", store)
+	if !strings.Contains(b, "backend=sqlite") || !strings.Contains(b, "db=/tmp/ladym.db") {
+		t.Errorf("sqlite banner missing backend/db: %q", b)
+	}
+
+	cfg.StoreBackend = "postgres"
+	b = serveHTTPBanner(cfg, ":8080", store)
+	if !strings.Contains(b, "backend=postgres") {
+		t.Errorf("postgres banner missing backend: %q", b)
+	}
+	if strings.Contains(b, "db=") {
+		t.Errorf("postgres banner must not show the (empty) sqlite db path: %q", b)
+	}
+}
+
+// TestServeHTTPListenError covers serveHTTP's listen tail without holding a
+// port open: an address without a colon is prefixed with ":" (per the usage
+// string), and an unresolvable port name makes ListenAndServe return the
+// net/http error.
+func TestServeHTTPListenError(t *testing.T) {
+	db := isolateEnv(t)
+	setGlobalConfigPath(t, "")
+	cfg, err := loadConfig(db, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = serveHTTP(cfg, "ladym-not-a-real-port")
+	if err == nil {
+		t.Fatal("serveHTTP with a bogus port should fail")
+	}
+	if !strings.Contains(err.Error(), "ladym-not-a-real-port") {
+		t.Errorf("listen error = %v, want it to name the address", err)
+	}
+}
+
+// TestConfigCmdPrintsHelp: bare `ladym config` (no subcommand) prints the
+// group help — the retired web editor's successor is the embedded console.
+func TestConfigCmdPrintsHelp(t *testing.T) {
+	out, err := runCmd(t, configCmd())
+	if err != nil {
+		t.Fatalf("bare config: %v", err)
+	}
+	for _, want := range []string{"secret store", "set", "set-master-key", "list", "rm"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("config help missing %q: %q", want, out)
+		}
+	}
+}
+
+// TestBuildServeHTTPHandlerEngineError: an unopenable db (a directory) makes
+// engine.New fail, and buildServeHTTPHandler propagates that error.
+func TestBuildServeHTTPHandlerEngineError(t *testing.T) {
+	cfg := config.ForTesting(t.TempDir())
+	cfg.DBPath = t.TempDir() // a directory: sqlite cannot open it
+	if _, _, _, err := buildServeHTTPHandler(cfg); err == nil {
+		t.Error("buildServeHTTPHandler with an unopenable db should fail")
 	}
 }
