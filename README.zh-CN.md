@@ -20,6 +20,24 @@ SQLite 基于 [modernc.org/sqlite](https://pkg.go.dev/modernc.org/sqlite)，向�
 
 ---
 
+## 0.4.0 更新
+
+- **双版本** —— 一个仓库、两种构建。**个人版**：你熟悉的单二进制体验（SQLite 或
+  Postgres,管理台内嵌）。**企业版**:`go build -tags enterprise` 产出纯 Postgres 的
+  微服务，`ladym` 二进制里零 SQLite、零管理台代码。
+- **REST API 服务** —— 所有 MCP 工具现在都可以通过 HTTP 调用（`ladym serve --http`),
+  另有 `/healthz` 和 `/api/metrics` 供运维使用。
+- **轻量认证** —— 数据库级的用户名/密码（bcrypt + HTTP Basic)，不做重型 IAM。支持
+  免密用户，默认关闭（`[auth] enabled`)；用 `ladym user add/list/delete/passwd` 管理。
+- **Vue 管理台** —— 真正的前端（Vue 3 + Vite)，含登录、Memories、Users、Stats 四个
+  页面和完整的 CRUD API。个人版内嵌于二进制；企业版拆成独立的 `ladymconsole` 配置中心
+  微服务，与 ladym 节点共用同一个 Postgres。
+- **`client/golang` SDK** —— 面向 HTTP API 的 Go 客户端，其他 Go 程序两行代码即可把
+  LadyM 作为中间件集成：`client.New(addr, client.WithAuth(u, p))`。
+- **企业版 compose 栈** —— `docker-compose.enterprise.yml` 提供三层部署：nginx 网关
+  作为唯一对外节点，在内网中负载均衡到 ladym API 副本和配置中心，底层是
+  Postgres + pgvector。
+
 ## 0.3.0 更新
 
 - **完整 Go 重写** —— LadyM 现在是单一静态二进制，**无 Python 依赖、零 cgo**。

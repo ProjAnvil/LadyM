@@ -23,7 +23,26 @@ identical everywhere.
 
 ---
 
-## What's New in 0.3.0
+## What's New in 0.4.0
+
+- **Dual edition** — one repo, two builds. **Personal**: the single-binary experience you know
+  (SQLite or Postgres, console embedded). **Enterprise**: `go build -tags enterprise` produces
+  Postgres-only microservices with zero SQLite and zero console code in the `ladym` binary.
+- **REST API service** — every MCP tool is now also available over HTTP (`ladym serve --http`),
+  plus `/healthz` and `/api/metrics` for ops.
+- **Lightweight auth** — database-level username/password (bcrypt + HTTP Basic), no heavy IAM.
+  Optional password-less users, off by default via `[auth] enabled`; manage with
+  `ladym user add/list/delete/passwd`.
+- **Vue admin console** — a real frontend (Vue 3 + Vite) with Login, Memories, Users, and Stats
+  pages and a full CRUD API. Embedded in the personal binary; in enterprise it ships as the
+  standalone `ladymconsole` config-center microservice sharing the same Postgres.
+- **`client/golang` SDK** — a dedicated Go client for the HTTP API, so other Go programs can
+  integrate LadyM as middleware with two lines: `client.New(addr, client.WithAuth(u, p))`.
+- **Enterprise compose stack** — `docker-compose.enterprise.yml` runs a three-tier deployment:
+  an nginx gateway as the only public node, load-balancing to ladym API replicas and the
+  console over an internal network, backed by Postgres + pgvector.
+
+## What Was New in 0.3.0
 
 - **Full Go rewrite** — LadyM is now one static binary with **no Python dependency and
   zero cgo**. Install with `go install` or build from source; there is nothing else to set up.
