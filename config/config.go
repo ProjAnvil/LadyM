@@ -102,6 +102,7 @@ type LLMConfig struct {
 	MaxTokens        int
 	Temperature      float64
 	StructuredMethod string
+	ReasoningEffort  string
 	TimeoutS         float64
 }
 
@@ -182,6 +183,7 @@ type Config struct {
 	LLMMaxTokens          int
 	LLMTemperature        float64
 	LLMStructuredMethod   string
+	LLMReasoningEffort    string // "low" | "medium" | "high" for OpenAI reasoning models; "" = provider default
 	LLMTimeoutS           float64
 	LLMAPIKey             string // plaintext LLM key (only when allow_plaintext_secrets)
 	AllowPlaintextSecrets bool   // DEV/testing escape hatch; default stays secure
@@ -250,6 +252,7 @@ func Default() *Config {
 		LLMMaxTokens:          1024,
 		LLMTemperature:        0.2,
 		LLMStructuredMethod:   "function_calling",
+		LLMReasoningEffort:    envOr("LADYM_LLM_REASONING_EFFORT", ""),
 		LLMTimeoutS:           30.0,
 		LLMAPIKey:             "",
 		AllowPlaintextSecrets: false,
@@ -503,7 +506,7 @@ func applyToml(cfg *Config, data map[string]any) {
 				for lk, lv := range t {
 					switch lk {
 					case "provider", "base_url", "model", "api_key", "api_key_env",
-						"max_tokens", "temperature", "structured_method", "timeout_s":
+						"max_tokens", "temperature", "structured_method", "reasoning_effort", "timeout_s":
 						applyFlat(cfg, "llm_"+lk, lv)
 					default:
 						if !isSecret(lk) {
@@ -755,6 +758,8 @@ func applyFlat(cfg *Config, key string, v any) {
 		cfg.LLMTemperature = asFloat(v)
 	case "llm_structured_method":
 		cfg.LLMStructuredMethod = asString(v)
+	case "llm_reasoning_effort":
+		cfg.LLMReasoningEffort = asString(v)
 	case "llm_timeout_s":
 		cfg.LLMTimeoutS = asFloat(v)
 	case "llm_api_key":
@@ -798,6 +803,7 @@ func syncNested(cfg *Config) {
 		MaxTokens:        cfg.LLMMaxTokens,
 		Temperature:      cfg.LLMTemperature,
 		StructuredMethod: cfg.LLMStructuredMethod,
+		ReasoningEffort:  cfg.LLMReasoningEffort,
 		TimeoutS:         cfg.LLMTimeoutS,
 	}
 }
@@ -852,6 +858,9 @@ func applyEnv(cfg *Config) {
 	}
 	if v := os.Getenv("LADYM_LLM_TEMPERATURE"); v != "" {
 		cfg.LLMTemperature = asFloat(v)
+	}
+	if v := os.Getenv("LADYM_LLM_REASONING_EFFORT"); v != "" {
+		cfg.LLMReasoningEffort = v
 	}
 	if v := os.Getenv("LADYM_PREFER_SQLITE_VEC"); v != "" {
 		cfg.PreferSQLiteVec = toBool(v)

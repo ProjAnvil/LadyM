@@ -68,10 +68,17 @@ func (l *LangChainLLM) CompleteStructured(messages []Message, sc JSONSchema) (ma
 	lcMsgs := toLCMessages(messages)
 	var text string
 	if method == "json_mode" {
-		// Prompt-based path: no provider-native enforcement, mirror the
-		// HTTPLLM json_mode behavior.
+		// Prompt-based schema instruction, mirroring HTTPLLM json_mode; when
+		// the wrapped model is an OpenAI partner model, additionally bind the
+		// provider-native response_format={"type":"json_object"} (v0.6.0
+		// WithJSONMode) so the schema is enforced upstream too.
 		sys := lcmessages.System("Reply ONLY with JSON matching this JSON schema: " + schemaPromptText(sc))
-		resp, err := l.cm.Invoke(context.Background(), append([]lcmessages.Message{sys}, lcMsgs...))
+		msgs := append([]lcmessages.Message{sys}, lcMsgs...)
+		cm := l.cm
+		if om, ok := cm.(openai.ChatModel); ok {
+			cm = om.WithJSONMode()
+		}
+		resp, err := cm.Invoke(context.Background(), msgs)
 		if err != nil {
 			return nil, err
 		}
@@ -99,7 +106,8 @@ func (l *LangChainLLM) CompleteStructured(messages []Message, sc JSONSchema) (ma
 
 // makePartnerChatModel builds a langchain-golang partner ChatModel from
 // ladyM's LLM config values. kind is "openai" | "anthropic" | "ollama".
-func makePartnerChatModel(kind, baseURL, model, apiKey string, maxTokens int, temperature, timeoutS float64) (language.ChatModel, error) {
+// reasoningEffort is OpenAI-only (v0.5.3+): anthropic and ollama ignore it.
+func makePartnerChatModel(kind, baseURL, model, apiKey string, maxTokens int, temperature, timeoutS float64, reasoningEffort string) (language.ChatModel, error) {
 	opts := []modelconfig.Option{
 		modelconfig.WithModel(model),
 		modelconfig.WithTemperature(temperature),
@@ -121,7 +129,11 @@ func makePartnerChatModel(kind, baseURL, model, apiKey string, maxTokens int, te
 		// Python's ChatOpenAI (and most OpenAI-compatible base_url servers)
 		// target /chat/completions; langchain-golang defaults to the Responses
 		// API, so switch explicitly for parity.
-		return openai.NewChatModel(opts...).WithChatCompletions(), nil
+		cm := openai.NewChatModel(opts...).WithChatCompletions()
+		if reasoningEffort != "" {
+			cm = cm.WithReasoningEffort(reasoningEffort)
+		}
+		return cm, nil
 	case "anthropic":
 		return anthropic.NewChatModel(opts...), nil
 	case "ollama":

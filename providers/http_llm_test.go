@@ -290,14 +290,14 @@ func TestSchemaPromptTextMarshalFallback(t *testing.T) {
 func TestMakeLLMProvider(t *testing.T) {
 	t.Run("empty and none return nil", func(t *testing.T) {
 		for _, kind := range []string{"", "none", "NONE"} {
-			p, err := MakeLLMProvider(kind, "", "m", "k", "", 1, 0, 1)
+			p, err := MakeLLMProvider(kind, "", "m", "k", "", "", 1, 0, 1)
 			if err != nil || p != nil {
 				t.Fatalf("MakeLLMProvider(%q)=(%v, %v), want (nil, nil)", kind, p, err)
 			}
 		}
 	})
 	t.Run("http returns HTTPLLM", func(t *testing.T) {
-		p, err := MakeLLMProvider("http", "http://example.com", "m", "k", "", 1, 0, 1)
+		p, err := MakeLLMProvider("http", "http://example.com", "m", "k", "", "", 1, 0, 1)
 		if err != nil {
 			t.Fatalf("MakeLLMProvider: %v", err)
 		}
@@ -311,7 +311,7 @@ func TestMakeLLMProvider(t *testing.T) {
 	})
 	t.Run("partner kinds wrap LangChainLLM", func(t *testing.T) {
 		for _, kind := range []string{"openai", "anthropic", "ollama"} {
-			p, err := MakeLLMProvider(kind, "", "m", "k", "function_calling", 1, 0, 1)
+			p, err := MakeLLMProvider(kind, "", "m", "k", "function_calling", "", 1, 0, 1)
 			if err != nil {
 				t.Fatalf("MakeLLMProvider(%q): %v", kind, err)
 			}
@@ -325,7 +325,7 @@ func TestMakeLLMProvider(t *testing.T) {
 		}
 	})
 	t.Run("unknown kind errors", func(t *testing.T) {
-		_, err := MakeLLMProvider("bogus", "", "m", "k", "", 1, 0, 1)
+		_, err := MakeLLMProvider("bogus", "", "m", "k", "", "", 1, 0, 1)
 		if err == nil || !strings.Contains(err.Error(), "unknown llm provider") {
 			t.Fatalf("expected unknown-provider error, got %v", err)
 		}

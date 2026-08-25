@@ -171,6 +171,18 @@ func normalizedStructuredMethod(m string) (string, error) {
 	}
 }
 
+// normalizedReasoningEffort validates the configured reasoning effort.
+// Valid values mirror OpenAI's reasoning_effort levels: "low", "medium",
+// "high"; "" leaves the provider default. Unknown values are an error.
+func normalizedReasoningEffort(e string) (string, error) {
+	switch v := strings.ToLower(strings.TrimSpace(e)); v {
+	case "", "low", "medium", "high":
+		return v, nil
+	default:
+		return "", fmt.Errorf("unknown reasoning_effort %q (supported: low, medium, high)", e)
+	}
+}
+
 func (h *HTTPLLM) CompleteStructured(messages []Message, schema JSONSchema) (map[string]any, error) {
 	method, err := normalizedStructuredMethod(h.structuredMethod)
 	if err != nil {
@@ -370,11 +382,17 @@ func (h *HTTPLLM) ollamaComplete(messages []Message, structured bool, schema JSO
 // "none". "openai" / "anthropic" / "ollama" are backed by langchain-golang
 // partner chat models (mirroring Python's LangChain-based construction);
 // "http" selects the legacy hand-rolled HTTPLLM (OpenAI-compatible
-// /chat/completions) as a zero-framework escape hatch.
-func MakeLLMProvider(kind, baseURL, model, apiKey, structuredMethod string, maxTokens int, temperature, timeoutS float64) (LLMProvider, error) {
+// /chat/completions) as a zero-framework escape hatch. reasoningEffort
+// ("low"|"medium"|"high"|"") applies only to the OpenAI partner; the other
+// kinds accept and ignore it.
+func MakeLLMProvider(kind, baseURL, model, apiKey, structuredMethod, reasoningEffort string, maxTokens int, temperature, timeoutS float64) (LLMProvider, error) {
 	k := strings.ToLower(kind)
 	if k == "" {
 		k = "none"
+	}
+	effort, err := normalizedReasoningEffort(reasoningEffort)
+	if err != nil {
+		return nil, err
 	}
 	switch k {
 	case "none":
@@ -382,7 +400,7 @@ func MakeLLMProvider(kind, baseURL, model, apiKey, structuredMethod string, maxT
 	case "http":
 		return newHTTPLLM("openai", baseURL, model, apiKey, maxTokens, temperature, timeoutS, structuredMethod), nil
 	case "openai", "anthropic", "ollama":
-		cm, err := makePartnerChatModel(k, baseURL, model, apiKey, maxTokens, temperature, timeoutS)
+		cm, err := makePartnerChatModel(k, baseURL, model, apiKey, maxTokens, temperature, timeoutS, effort)
 		if err != nil {
 			return nil, err
 		}

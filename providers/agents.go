@@ -29,6 +29,7 @@ type AgentConfig struct {
 	MaxTokens        int
 	Temperature      float64
 	StructuredMethod string
+	ReasoningEffort  string
 	TimeoutS         float64
 	APIKey           string
 }
@@ -118,6 +119,7 @@ func (r *AgentRegistry) Get(op string) (*AgentConfig, error) {
 		MaxTokens:        getInt("max_tokens", r.cfg.LLMMaxTokens),
 		Temperature:      getFloat("temperature", r.cfg.LLMTemperature),
 		StructuredMethod: get("structured_method", r.cfg.LLMStructuredMethod),
+		ReasoningEffort:  get("reasoning_effort", r.cfg.LLMReasoningEffort),
 		TimeoutS:         getFloat("timeout_s", r.cfg.LLMTimeoutS),
 	}, nil
 }
@@ -163,5 +165,5 @@ func MakeAgent(cfg *config.Config, op string) (LLMProvider, error) {
 	if apiKey == "" {
 		return nil, &config.ConfigError{Msg: missingKeyMsg(ac.Provider, ac.APIKeyEnv)}
 	}
-	return MakeLLMProvider(ac.Provider, ac.BaseURL, ac.Model, apiKey, ac.StructuredMethod, ac.MaxTokens, ac.Temperature, ac.TimeoutS)
+	return MakeLLMProvider(ac.Provider, ac.BaseURL, ac.Model, apiKey, ac.StructuredMethod, ac.ReasoningEffort, ac.MaxTokens, ac.Temperature, ac.TimeoutS)
 }

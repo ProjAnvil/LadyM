@@ -140,7 +140,7 @@ func TestLangChainStructuredInvokeErrors(t *testing.T) {
 func TestMakePartnerChatModel(t *testing.T) {
 	t.Run("all partner kinds build", func(t *testing.T) {
 		for _, kind := range []string{"openai", "anthropic", "ollama"} {
-			cm, err := makePartnerChatModel(kind, "http://localhost:9999", "m", "k", 128, 0.5, 10)
+			cm, err := makePartnerChatModel(kind, "http://localhost:9999", "m", "k", 128, 0.5, 10, "")
 			if err != nil {
 				t.Fatalf("makePartnerChatModel(%q): %v", kind, err)
 			}
@@ -150,13 +150,13 @@ func TestMakePartnerChatModel(t *testing.T) {
 		}
 	})
 	t.Run("defaults without optional settings", func(t *testing.T) {
-		cm, err := makePartnerChatModel("openai", "", "m", "", 0, 0, 0)
+		cm, err := makePartnerChatModel("openai", "", "m", "", 0, 0, 0, "")
 		if err != nil || cm == nil {
 			t.Fatalf("makePartnerChatModel=(%v, %v)", cm, err)
 		}
 	})
 	t.Run("unknown kind errors", func(t *testing.T) {
-		_, err := makePartnerChatModel("bogus", "", "m", "", 0, 0, 0)
+		_, err := makePartnerChatModel("bogus", "", "m", "", 0, 0, 0, "")
 		if err == nil || !strings.Contains(err.Error(), "unknown llm provider") {
 			t.Fatalf("expected unknown-provider error, got %v", err)
 		}
