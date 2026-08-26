@@ -18,7 +18,7 @@ import (
 )
 
 // Version is the LadyM version.
-const Version = "0.5.0"
+const Version = "0.5.1"
 
 // Re-export the public types for a one-import SDK surface.
 type (

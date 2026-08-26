@@ -398,55 +398,94 @@ go vet ./...             # lint
 整套测试**无需网络、无需下载模型**即可运行——默认的 `HashingEmbedding` 是确定性、完全离线的，
 所以 CI 是密封的。
 
-### CJK 分词（中文 / 日文 / 韩文）
+## CJK 支持（中文 / 日文 / 韩文）
 
-CJK 文本开箱即用（逐字回退分词）。要获得词典级的词级分词（更好的召回质量），下载一个
-词典变体即可——在控制台 **Settings → Memory** 选择变体（`zh` 简体+繁体（默认）、
-`zh_s`、`zh_t`、`jp` 日文）后点「下载词典」，或：
+LadyM 对中日韩文本**开箱即用**：逐字切分 + 相邻二元组特征，完全离线、零配置——CJK 查询
+永不返回空集。词典级的**词级分词**（更好的召回质量）是可选能力，且 **LadyM 绝不主动下载
+任何东西**：所有下载都由用户在管理台或 admin API 触发。
 
-- **API**：`POST /api/cjk_dict/download`（管理员；body `{"dict": "zh"}`，可选
-  `"mirror_base"` 指向按 gse 仓库布局的内网镜像）；`GET /api/cjk_dict` 查询状态
-  与变体枚举；`DELETE /api/cjk_dict` 删除。
-- **微服务多机**：所有实例指向同一词典目录——常驻命令（`serve` / `worker` /
-  `ladymconsole`）的 `--dict-dir` flag、`LADYM_DICT_DIR` env 或 toml `dict_dir`
-  三选一（默认扫描本机 `~/.ladyM/dict`）。任一实例下载一次即全员生效（最迟约
-  30 秒自动加载，无需重启）。三种多机方案见 docs/deployment.md。
-- **离线构建**：`go build -tags fulldict` 将词典内嵌进二进制（约 +31MB），无需任何
-  下载即有词级分词；可与 `enterprise` 组合。
+### 启用词典
 
-文件落在 `~/.ladyM/dict`（sha256 校验固定为 gse v1.0.2 版本；镜像优先
-jsDelivr，回退 GitHub raw；`jp` 变体约 22.6MB 且仅 raw 可用）。
+四个可下载变体，全部 sha256 固定校验 gse v1.0.2（镜像顺序 jsDelivr → GitHub raw）：
 
-#### 下游消费与 release 资产
+| 变体 | 内容 | 下载量 |
+|---|---|---|
+| `zh`（默认） | 中文，简体+繁体 | 8.2 MB |
+| `zh_s` | 中文，仅简体 | 4.9 MB |
+| `zh_t` | 中文，仅繁体 | 3.4 MB |
+| `jp` | 日文，汉字+假名（假名也按词切分） | 22.6 MB |
 
-库消费者（go.mod）获得词典级中文分词有三条路，**模块版本永远不变**：
+- **管理台**（两个版本通用）：**Settings → Memory** 选变体 → 点「下载词典」。校验
+  下载、热加载——无需重启。
+- **API**（需管理员）：`POST /api/cjk_dict/download`，body `{"dict": "zh"}`；可选
+  `"mirror_base"` 指向气隙集群的内网镜像。`GET /api/cjk_dict` 查询状态与变体枚举；
+  `DELETE /api/cjk_dict` 删除词典。
+- **Docker**：词典镜像，见下。
 
-1. **运行时下载（构建完全不用变）**：由用户在管理台（Settings → Memory）或
-   `POST /api/cjk_dict/download` 主动触发——**LadyM 自身绝不主动下载任何东西**。
-   宿主应用若想启动即置备，也可显式调用 `storage.DownloadCJKDict()`。任何构建
-   都可用，且无需重新编译即可升级词典。
+词典目录默认 `~/.ladyM/dict`，三种等价配置方式（优先级从高到低）：常驻命令
+（`serve` / `worker` / `ladymconsole`）的 `--dict-dir` flag、`LADYM_DICT_DIR` env、
+`ladym.toml` 的 `dict_dir`。
+
+### 词典镜像（Docker 部署推荐）
+
+一条命令构建并运行，词典直接打进镜像——**无共享卷、无下载、运行时零联网**：
+
+```bash
+# 开发组（pg + api + worker）
+docker compose -f docker-compose.dev.yml -f docker-compose.dev.dict.yml up -d --build
+
+# 企业版三层拓扑（gateway + api×2 + console + worker + pg）
+docker compose -f docker-compose.enterprise.yml -f docker-compose.enterprise.dict.yml up -d --build
+```
+
+工作原理与可调项：
+
+- 主 `Dockerfile` 内置 `dict` target：在常规镜像上叠一层**数据层**（词典文件落在
+  `/opt/ladym/dict`，镜像内已设 `LADYM_DICT_DIR`）。普通 `docker build .` 仍是无词典
+  镜像——词典层只在按需构建时才工作。
+- 变体在 compose 覆盖文件的 `x-dict-build` 锚点处改（`DICT_VARIANT: zh | zh_s |
+  zh_t | jp`）。
+- **气隙构建**：把 pin 好的词典文件放进仓库 `dict/` 目录，构建全程零联网。
+- 已有发布镜像？不重编直接叠层：
+  `docker build -f Dockerfile.dict --build-arg BASE=ladym-enterprise:v0.5.0 -t ladym-enterprise:v0.5.0-dict .`
+- 词典升级 = 重建该层（基底层缓存命中，秒级）+ 重启；LadyM 版本升级不影响词典层。
+
+### 不用镜像的微服务多机
+
+所有实例的词典目录指向同一共享卷（`LADYM_DICT_DIR=/data/cjk-dict`，参考
+`docker-compose.enterprise.yml` 已内置此接线）。**任一实例下载一次即全员生效**：
+各实例持续探测共享 manifest，最迟约 30 秒跟进新词典或变体切换，无需重启。K8s 等价
+做法（PVC + env + volumeMount）与多机方案完整对比见
+[docs/deployment.md](docs/deployment.md)。
+
+### 行为保证
+
+- **绝不自动下载**——分词路径永不触网（有契约测试强制）。
+- **优雅降级**——无词典时 CJK 仍逐字切分，相似度与召回照常工作。
+- **完整性**——每个文件先 sha256 校验再落盘；失败或被篡改的下载不影响现有词典。
+- **离线二进制变体**——`go build -tags fulldict`（或下面的副作用导入）把 zh 词典
+  编进二进制（约 +31MB），适合非容器的离线分发。
+
+### 下游 Go 消费者与 release 资产
+
+库消费者（go.mod）获得词典级分词有三条路，**模块版本永远不变**：
+
+1. **运行时下载（构建完全不用变）**：如上经管理台 / admin API 触发；宿主应用也可
+   显式调用 `storage.DownloadCJKDict()`。
 2. **副作用导入（不改构建脚本）**：
    `import _ "github.com/ProjAnvil/LadyM/storage/fulldict"` 内嵌词典（约 +31MB）
-   ——import 边决定词典数据是否链入，不导入的下游体积不受影响。
-3. **构建 flag**：`-tags fulldict`——同样的内嵌词典，在构建命令里选择；
-   预编译的 `ladym-personal-fulldict-*` release 资产用的就是它。
+   ——import 边就是开关，不导入的下游体积不受影响。
+3. **构建 flag**：`-tags fulldict`——同样的内嵌词典，在构建命令里选择；预编译的
+   `ladym-personal-fulldict-*` release 资产用的就是它。
 
-**刻意不提供** `v0.5.0-fulldict` 之类的模块版本：semver 会把该后缀解析为
-v0.5.0 的*预发布版*，污染 `go get` 的版本解析。
+**刻意不提供** `v0.5.0-fulldict` 之类的模块版本：semver 会把该后缀解析为 v0.5.0 的
+*预发布版*，污染 `go get` 的版本解析。
 
 **二进制用户**：每个 `v*` GitHub release 自动附带各平台 tarball——
-`ladym-personal-…`（默认）、`ladym-personal-fulldict-…`（内嵌词典）、
-`ladym-enterprise-…`——由 `.github/workflows/release.yml` 在 tag 推送时构建，
-附 `SHA256SUMS`。本地等价命令：`make package-personal`、`make package-fulldict`、
-`make package-enterprise`；克隆仓库后 `LADYM_BUILD_TAGS=fulldict scripts/install.sh`
-可直接装变体。
-- **Docker**：词典镜像一条命令构建——`docker compose -f docker-compose.dev.yml
-  -f docker-compose.dev.dict.yml up -d --build`（dev）或企业版同名覆盖文件（主
-  `Dockerfile` 内置 `dict` target；普通 `docker build .` 仍是无词典镜像）。可选
-  变体、sha256 校验、气隙构建可把词典放进仓库 `dict/` 目录。给已发布镜像叠
-  词典层用 `Dockerfile.dict --build-arg BASE=<镜像>`；或用
-  `--build-arg BUILD_TAGS=enterprise,fulldict` 把词典**编进**二进制（每个
-  +31MB）。
+`ladym-personal-*`（默认）、`ladym-personal-fulldict-*`（内嵌词典）、
+`ladym-enterprise-*`——由 `.github/workflows/release.yml` 在 tag 推送时构建，附
+`SHA256SUMS`。本地等价命令：`make package-personal` / `package-fulldict` /
+`package-enterprise`，或克隆后 `LADYM_BUILD_TAGS=fulldict scripts/install.sh`。
 
 ## 文档
 
