@@ -90,6 +90,9 @@ func NewMux(eng *engine.Engine, cfg *config.Config) (mux *http.ServeMux, wrap fu
 	mux.HandleFunc("POST /api/users", h.handleCreateUser)
 	mux.HandleFunc("PUT /api/users/{username}", h.handleUpdateUser)
 	mux.HandleFunc("DELETE /api/users/{username}", h.handleDeleteUser)
+	mux.HandleFunc("GET /api/cjk_dict", h.handleCJKDictStatus)
+	mux.HandleFunc("POST /api/cjk_dict/download", h.handleCJKDictDownload)
+	mux.HandleFunc("DELETE /api/cjk_dict", h.handleCJKDictRemove)
 	// Observability wraps auth so rejected (401) /api/* requests are also
 	// logged and counted. /healthz is not under /api/ and stays exempt.
 	return mux, func(inner http.Handler) http.Handler {

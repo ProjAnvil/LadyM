@@ -81,12 +81,23 @@ func fatalOnError(err error) {
 }
 
 func loadConfig(db, workspace string) (*config.Config, error) {
+	return loadConfigExtra(db, workspace, "")
+}
+
+// loadConfigExtra is loadConfig plus a dict_dir override — the daemon
+// commands (serve / worker / ladymconsole) pass their --dict-dir flag
+// through here, keeping the documented priority: CLI flag → LADYM_* env →
+// toml → default (~/.ladyM/dict).
+func loadConfigExtra(db, workspace, dictDir string) (*config.Config, error) {
 	overrides := map[string]any{}
 	if db != "" {
 		overrides["db_path"] = db
 	}
 	if workspace != "" {
 		overrides["workspace"] = workspace
+	}
+	if dictDir != "" {
+		overrides["dict_dir"] = dictDir
 	}
 	return config.Load(globalConfigPath, overrides)
 }
@@ -102,6 +113,13 @@ func newEngine(db, workspace string) (*engine.Engine, error) {
 func addDBWS(cmd *cobra.Command, db, workspace *string) {
 	cmd.Flags().StringVar(db, "db", "", "Path to ladym.db")
 	cmd.Flags().StringVarP(workspace, "workspace", "w", "", "Workspace name")
+}
+
+// addDictDirFlag registers the CJK dictionary-directory flag on the
+// long-running commands.
+func addDictDirFlag(cmd *cobra.Command, dir *string) {
+	cmd.Flags().StringVar(dir, "dict-dir", "",
+		"Directory for the CJK segmentation dictionary (default ~/.ladyM/dict; env LADYM_DICT_DIR / toml dict_dir are equivalent)")
 }
 
 func rememberCmd() *cobra.Command {
@@ -425,12 +443,12 @@ func linkCmd() *cobra.Command {
 }
 
 func serveCmd() *cobra.Command {
-	var db, workspace, httpAddr string
+	var db, workspace, httpAddr, dictDir string
 	cmd := &cobra.Command{
 		Use:   "serve",
 		Short: "Run the LadyM MCP server over stdio (HTTP data-plane with --http).",
 		RunE: func(c *cobra.Command, args []string) error {
-			cfg, err := loadConfig(db, workspace)
+			cfg, err := loadConfigExtra(db, workspace, dictDir)
 			if err != nil {
 				return err
 			}
@@ -444,6 +462,7 @@ func serveCmd() *cobra.Command {
 		},
 	}
 	addDBWS(cmd, &db, &workspace)
+	addDictDirFlag(cmd, &dictDir)
 	cmd.Flags().StringVar(&httpAddr, "http", "", "Listen address for the HTTP data-plane API (e.g. :8080 or 8080) instead of MCP stdio")
 	return cmd
 }
@@ -488,14 +507,14 @@ func serveHTTP(cfg *config.Config, addr string) error {
 }
 
 func workerCmd() *cobra.Command {
-	var db, workspace string
+	var db, workspace, dictDir string
 	var once bool
 	var interval int
 	cmd := &cobra.Command{
 		Use:   "worker",
 		Short: "Run System2 consolidation cycles in the background.",
 		RunE: func(c *cobra.Command, args []string) error {
-			cfg, err := loadConfig(db, workspace)
+			cfg, err := loadConfigExtra(db, workspace, dictDir)
 			if err != nil {
 				return err
 			}
@@ -509,6 +528,7 @@ func workerCmd() *cobra.Command {
 		},
 	}
 	addDBWS(cmd, &db, &workspace)
+	addDictDirFlag(cmd, &dictDir)
 	cmd.Flags().BoolVar(&once, "once", false, "Run one cycle and exit.")
 	cmd.Flags().IntVar(&interval, "interval", 300, "Seconds between cycles.")
 	return cmd

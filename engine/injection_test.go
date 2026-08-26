@@ -55,3 +55,24 @@ func TestRememberProceduralSnippet(t *testing.T) {
 		t.Errorf("got layer=%s type=%s, want procedural/snippet", m.Layer, m.Type)
 	}
 }
+
+// TestNewWiresCJKDictDir locks the microservice contract: a configured
+// dict_dir (LADYM_DICT_DIR / toml dict_dir) routes storage's dictionary to
+// that directory — the shared-volume deployment story.
+func TestNewWiresCJKDictDir(t *testing.T) {
+	prevDir := storage.CJKDictStatusNow().Dir
+	defer storage.SetCJKDictDir(prevDir) // restore for other tests in this process
+
+	dir := t.TempDir()
+	cfg := config.ForTesting(t.TempDir())
+	cfg.CJKDictDir = dir
+	eng, err := New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer eng.Close()
+
+	if st := storage.CJKDictStatusNow(); st.Dir != dir {
+		t.Errorf("dict dir after engine.New = %q, want %q", st.Dir, dir)
+	}
+}

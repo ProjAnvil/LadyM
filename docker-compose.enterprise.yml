@@ -19,10 +19,17 @@
 name: ladym-ent
 
 # Shared environment for every ladym role (api-1 / api-2 / worker / console):
-# same Postgres backend + DSN. Anchored once, referenced with *ladym-env.
+# same Postgres backend + DSN, and the CJK dictionary directory pointed at a
+# shared volume (/data/cjk-dict, mounted on every role). One download —
+# console checkbox or POST /api/cjk_dict/download on ANY instance —
+# provisions the dictionary for every role; instances without it degrade to
+# per-character CJK tokenization until then. Air-gapped clusters that cannot
+# reach the mirrors at all should build the image with the dictionary
+# embedded instead: --build-arg BUILD_TAGS=enterprise,fulldict.
 x-ladym-env: &ladym-env
   LADYM_STORE_BACKEND: postgres
   LADYM_STORE_DSN: "postgres://postgres:ladym@pg:5432/ladym?sslmode=disable"
+  LADYM_DICT_DIR: /data/cjk-dict
 
 services:
   pg:
@@ -51,6 +58,8 @@ services:
         condition: service_healthy
     environment: *ladym-env
     command: ["serve", "--http", ":8080"]
+    volumes:
+      - cjk-dict:/data/cjk-dict
     # No host port / container healthcheck: the distroless runtime has no
     # shell/curl/wget and ladym has no health subcommand. The gateway (and any
     # external LB) probes /healthz over HTTP instead, see docs/deployment.md.
@@ -65,6 +74,8 @@ services:
         condition: service_healthy
     environment: *ladym-env
     command: ["serve", "--http", ":8080"]
+    volumes:
+      - cjk-dict:/data/cjk-dict
     networks:
       - internal
 
@@ -79,6 +90,8 @@ services:
     # LADYM_SYSTEM2_ENABLED env in config applyEnv — cycle knobs
     # (interval etc.) are the command's flags / ladym.toml [system2].
     command: ["worker"]
+    volumes:
+      - cjk-dict:/data/cjk-dict
     networks:
       - internal
 
@@ -95,6 +108,8 @@ services:
     # matches the nginx `location /` upstream (console:8080).
     entrypoint: ["/ladymconsole"]
     command: ["--http", ":8080"]
+    volumes:
+      - cjk-dict:/data/cjk-dict
     networks:
       - internal
 
@@ -118,3 +133,4 @@ networks:
 
 volumes:
   ent-pgdata:
+  cjk-dict:

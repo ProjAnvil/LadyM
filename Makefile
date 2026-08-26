@@ -13,13 +13,19 @@
 
 LADYM_TEST_PG_DSN ?= postgres://postgres:ladym@127.0.0.1:55432/ladym?sslmode=disable
 
-.PHONY: build-personal build-enterprise verify-enterprise test test-pg test-enterprise test-all console-build lint-comments
+.PHONY: build-personal build-fulldict build-enterprise verify-enterprise test test-pg test-enterprise test-all console-build lint-comments package-personal package-fulldict package-enterprise
 
 lint-comments:
 	./scripts/check-comments.sh
 
 build-personal:
 	go build -o bin/ladym ./cmd/ladym
+
+# fulldict: same personal edition with the CJK dictionary embedded
+# (~+31MB binary) — zero-download Chinese word segmentation. The release
+# workflow ships this variant as ladym-personal-fulldict-*.tar.gz.
+build-fulldict:
+	go build -tags fulldict -o bin/ladym-fulldict ./cmd/ladym
 
 build-enterprise:
 	go build -tags enterprise -o bin/ladym-enterprise ./cmd/ladym
@@ -67,6 +73,12 @@ package-personal: build-personal
 	tar -czf dist/ladym-personal-$(VERSION)-$(GOOS)-$(GOARCH).tar.gz \
 		-C bin ladym -C .. README.md docs/deployment.md
 	@echo "dist/ladym-personal-$(VERSION)-$(GOOS)-$(GOARCH).tar.gz"
+
+package-fulldict: build-fulldict
+	mkdir -p dist
+	tar -czf dist/ladym-personal-fulldict-$(VERSION)-$(GOOS)-$(GOARCH).tar.gz \
+		-C bin ladym-fulldict -C .. README.md docs/deployment.md
+	@echo "dist/ladym-personal-fulldict-$(VERSION)-$(GOOS)-$(GOARCH).tar.gz"
 
 package-enterprise: verify-enterprise
 	mkdir -p dist

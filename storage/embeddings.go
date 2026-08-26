@@ -15,9 +15,35 @@ import (
 	"golang.org/x/crypto/blake2b"
 )
 
-// tokenRe splits text into word runs or single punctuation chars, matching
-// Python's _TOKEN_RE.
-var tokenRe = regexp.MustCompile(`[A-Za-z0-9_]+|[.,;:()\[\]{}]`)
+// tokenRe splits text into word runs, single punctuation chars (matching
+// Python's _TOKEN_RE), or CJK script runs that segmentCJK breaks into words.
+// Without the CJK alternatives, Chinese/Japanese/Korean text would tokenize
+// to an empty set and every CJK query would score similarity 0.
+var tokenRe = regexp.MustCompile(
+	`[A-Za-z0-9_]+|[.,;:()\[\]{}]|[\p{Han}]+|[\p{Hiragana}\p{Katakana}]+|[\p{Hangul}]+`)
+
+// cjkRunRe matches the CJK alternatives of tokenRe (everything after the
+// ASCII word and punctuation branches).
+var cjkRunRe = regexp.MustCompile(`[\p{Han}]+|[\p{Hiragana}\p{Katakana}]+|[\p{Hangul}]+`)
+
+// segmentCJK splits a CJK script run into word tokens. Runs whose script
+// the active dictionary variant covers (Han for zh variants; Han + Kana
+// for jp) are segmented by gse; everything else — Hangul always, kana under
+// zh dictionaries, and any script without a dictionary — falls back to
+// per-character tokens. features() adds adjacent-pair bigrams on top, so
+// the fallback still yields non-empty token sets and working similarity.
+func segmentCJK(run string) []string {
+	if seg := cjkSegmenterFor(runScript(run)); seg != nil {
+		if words := seg.Cut(run, true); len(words) > 0 {
+			return words
+		}
+	}
+	var out []string
+	for _, r := range run {
+		out = append(out, string(r))
+	}
+	return out
+}
 
 func isUpper(c byte) bool { return c >= 'A' && c <= 'Z' }
 func isLower(c byte) bool { return c >= 'a' && c <= 'z' }
@@ -89,10 +115,17 @@ func splitCamel(raw string) []string {
 
 // Tokenize is the lightweight tokenizer: words + punctuation as separate
 // tokens, with camelCase and snake_case splitting so getUserName and
-// get_user_name tokenize similarly.
+// get_user_name tokenize similarly. CJK script runs are segmented into words
+// by gse (jieba dictionary) for Chinese and per character for kana/hangul.
 func Tokenize(text string) []string {
 	var out []string
 	for _, raw := range tokenRe.FindAllString(text, -1) {
+		if cjkRunRe.MatchString(raw) {
+			for _, p := range segmentCJK(raw) {
+				out = append(out, strings.ToLower(p))
+			}
+			continue
+		}
 		parts := splitCamel(raw)
 		if len(parts) > 0 {
 			for _, p := range parts {
@@ -139,8 +172,11 @@ func healthCheckDefault(p EmbeddingProvider) (bool, string) {
 	return true, fmt.Sprintf("ok dim=%d", len(v))
 }
 
-// HashingEmbedding is the deterministic, offline, dependency-free embedding via
-// feature hashing (unigram + bigram features, L2-normalised).
+// HashingEmbedding is the deterministic, offline embedding via feature
+// hashing (unigram + bigram features, L2-normalised). Tokenization covers
+// ASCII plus CJK scripts (dictionary-backed word segmentation for Chinese;
+// per-character for kana/hangul), so Chinese, Japanese, and Korean text
+// embed without any network or model download.
 type HashingEmbedding struct {
 	dim int
 }

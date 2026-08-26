@@ -1,0 +1,3 @@
+# Place pinned dictionary files here (s_1.txt / t_1.txt / jp.txt) to build
+# the dict image fully offline — see Dockerfile.dict. The sha256 pins in
+# Dockerfile.dict still apply; wrong files fail the build.

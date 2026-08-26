@@ -774,3 +774,23 @@ func TestFromFileDeprecatedAndSecrets(t *testing.T) {
 		t.Errorf("secret should have been stripped; EmbeddingAPIKeyEnv = %q", cfg.EmbeddingAPIKeyEnv)
 	}
 }
+
+func TestApplyDictDir(t *testing.T) {
+	applyTomlCfg := Default()
+	applyToml(applyTomlCfg, map[string]any{"dict_dir": "/data/cjk-dict"})
+	if applyTomlCfg.CJKDictDir != "/data/cjk-dict" {
+		t.Errorf("toml dict_dir = %q", applyTomlCfg.CJKDictDir)
+	}
+
+	t.Setenv("LADYM_DICT_DIR", "/vol/dict")
+	envCfg := Default()
+	if envCfg.CJKDictDir != "/vol/dict" {
+		t.Errorf("LADYM_DICT_DIR default = %q", envCfg.CJKDictDir)
+	}
+	overlaid := Default()
+	overlaid.CJKDictDir = "/from-toml"
+	applyEnv(overlaid)
+	if overlaid.CJKDictDir != "/vol/dict" {
+		t.Errorf("LADYM_DICT_DIR overlay = %q, want env to win", overlaid.CJKDictDir)
+	}
+}

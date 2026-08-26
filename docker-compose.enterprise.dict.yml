@@ -1,0 +1,47 @@
+# LadyM ENTERPRISE — dict-baked image override (BUILDS the dict image).
+#
+# One command, no manual pre-build: compose builds the enterprise image with
+# the `dict` target (dictionary data baked at /opt/ladym/dict, LADYM_DICT_DIR
+# set in the image) and runs every role on it — no shared volume, no
+# downloads, no internet at runtime.
+#
+#   docker compose -f docker-compose.enterprise.yml \
+#     -f docker-compose.enterprise.dict.yml -p ladym-ent up -d --build
+#
+# DICT_VARIANT picks the dictionary (zh default | zh_s | zh_t | jp); fully
+# offline builds: place the pinned files under ./dict/ in the repo first.
+# To refresh the dictionary: rebuild (cached base, seconds) + restart.
+name: ladym-ent
+
+x-dict-build: &dict-build
+  context: .
+  dockerfile: Dockerfile
+  target: dict
+  args:
+    DICT_VARIANT: zh
+
+services:
+  api-1:
+    build: *dict-build
+    image: ladym-enterprise:dict
+    environment:
+      LADYM_DICT_DIR: /opt/ladym/dict
+    volumes: !override []
+  api-2:
+    build: *dict-build
+    image: ladym-enterprise:dict
+    environment:
+      LADYM_DICT_DIR: /opt/ladym/dict
+    volumes: !override []
+  worker:
+    build: *dict-build
+    image: ladym-enterprise:dict
+    environment:
+      LADYM_DICT_DIR: /opt/ladym/dict
+    volumes: !override []
+  console:
+    build: *dict-build
+    image: ladym-enterprise:dict
+    environment:
+      LADYM_DICT_DIR: /opt/ladym/dict
+    volumes: !override []

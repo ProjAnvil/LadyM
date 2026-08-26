@@ -1,0 +1,113 @@
+# Release automation: on every v* tag push, run the test gates, build the
+# per-platform tarballs (personal / personal-fulldict / enterprise), and
+# attach them — plus SHA256SUMS — to the GitHub release for that tag.
+#
+# Asset naming (VERSION-OS-ARCH suffix, matching the Makefile package-*
+# targets):
+#   ladym-personal-VERSION-OS-ARCH.tar.gz           default (dict downloadable)
+#   ladym-personal-fulldict-VERSION-OS-ARCH.tar.gz  -tags fulldict (embedded CJK dict)
+#   ladym-enterprise-VERSION-OS-ARCH.tar.gz         -tags enterprise (+ ladymconsole)
+#
+# Library consumers never need a variant: their go.mod stays on the same
+# module version and `-tags fulldict` on their own build pulls the embedded
+# dictionary in. Never create v*.*.*-fulldict git/module tags — semver reads
+# that suffix as a pre-release of the plain version and it would pollute
+# `go get` resolution.
+
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: go vet ./...
+      - run: go test ./... # PG-gated cases skip without LADYM_TEST_PG_DSN
+      - run: go test -tags fulldict ./storage/ ./api/ ./operations/
+      - run: go build -tags enterprise ./...
+      - run: go build -tags "enterprise,fulldict" ./...
+      - run: ./scripts/check-comments.sh
+
+  package:
+    needs: test
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { goos: linux, goarch: amd64 }
+          - { goos: linux, goarch: arm64 }
+          - { goos: darwin, goarch: amd64 }
+          - { goos: darwin, goarch: arm64 }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Build and package
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          VERSION: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist bin
+
+          build_ladym() { # build_ladym <tags> <output-name>; empty tags = default build
+            # Tags are comma-separated build tags, never contain spaces, so
+            # the unquoted ${flag:+$flag} word-splits into "-tags" "<tags>"
+            # (and to nothing when flag is empty) — portable under set -u,
+            # including bash 3.2's stricter empty-array handling.
+            local tags="${1:-}" out="$2" flag=""
+            if [ -n "$tags" ]; then flag="-tags $tags"; fi
+            CGO_ENABLED=0 go build ${flag:+$flag} -trimpath -ldflags "-s -w" \
+              -o "bin/$out" ./cmd/ladym
+          }
+          build_ladym "" ladym
+          build_ladym fulldict ladym-fulldict
+          build_ladym enterprise ladym-enterprise
+          CGO_ENABLED=0 go build -tags enterprise -trimpath -ldflags "-s -w" \
+            -o bin/ladymconsole-enterprise ./cmd/ladymconsole
+
+          tar -czf "dist/ladym-personal-$VERSION-$GOOS-$GOARCH.tar.gz" \
+            -C bin ladym -C .. README.md docs/deployment.md
+          tar -czf "dist/ladym-personal-fulldict-$VERSION-$GOOS-$GOARCH.tar.gz" \
+            -C bin ladym-fulldict -C .. README.md docs/deployment.md
+          tar -czf "dist/ladym-enterprise-$VERSION-$GOOS-$GOARCH.tar.gz" \
+            -C bin ladym-enterprise ladymconsole-enterprise -C .. \
+            README.md docs/deployment.md docker-compose.enterprise.yml deploy/nginx.conf
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/
+
+  publish:
+    needs: package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Checksums
+        run: cd dist && sha256sum *.tar.gz > SHA256SUMS
+      - name: Attach to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          # If the maintainer already created the release (hand-written notes),
+          # only upload assets; otherwise create it with generated notes.
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" \
+            || gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --generate-notes
+          gh release upload "$TAG" dist/* --clobber

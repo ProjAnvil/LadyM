@@ -28,13 +28,13 @@ import (
 // (identical config: store.backend/dsn, auth.enabled, ...). mount registers
 // the SPA on the mux (cmd/ladymconsole passes console.Mount).
 func NewConsoleCmd(mount func(*http.ServeMux)) *cobra.Command {
-	var db, workspace, httpAddr string
+	var db, workspace, httpAddr, dictDir string
 	cmd := &cobra.Command{
 		Use:   "ladymconsole",
 		Short: "Serve the LadyM management console (full /api data-plane + SPA) over HTTP.",
 		Args:  cobra.NoArgs,
 		RunE: func(c *cobra.Command, args []string) error {
-			cfg, err := loadConfig(db, workspace)
+			cfg, err := loadConfigExtra(db, workspace, dictDir)
 			if err != nil {
 				return err
 			}
@@ -42,6 +42,7 @@ func NewConsoleCmd(mount func(*http.ServeMux)) *cobra.Command {
 		},
 	}
 	addDBWS(cmd, &db, &workspace)
+	addDictDirFlag(cmd, &dictDir)
 	cmd.Flags().StringVar(&httpAddr, "http", ":8080", "Listen address (e.g. :8080 or 8080)")
 	cmd.PersistentFlags().StringVar(&globalConfigPath, "config", "", "Path to a ladym.toml to load on top of defaults/env.")
 	cmd.PersistentFlags().BoolVar(&globalDebug, "debug", false, "Show full error details on error.")

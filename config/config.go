@@ -175,6 +175,12 @@ type Config struct {
 	EmbeddingHTTPResponsePath string
 	Embedding                 EmbeddingConfig
 
+	// CJK tokenizer dictionary (flat — source of truth for storage's dict
+	// directory). "" = default ~/.ladyM/dict. Set to a shared volume mount
+	// (LADYM_DICT_DIR / dict_dir) in microservice deployments so every
+	// instance reads the dictionary one download provisioned.
+	CJKDictDir string
+
 	// llm (flat — source of truth for make_agent)
 	LLMProvider           string // "none" = heuristic / offline mode
 	LLMBaseURL            string
@@ -234,6 +240,7 @@ func Default() *Config {
 		StoreDSNEnv:  "",
 
 		EmbeddingProvider:         envOr("LADYM_EMBEDDING", "hashing"),
+		CJKDictDir:                envOr("LADYM_DICT_DIR", ""),
 		EmbeddingModel:            envOr("LADYM_EMBEDDING_MODEL", ""),
 		EmbeddingDim:              256,
 		EmbeddingBaseURL:          "",
@@ -722,6 +729,8 @@ func applyFlat(cfg *Config, key string, v any) {
 		cfg.StoreDSNEnv = asString(v)
 	case "auth_enabled":
 		cfg.AuthEnabled = asBool(v)
+	case "dict_dir":
+		cfg.CJKDictDir = asString(v)
 	case "embedding_provider":
 		cfg.EmbeddingProvider = asString(v)
 	case "embedding_model":
@@ -837,6 +846,9 @@ func applyEnv(cfg *Config) {
 	}
 	if v := os.Getenv("LADYM_EMBEDDING_API_KEY_ENV"); v != "" {
 		cfg.EmbeddingAPIKeyEnv = v
+	}
+	if v := os.Getenv("LADYM_DICT_DIR"); v != "" {
+		cfg.CJKDictDir = v
 	}
 	if v := os.Getenv("LADYM_EMBEDDING_TIMEOUT_S"); v != "" {
 		cfg.EmbeddingTimeoutS = asFloat(v)

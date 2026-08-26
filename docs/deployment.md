@@ -75,6 +75,7 @@ docker-compose 拓扑、配置参考与运维基线。个人版 / 企业版的�
 | `store.backend` | `LADYM_STORE_BACKEND` | 企业版只能 `postgres`(sqlite 已编译期剔除) |
 | `store.dsn` | `LADYM_STORE_DSN` | PG DSN,如 `postgres://postgres:ladym@pg:5432/ladym?sslmode=disable`;也可用 `store.dsn_env` 间接指向另一个 env |
 | `auth.enabled` | `LADYM_AUTH_ENABLED` | HTTP 数据面的 Basic 认证总开关(默认 `false` = 全放行,个人模式) |
+| `dict_dir` | `LADYM_DICT_DIR` | CJK 分词词典目录(默认 `~/.ladyM/dict`;微服务部署指向共享卷,见下文) |
 | `embedding.provider` | `LADYM_EMBEDDING` | 默认 `hashing`(离线可用);`http`/`openai`/`ollama` 可外置 |
 | `llm.provider` | `LADYM_LLM_PROVIDER` | 默认 `none`(离线);配置后 worker 才执行 L5/L6 |
 
@@ -225,7 +226,100 @@ docker compose -f docker-compose.dev.yml -p ladym-dev down -v
 - **启动 banner**(stderr):监听地址、db、workspace、鉴权模式(`auth=off/on`;
   `auth=on` 且 users 表为空时带 WARNING,提示 `ladym user add`)。
 
+### 中文/CJK 分词词典
+
+默认构建**不内嵌**分词词典(省 ~31MB 二进制):中文/日文/韩文开箱即用逐字回退
+分词,词级分词需要词典,三种来源按优先级:
+
+1. **文件词典**(最高):管理台 **Settings → Memory** 选择变体后点「下载词典」,
+   或管理员调 `POST /api/cjk_dict/download`(body `{"dict": "zh"}`,可选
+   `{"mirror_base": "https://内网镜像/"}`)。可下载变体(`GET /api/cjk_dict`
+   返回 `variants` 枚举):
+
+   | 变体 | 内容 | 下载量 | 说明 |
+   |---|---|---|---|
+   | `zh`(默认) | 简体+繁体 | 8.2MB | 覆盖汉字 |
+   | `zh_s` | 仅简体 | 4.9MB | 覆盖汉字 |
+   | `zh_t` | 仅繁体 | 3.4MB | 覆盖汉字 |
+   | `jp` | 日文(汉字+假名) | 22.6MB | 假名也走词级分词;jsDelivr 拒绝 >20MB 文件,自动回退 GitHub raw |
+
+   所有文件 sha256 固定校验 gse v1.0.2,下载后分段器热加载、变体切换自动清理
+   旧文件,无需重启。目录可用 `dict_dir` / `LADYM_DICT_DIR` 配置(默认
+   `~/.ladyM/dict`)。
+2. **内嵌词典**:`go build -tags fulldict`(或下游 `import _
+   ".../storage/fulldict"`)自带 zh 词典,适合无法出网的环境(可与 `enterprise`
+   组合:`-tags enterprise,fulldict`)。
+3. **无词典**:汉字/假名/谚文逐字切分 + 相邻二元组特征,检索仍然可用,只是无
+   词级语义。
+
+相关端点(下载/删除需管理员):`GET /api/cjk_dict`(状态+变体枚举)、
+`POST /api/cjk_dict/download`、`DELETE /api/cjk_dict`(删除并回退)。
+
+### 微服务部署:每台机器都有词典
+
+多实例(api×N / worker / console)下保证词典一致的三种方案,按运维偏好选一:
+
+**方案 A — 共享卷(参考 compose 已内置)**:所有角色设 `LADYM_DICT_DIR` 指向同
+一个挂载卷(`docker-compose.enterprise.yml` 里 `cjk-dict` 卷挂到
+`/data/cjk-dict`)。在**任一**实例上下载一次(console 勾选或对网关调
+`POST /api/cjk_dict/download`),全部实例共享;每个实例最迟约 30 秒(分词时的
+目录探测)自动加载新词典或跟随变体切换,无需重启,词典升级也不用重新部署。
+K8s 用 PVC + `env: LADYM_DICT_DIR` + 同一 volumeMount 即等价(NFS/ReadWriteMany,
+或每节点一份的 hostPath 由 DaemonSet 预置)。
+
+指定词典目录的三种等价方式(优先级从高到低,`serve` / `worker` /
+`ladymconsole` 三个常驻命令均支持;不指定时默认扫描本机 `~/.ladyM/dict`):
+
+```bash
+ladym serve --http :8080 --dict-dir /data/cjk-dict   # CLI flag(最高)
+LADYM_DICT_DIR=/data/cjk-dict ladym serve --http :8080  # env
+# ladym.toml: dict_dir = "/data/cjk-dict"             # toml
+```
+
+**方案 B — 词典镜像(推荐的无共享卷形态)**:主 `Dockerfile` 内置 `dict`
+target(BuildKit 按需构建词典数据层;普通 `docker build .` 默认仍是无词典镜像,
+不触网)。dev / enterprise 两组 compose 各配一个 dict 覆盖文件,一条命令构建并
+运行:
+
+```bash
+# 企业版(三层拓扑全员词典镜像)
+docker compose -f docker-compose.enterprise.yml \
+  -f docker-compose.enterprise.dict.yml -p ladym-ent up -d --build
+
+# 开发组(api + worker 词典镜像)
+docker compose -f docker-compose.dev.yml \
+  -f docker-compose.dev.dict.yml -p ladym-dev up -d --build
+```
+
+词典落在镜像 `/opt/ladym/dict`(镜像内置 `LADYM_DICT_DIR`),所有角色零下载、
+零共享卷、零运行时联网。特点:词典与二进制版本解耦(升级 LadyM 重建,基底层
+缓存命中,词典层秒级);数据层与 CPU 架构无关;`DICT_VARIANT=zh|zh_s|zh_t|jp`
+在覆盖文件的 `x-dict-build` 锚点处改;气隙构建把 pin 好的词典文件放进仓库
+`dict/` 目录即可(构建时优先 COPY,不走网络)。
+
+给**已发布的** LadyM 镜像叠词典层(不重编):`Dockerfile.dict` 薄层方案
+`docker build -f Dockerfile.dict --build-arg BASE=ladym-enterprise:v0.5.1
+-t ladym-enterprise:v0.5.1-dict .`。
+
+**变体 B' — fulldict 编译标签**: `--build-arg BUILD_TAGS=enterprise,fulldict`
+把词典**编进**二进制(每个二进制 +31MB)。单二进制自包含、适合非容器的离线
+分发;容器场景方案 B 更省(8.2MB 数据 vs 两个二进制各 +31MB)。
+
+**方案 C — init 容器/入口脚本下载**:每个 Pod 启动时从**内网镜像源**下载(K8s
+initContainer + emptyDir,或 entrypoint 包一层),配合
+`POST /api/cjk_dict/download` 的 `mirror_base` 指向内部 mirror(按
+`<base>/<rel_path>` 布局,如 `<base>/data/dict/zh/s_1.txt`)。适合有镜像源管理
+规范、但不想改构建流水线的团队。
+
+不推荐对每个实例逐一调下载 API(方案 C 之外):实例间会存在词典缺失窗口,且
+滚动扩容的新实例仍需再下载。
+
 ## 5. 镜像说明
+
+镜像构建支持 `BUILD_TAGS` 参数(默认 `enterprise`,行为不变):需要内嵌中文分词
+词典的气隙环境用
+`docker build --build-arg BUILD_TAGS=enterprise,fulldict -t ladym-enterprise:full .`
+(二进制约 +31MB,无需任何下载即有词级中文分词)。
 
 `Dockerfile` 三阶段:`node:24-alpine` 先在镜像内重建管理台(`cd console && npm ci &&
 npm run build`,比随仓的 console/dist 更可复现);随后 `golang:1.26` 以 `CGO_ENABLED=0

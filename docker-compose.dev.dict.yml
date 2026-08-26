@@ -1,0 +1,30 @@
+# LadyM DEV — dict-baked image override (BUILDS the dict image).
+#
+# Same one-command experience as the dev group, with the dictionary baked
+# into the image (no download, no shared volume):
+#
+#   docker compose -f docker-compose.dev.yml \
+#     -f docker-compose.dev.dict.yml -p ladym-dev up -d --build
+#
+# DICT_VARIANT picks the dictionary (zh default | zh_s | zh_t | jp); fully
+# offline builds: place the pinned files under ./dict/ in the repo first.
+name: ladym-dev
+
+x-dict-build: &dict-build
+  context: .
+  dockerfile: Dockerfile
+  target: dict
+  args:
+    DICT_VARIANT: zh
+
+services:
+  api:
+    build: *dict-build
+    image: ladym-enterprise:dict
+    environment:
+      LADYM_DICT_DIR: /opt/ladym/dict
+  worker:
+    build: *dict-build
+    image: ladym-enterprise:dict
+    environment:
+      LADYM_DICT_DIR: /opt/ladym/dict

@@ -56,6 +56,11 @@ func NewWithModels(cfg *config.Config, models *adapter.ModelRouting) (*Engine, e
 	if cfg == nil {
 		cfg = config.Default()
 	}
+	// Route the CJK dictionary to a configured directory (shared volume in
+	// microservice deployments) before any tokenization can run.
+	if cfg.CJKDictDir != "" {
+		storage.SetCJKDictDir(cfg.CJKDictDir)
+	}
 	e := &Engine{Config: cfg, routing: models, agents: map[string]providers.LLMProvider{}}
 
 	var provider storage.EmbeddingProvider

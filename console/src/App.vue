@@ -26,6 +26,7 @@ function logout() {
         <router-link to="/" :class="{ active: route.name === 'memories' }">Memories</router-link>
         <router-link v-if="auth.admin" to="/users" :class="{ active: route.name === 'users' }">Users</router-link>
         <router-link to="/stats" :class="{ active: route.name === 'stats' }">Stats</router-link>
+        <router-link v-if="auth.admin" to="/settings" :class="{ active: route.name === 'settings' }">Settings</router-link>
       </nav>
       <div class="who">
         <template v-if="auth.noauth">auth disabled</template>

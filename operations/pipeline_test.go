@@ -499,6 +499,23 @@ func TestRecallStopwordQueryIsSufficient(t *testing.T) {
 	}
 }
 
+func TestRecallChineseQueryFindsChineseMemory(t *testing.T) {
+	store, emb := newParityStore(t)
+	cfg := config.ForTesting(t.TempDir())
+	putParityMem(t, store, emb, schema.LayerSemantic, schema.TypeFact,
+		"用户登录失败，原因是密码过期", nil)
+	resp, err := Recall(store, emb, "用户登录失败", cfg, "test", 5, nil, nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.Results) == 0 {
+		t.Fatalf("Chinese query returned no results: %+v", resp)
+	}
+	if !resp.ReflectedSufficient {
+		t.Errorf("reflection not sufficient for covered Chinese query: %+v", resp)
+	}
+}
+
 func TestRecallLayerAndTypeFilters(t *testing.T) {
 	store, emb := newParityStore(t)
 	cfg := config.ForTesting(t.TempDir())

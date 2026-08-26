@@ -356,6 +356,7 @@ loads an extra TOML file on top.
 | `LADYM_DB` | `./ladym.db` | SQLite path (one DB per project by default) |
 | `LADYM_WORKSPACE` | `default` | Multi-workspace isolation in a shared DB |
 | `LADYM_EMBEDDING` | `hashing` | `hashing` / `openai` / `ollama` / `http` |
+| `LADYM_DICT_DIR` | `~/.ladyM/dict` | CJK dictionary dir; point at a shared volume in microservice deployments |
 | `LADYM_EMBEDDING_MODEL` | (provider default) | Model name for a hosted embedding provider |
 | `LADYM_EMBEDDING_BASE_URL` | (provider default) | Override embedding API base URL (OpenAI/Ollama-compatible) |
 | `LADYM_EMBEDDING_API_KEY_ENV` | (none) | Name of the env var holding the embedding API key |
@@ -418,7 +419,63 @@ go vet ./...             # lint
 ```
 
 The whole suite runs **without network and without model downloads** — the default
-`HashingEmbedding` is deterministic and dependency-free, so CI is hermetic.
+`HashingEmbedding` is deterministic and fully offline, so CI is hermetic.
+
+### CJK tokenization (Chinese / Japanese / Korean)
+
+CJK text tokenizes out of the box via per-character fallback. For dictionary-based
+word segmentation (better recall quality), download a dictionary variant — pick one
+in the console's **Settings → Memory** tab (`zh` simplified+traditional (default),
+`zh_s`, `zh_t`, or `jp` Japanese), or:
+
+- **API**: `POST /api/cjk_dict/download` with `{"dict": "zh"}` (admin; optional
+  `"mirror_base"` for air-gapped mirrors serving the gse repo layout), `GET
+  /api/cjk_dict` for status + the variant enumeration, `DELETE /api/cjk_dict` to remove.
+- **Microservices**: point every instance at a shared dictionary directory — via the
+  `--dict-dir` flag on `serve` / `worker` / `ladymconsole`, `LADYM_DICT_DIR`, or toml
+  `dict_dir` (default scans `~/.ladyM/dict`). One download provisions all instances
+  (picked up within ~30s, no restarts). See docs/deployment.md for the three
+  multi-machine patterns.
+- **Offline builds**: `go build -tags fulldict` embeds the dictionary (~+31MB binary)
+  so CJK word segmentation works with zero downloads. Composable with `enterprise`.
+
+Files land in `~/.ladyM/dict` (~8.7MB, sha256-verified against the pinned gse v1.0.2
+release; jsDelivr first, GitHub raw as fallback).
+
+#### Downstream consumers & release assets
+
+Library consumers (go.mod) pick one of three ways to get dictionary-backed Chinese
+tokenization — the module version never changes:
+
+1. **Runtime download (nothing to build differently)**: a user triggers the download
+   from the admin console (Settings → Memory) or `POST /api/cjk_dict/download` —
+   LadyM itself never downloads anything on its own. Embedding applications may also
+   call `storage.DownloadCJKDict()` explicitly if they want to provision at startup.
+   Works with any build; upgrades without a rebuild.
+2. **Side-effect import (no build-script change)**:
+   `import _ "github.com/ProjAnvil/LadyM/storage/fulldict"` embeds the dictionary
+   (~+31MB) — the import edge is what links the data in, so uninterested consumers
+   stay small.
+3. **Build flag**: `-tags fulldict` — same embedded dictionary, chosen in the build
+   command; what the prebuilt `ladym-personal-fulldict-*` release assets use.
+
+There is deliberately no `v0.5.0-fulldict` module version: semver reads that suffix
+as a *pre-release* of v0.5.0, which would confuse `go get` resolution.
+
+**Binary users**: every `v*` GitHub release ships per-platform tarballs —
+`ladym-personal-…` (default), `ladym-personal-fulldict-…` (embedded dictionary),
+`ladym-enterprise-…` — built automatically by `.github/workflows/release.yml` on
+tag push, with a `SHA256SUMS` file. Local equivalents: `make package-personal`,
+`make package-fulldict`, `make package-enterprise`; `LADYM_BUILD_TAGS=fulldict
+scripts/install.sh` builds the variant from a clone.
+- **Docker**: dict-baked images build in one command — `docker compose -f
+  docker-compose.dev.yml -f docker-compose.dev.dict.yml up -d --build` (dev) or
+  the enterprise equivalent (the main `Dockerfile` has a `dict` target; plain
+  `docker build .` stays dictionary-less). Any variant, sha256-verified,
+  air-gap-friendly via the repo's `dict/` context dir. For stacking a dict layer
+  onto an already-released image use `Dockerfile.dict --build-arg BASE=<image>`;
+  `--build-arg BUILD_TAGS=enterprise,fulldict` compiles the dictionary into the
+  binaries (~+31MB each) instead.
 
 ## Documentation
 
