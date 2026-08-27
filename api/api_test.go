@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ProjAnvil/LadyM/api"
 	"github.com/ProjAnvil/LadyM/config"
@@ -184,6 +185,37 @@ func TestConsolidate(t *testing.T) {
 	m := decodeBody(t, rec)
 	if _, ok := m["kept_episodes"]; !ok {
 		t.Errorf("consolidate response missing kept_episodes: %v", m)
+	}
+}
+
+func TestConsolidateSinceBoundsThePass(t *testing.T) {
+	h := newTestHandler(t, nil)
+	rec := do(t, h, "/api/record_event", "", "", `{"agent": "tester", "action": "since probe", "outcome": "ok"}`)
+	if rec.Code != 200 {
+		t.Fatalf("record_event: %d %s", rec.Code, rec.Body.String())
+	}
+
+	future := float64(time.Now().Unix()) + 3600
+	body, _ := json.Marshal(map[string]any{"since": future})
+	rec = do(t, h, "/api/consolidate", "", "", string(body))
+	if rec.Code != 200 {
+		t.Fatalf("consolidate(since): %d %s", rec.Code, rec.Body.String())
+	}
+	m := decodeBody(t, rec)
+	if n, _ := m["kept_episodes"].(float64); n != 0 {
+		t.Errorf("future since must process nothing, kept_episodes = %v", m["kept_episodes"])
+	}
+
+	rec = do(t, h, "/api/consolidate", "", "", `{}`)
+	if rec.Code != 200 {
+		t.Fatalf("consolidate: %d %s", rec.Code, rec.Body.String())
+	}
+	m = decodeBody(t, rec)
+	if n, _ := m["kept_episodes"].(float64); n != 1 {
+		t.Errorf("since=0 must process the pending backlog, kept_episodes = %v", m["kept_episodes"])
+	}
+	if n, _ := m["promoted_to_semantic"].(float64); n != 1 {
+		t.Errorf("promoted_to_semantic = %v, want 1", m["promoted_to_semantic"])
 	}
 }
 

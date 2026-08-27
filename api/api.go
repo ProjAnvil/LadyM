@@ -607,7 +607,8 @@ func (h *Handler) handleIndexCode(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) handleConsolidate(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Workspace string `json:"workspace"`
+		Workspace string  `json:"workspace"`
+		Since     float64 `json:"since"`
 	}
 	if err := decodeBody(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON body: "+err.Error())
@@ -617,7 +618,7 @@ func (h *Handler) handleConsolidate(w http.ResponseWriter, r *http.Request) {
 
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	report, err := h.eng.Consolidate(ws, 0)
+	report, err := h.eng.Consolidate(ws, body.Since)
 	if err != nil {
 		engineError(w, err)
 		return

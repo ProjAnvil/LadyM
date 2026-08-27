@@ -155,7 +155,7 @@ func (c *remoteClient) link(src, dst, relation string) (string, error) {
 
 func (c *remoteClient) consolidate(workspace string) (*client.ConsolidateResult, error) {
 	return callRemote(c, remoteConsolidateTimeout, func(ctx context.Context) (*client.ConsolidateResult, error) {
-		return c.sdk.Consolidate(ctx, workspace)
+		return c.sdk.Consolidate(ctx, workspace, 0)
 	})
 }
 

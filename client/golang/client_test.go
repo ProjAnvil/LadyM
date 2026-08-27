@@ -155,7 +155,7 @@ func TestRecordEvent(t *testing.T) {
 
 func TestConsolidate(t *testing.T) {
 	srv := newTestServer(t, false)
-	res, err := New(srv.URL).Consolidate(context.Background(), "")
+	res, err := New(srv.URL).Consolidate(context.Background(), "", 0)
 	if err != nil {
 		t.Fatalf("Consolidate: %v", err)
 	}
@@ -477,7 +477,7 @@ func TestServerErrorAcrossMethods(t *testing.T) {
 	wantErr("Recall", err)
 	_, err = c.RecordEvent(ctx, "a", "act", "obs", "out", nil, "w")
 	wantErr("RecordEvent", err)
-	_, err = c.Consolidate(ctx, "w")
+	_, err = c.Consolidate(ctx, "w", 0)
 	wantErr("Consolidate", err)
 	_, err = c.Link(ctx, "s", "d", "related_to")
 	wantErr("Link", err)

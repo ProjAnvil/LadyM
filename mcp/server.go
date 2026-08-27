@@ -165,6 +165,10 @@ func intProp(def int) map[string]any { return map[string]any{"type": "integer", 
 
 func boolProp(def bool) map[string]any { return map[string]any{"type": "boolean", "default": def} }
 
+func numProp(def float64) map[string]any {
+	return map[string]any{"type": "number", "default": def}
+}
+
 func strListProp() map[string]any {
 	return map[string]any{"type": "array", "items": map[string]any{"type": "string"}}
 }
@@ -225,7 +229,7 @@ func (s *server) tools() []toolDef {
 			Name:        "consolidate",
 			Description: "Promote episodic events into consolidated semantic facts (L1 → L2).",
 			InputSchema: objSchema(map[string]any{
-				"workspace": strProp(),
+				"workspace": strProp(), "since": numProp(0),
 			}),
 		},
 		{
@@ -265,6 +269,12 @@ func (s *server) call(name string, args map[string]any) (string, error) {
 	}
 	getBool := func(k string, def bool) bool {
 		if v, ok := args[k].(bool); ok {
+			return v
+		}
+		return def
+	}
+	getFloat := func(k string, def float64) float64 {
+		if v, ok := args[k].(float64); ok {
 			return v
 		}
 		return def
@@ -349,7 +359,7 @@ func (s *server) call(name string, args map[string]any) (string, error) {
 			"elapsed_ms": report.ElapsedMs, "errors": report.Errors,
 		}), nil
 	case "consolidate":
-		report, err := s.eng.Consolidate(getStr("workspace", ""), 0)
+		report, err := s.eng.Consolidate(getStr("workspace", ""), getFloat("since", 0))
 		if err != nil {
 			return "", err
 		}

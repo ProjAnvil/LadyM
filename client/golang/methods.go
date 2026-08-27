@@ -114,11 +114,13 @@ type ConsolidateResult struct {
 	Actions             map[string]int `json:"actions"`
 }
 
-// Consolidate runs one System2 consolidation cycle. It can take far longer
-// than a plain read — callers should use a generous context deadline.
-func (c *Client) Consolidate(ctx context.Context, workspace string) (*ConsolidateResult, error) {
+// Consolidate runs one System2 consolidation cycle. since (unix seconds)
+// bounds the pass to episodes created at or after that time; 0 processes the
+// whole pending backlog. It can take far longer than a plain read — callers
+// should use a generous context deadline.
+func (c *Client) Consolidate(ctx context.Context, workspace string, since float64) (*ConsolidateResult, error) {
 	var out ConsolidateResult
-	err := c.post(ctx, "/api/consolidate", map[string]any{"workspace": workspace}, &out)
+	err := c.post(ctx, "/api/consolidate", map[string]any{"workspace": workspace, "since": since}, &out)
 	if err != nil {
 		return nil, err
 	}

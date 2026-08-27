@@ -128,6 +128,7 @@ func TestToolsListSchemas(t *testing.T) {
 		}},
 		"consolidate": {nil, map[string]propSpec{
 			"workspace": {typ: "string"},
+			"since":     {typ: "number", hasDef: true, def: float64(0)},
 		}},
 		"stats": {nil, map[string]propSpec{}},
 		"link": {[]string{"src", "dst"}, map[string]propSpec{
