@@ -32,18 +32,6 @@ SQLite 基于 [modernc.org/sqlite](https://pkg.go.dev/modernc.org/sqlite)，向�
   只为新 episode 付费，不再全量重分类历史；ADD 判定存储 LLM 改写后的事实而非
   原始事件文本；`consolidate` 在 HTTP、MCP、Go SDK 三端都接受 `since` 边界。
 
-## 0.3.0 更新
-
-- **完整 Go 重写** —— LadyM 现在是单一静态二进制，**无 Python 依赖、零 cgo**。
-  用 `go install` 安装或从源码构建即可，无需任何额外环境。
-- **纯 Go 存储栈** —— SQLite 跑在 `modernc.org/sqlite` 上，原先的 `sqlite-vec` 扩展被
-  进程内暴力余弦索引取代（[storage/vector_index.go](storage/vector_index.go)），二进制保持
-  密封、可在任意平台交叉编译。
-- **纯 Go tree-sitter** —— 代码索引使用 `gotreesitter`，加载与上游 tree-sitter 相同的
-  parse table，但无需原生构建。
-- **一个引擎，所有前端** —— MCP server、CLI、Go SDK 全部封装同一个 `engine.Engine`，
-  在任何宿主里行为完全一致。
-
 ---
 
 ## 痛点

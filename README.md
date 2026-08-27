@@ -39,18 +39,6 @@ identical everywhere.
   history; ADD verdicts store the LLM's rewritten fact rather than the raw event text;
   `consolidate` accepts a `since` bound over HTTP, MCP, and the Go SDK.
 
-## What Was New in 0.3.0
-
-- **Full Go rewrite** — LadyM is now one static binary with **no Python dependency and
-  zero cgo**. Install with `go install` or build from source; there is nothing else to set up.
-- **Pure-Go storage stack** — SQLite runs on `modernc.org/sqlite`, and the old `sqlite-vec`
-  extension is replaced by an in-process brute-force cosine index ([storage/vector_index.go](storage/vector_index.go)),
-  so the binary stays hermetic and cross-compiles anywhere.
-- **Pure-Go tree-sitter** — code indexing uses `gotreesitter`, which loads the same parse
-  tables as upstream tree-sitter without native builds.
-- **One engine, every front** — the MCP server, CLI, and Go SDK all wrap the same
-  `engine.Engine`; behaviour is identical in every host.
-
 ---
 
 ## The problem
