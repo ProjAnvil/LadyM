@@ -181,7 +181,11 @@ func Consolidate(store storage.Store, embedder storage.EmbeddingProvider, cfg *c
 				meta[k] = v
 			}
 			meta["source_episode"] = ep.ID
-			if _, err := sem.PutFact(ep.Content, ep.Summary, ep.Tags, meta, "consolidate"); err != nil {
+			addedContent := newText
+			if addedContent == "" {
+				addedContent = ep.Content
+			}
+			if _, err := sem.PutFact(addedContent, ep.Summary, ep.Tags, meta, "consolidate"); err != nil {
 				return nil, err
 			}
 			report.PromotedToSemantic++

@@ -22,7 +22,8 @@ import (
 
 const consolidatePrompt = "You classify a candidate fact against similar existing facts. " +
 	"Reply with JSON {action, new_text}. action in ADD|UPDATE|DELETE|NOOP. " +
-	"ADD=brand new; UPDATE=refines an existing one (set new_text); " +
+	"ADD=brand new (set new_text to the distilled fact, free of event template shells; " +
+	"omitted means the raw event text is kept); UPDATE=refines an existing one (set new_text); " +
 	"DELETE=existing is now wrong; NOOP=duplicate."
 
 // Engine is the top-level LadyM orchestrator.
@@ -214,7 +215,7 @@ func makeClassifier(provider providers.LLMProvider) operations.LLMClassifier {
 			"type": "object",
 			"properties": map[string]any{
 				"action":   map[string]any{"type": "string", "description": "One of ADD|UPDATE|DELETE|NOOP"},
-				"new_text": map[string]any{"type": "string", "description": "Replacement text for UPDATE; omitted otherwise"},
+				"new_text": map[string]any{"type": "string", "description": "Replacement text for ADD/UPDATE; omitted otherwise"},
 			},
 			"required": []string{"action"},
 		})

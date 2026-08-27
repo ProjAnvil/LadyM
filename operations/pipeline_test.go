@@ -1883,3 +1883,31 @@ func TestConsolidateMarksAndSkipsProcessedEpisodes(t *testing.T) {
 		t.Fatalf("facts = %d, want 2", len(facts))
 	}
 }
+
+func TestConsolidateADDUsesLLMRewrite(t *testing.T) {
+	store, emb := newParityStore(t)
+	cfg := config.ForTesting(t.TempDir())
+	raw := "agent=woca | action=run | observation=raw event with a template shell"
+	putParityMem(t, store, emb, schema.LayerEpisodic, schema.TypeEvent, raw, nil)
+
+	classify := func(candidate string, similar []string) (Action, string, error) {
+		if candidate != raw {
+			t.Errorf("classifier saw %q, want the raw episode", candidate)
+		}
+		return ActionAdd, "distilled fact without the template shell", nil
+	}
+	rep, err := Consolidate(store, emb, cfg, "test", classify, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep.Actions[string(ActionAdd)] != 1 {
+		t.Fatalf("actions = %+v", rep.Actions)
+	}
+	facts, err := store.IterMemories("test", string(schema.LayerSemantic), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(facts) != 1 || facts[0].Content != "distilled fact without the template shell" {
+		t.Fatalf("ADD must store the LLM rewrite, got %+v", facts)
+	}
+}
