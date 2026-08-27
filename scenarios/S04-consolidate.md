@@ -8,14 +8,14 @@
 
 ## When
 1. [MCP] 连续 3 次 `mcp__ladym__record_event(agent="claude", action="scn-s04 deploy to prod", observation="ran deploy.sh release N", outcome="success", workspace="scn-s04")`(N=1,2,3)
-2. [MCP] `mcp__ladym__consolidate(workspace="scn-s04")` → 记报告 JSON(`promoted_to_semantic`、`actions`)
+2. [MCP] `mcp__ladym__consolidate(workspace="scn-s04")` → 记报告 JSON(`promoted_to_semantic`、`actions`、`skipped_consolidated`)
 3. [CLI] `! ladym stats -w scn-s04 --db <db>` → 记该 ws 计数(用 CLI;MCP `stats(workspace=)` 返回全局,见 _conventions §8.2)
-4. [CLI] `! ladym consolidate -w scn-s04 --db <db>`(二次,应多为 NOOP)
+4. [CLI] `! ladym consolidate -w scn-s04 --db <db>`(二次;已整合 episode 带 `consolidated_at` 标记,直接跳过)
 
 ## Then
 - [硬] 步骤2 `promoted_to_semantic >= 1`;`actions` 含 `ADD/UPDATE/DELETE/NOOP` 键
 - [硬] 步骤3 `L2_semantic` 出现 fact(consolidate 产物)
-- [硬] 步骤4 第二次后 ADD 不再增长(幂等,NOOP 占主导)
+- [硬] 步骤4 第二次 `kept_episodes=0`、`skipped_consolidated>=3`(标记跳过,非 NOOP 重扫);L2 计数不变
 
 ## Teardown
 reset scn-s04。

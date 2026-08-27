@@ -264,7 +264,9 @@ differences are deliberate trade-offs:
   needs the declarative/procedural split.
 - **Two-tier retrieval pays off** — HyMem: 92.6% less compute, +2% accuracy vs full context.
 - **Consolidation is non-negotiable** — A-MEM shows performance degrades without periodic
-  graph maintenance; mem0's `ADD/UPDATE/DELETE/NOOP` is the proven primitive.
+  graph maintenance; mem0's `ADD/UPDATE/DELETE/NOOP` is the proven primitive. Processed
+  episodes carry a `consolidated_at` metadata stamp, so a cycle scans the backlog, not the
+  store — and a stamp lost to an aborted pass simply means the episode is picked up next time.
 - **Code is just typed semantic memory** — RepoGraph/code-graph-rag confirm tree-sitter
   symbols + cross-ref graph + embeddings beat flat chunking for repo-level retrieval.
 - **Local-first, deterministic tests** — the hashing embedding keeps the test suite hermetic,

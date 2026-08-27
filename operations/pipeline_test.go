@@ -1834,3 +1834,52 @@ func TestRetireAndLatestInChainClosedStore(t *testing.T) {
 		t.Error("LatestInChain on a closed store should fail")
 	}
 }
+
+func TestConsolidateMarksAndSkipsProcessedEpisodes(t *testing.T) {
+	store, emb := newParityStore(t)
+	cfg := config.ForTesting(t.TempDir())
+	putParityMem(t, store, emb, schema.LayerEpisodic, schema.TypeEvent, "first pending event", nil)
+
+	rep, err := Consolidate(store, emb, cfg, "test", nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep.Actions[string(ActionAdd)] != 1 || rep.SkippedConsolidated != 0 {
+		t.Fatalf("first pass = %+v", rep)
+	}
+	eps, err := store.IterMemories("test", string(schema.LayerEpisodic), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(eps) != 1 || !IsConsolidated(eps[0]) {
+		t.Fatalf("episode should carry the consolidated mark: %+v", eps)
+	}
+	facts, err := store.IterMemories("test", string(schema.LayerSemantic), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(facts) != 1 {
+		t.Fatalf("facts = %d, want 1", len(facts))
+	}
+	if _, polluted := facts[0].MetaFloat("consolidated_at"); polluted {
+		t.Errorf("promoted fact must not inherit consolidated_at: %v", facts[0].Metadata)
+	}
+
+	// A second pass with fresh backlog processes only the new episode; the
+	// marked one is neither re-embedded nor re-classified.
+	putParityMem(t, store, emb, schema.LayerEpisodic, schema.TypeEvent, "second pending event", nil)
+	rep2, err := Consolidate(store, emb, cfg, "test", nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep2.KeptEpisodes != 1 || rep2.SkippedConsolidated != 1 || rep2.Actions[string(ActionAdd)] != 1 {
+		t.Fatalf("second pass = %+v, want 1 processed / 1 skipped", rep2)
+	}
+	facts, err = store.IterMemories("test", string(schema.LayerSemantic), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(facts) != 2 {
+		t.Fatalf("facts = %d, want 2", len(facts))
+	}
+}

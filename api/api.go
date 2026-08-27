@@ -624,7 +624,7 @@ func (h *Handler) handleConsolidate(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"kept_episodes": report.KeptEpisodes, "promoted_to_semantic": report.PromotedToSemantic,
-		"actions": report.Actions,
+		"skipped_consolidated": report.SkippedConsolidated, "actions": report.Actions,
 	})
 }
 

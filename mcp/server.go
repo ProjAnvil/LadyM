@@ -355,7 +355,7 @@ func (s *server) call(name string, args map[string]any) (string, error) {
 		}
 		return mustJSON(map[string]any{
 			"kept_episodes": report.KeptEpisodes, "promoted_to_semantic": report.PromotedToSemantic,
-			"actions": report.Actions,
+			"skipped_consolidated": report.SkippedConsolidated, "actions": report.Actions,
 		}), nil
 	case "stats":
 		st, err := s.eng.Stats()

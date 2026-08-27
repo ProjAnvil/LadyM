@@ -108,9 +108,10 @@ func (c *Client) RecordEvent(ctx context.Context, agent, action, observation, ou
 
 // ConsolidateResult is the /api/consolidate report.
 type ConsolidateResult struct {
-	KeptEpisodes       int            `json:"kept_episodes"`
-	PromotedToSemantic int            `json:"promoted_to_semantic"`
-	Actions            map[string]int `json:"actions"`
+	KeptEpisodes        int            `json:"kept_episodes"`
+	PromotedToSemantic  int            `json:"promoted_to_semantic"`
+	SkippedConsolidated int            `json:"skipped_consolidated"`
+	Actions             map[string]int `json:"actions"`
 }
 
 // Consolidate runs one System2 consolidation cycle. It can take far longer
