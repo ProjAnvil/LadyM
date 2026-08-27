@@ -9,7 +9,7 @@ require (
 	github.com/odvcencio/gotreesitter v0.49.0
 	github.com/pgvector/pgvector-go v0.4.1
 	github.com/pgvector/pgvector-go/pgx v0.4.1
-	github.com/projanvil/langchain-golang v0.6.2
+	github.com/projanvil/langchain-golang v0.6.3
 	github.com/spf13/cobra v1.10.2
 	golang.org/x/crypto v0.55.0
 	golang.org/x/sys v0.47.0
