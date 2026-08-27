@@ -20,23 +20,17 @@ SQLite 基于 [modernc.org/sqlite](https://pkg.go.dev/modernc.org/sqlite)，向�
 
 ---
 
-## 0.4.0 更新
+## 0.5.0 更新
 
-- **双版本** —— 一个仓库、两种构建。**个人版**：你熟悉的单二进制体验（SQLite 或
-  Postgres,管理台内嵌）。**企业版**:`go build -tags enterprise` 产出纯 Postgres 的
-  微服务，`ladym` 二进制里零 SQLite、零管理台代码。
-- **REST API 服务** —— 所有 MCP 工具现在都可以通过 HTTP 调用（`ladym serve --http`),
-  另有 `/healthz` 和 `/api/metrics` 供运维使用。
-- **轻量认证** —— 数据库级的用户名/密码（bcrypt + HTTP Basic)，不做重型 IAM。支持
-  免密用户，默认关闭（`[auth] enabled`)；用 `ladym user add/list/delete/passwd` 管理。
-- **Vue 管理台** —— 真正的前端（Vue 3 + Vite)，含登录、Memories、Users、Stats 四个
-  页面和完整的 CRUD API。个人版内嵌于二进制；企业版拆成独立的 `ladymconsole` 配置中心
-  微服务，与 ladym 节点共用同一个 Postgres。
-- **`client/golang` SDK** —— 面向 HTTP API 的 Go 客户端，其他 Go 程序两行代码即可把
-  LadyM 作为中间件集成：`client.New(addr, client.WithAuth(u, p))`。
-- **企业版 compose 栈** —— `docker-compose.enterprise.yml` 提供三层部署：nginx 网关
-  作为唯一对外节点，在内网中负载均衡到 ladym API 副本和配置中心，底层是
-  Postgres + pgvector。
+- **中日韩（CJK）支持** —— CJK 文本获得与 Python 版对齐的分词质量：开箱即用的
+  单字 + 相邻二元模式完全离线、零配置；可选的词典分词（gse）由控制台或管理 API
+  按需下载——LadyM 绝不主动联网下载。发布资产提供内嵌词典的 `fulldict` 变体，
+  Dockerfile 带词典数据层，compose 覆盖文件可一键跑起整套词典内嵌的栈。
+- **langchain-golang v0.6.2** —— 合作方聊天模型新增 `reasoning_effort` 与原生
+  JSON 模式（结构化输出）；LangGraph 辅助层面向宿主应用重新导出。
+- **整合成本有界** —— 已处理的 episode 带 `consolidated_at` 戳记，每轮 System 2
+  只为新 episode 付费，不再全量重分类历史；ADD 判定存储 LLM 改写后的事实而非
+  原始事件文本；`consolidate` 在 HTTP、MCP、Go SDK 三端都接受 `since` 边界。
 
 ## 0.3.0 更新
 

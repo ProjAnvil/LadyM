@@ -298,8 +298,8 @@ docker compose -f docker-compose.dev.yml \
 `dict/` 目录即可(构建时优先 COPY,不走网络)。
 
 给**已发布的** LadyM 镜像叠词典层(不重编):`Dockerfile.dict` 薄层方案
-`docker build -f Dockerfile.dict --build-arg BASE=ladym-enterprise:v0.5.1
--t ladym-enterprise:v0.5.1-dict .`。
+`docker build -f Dockerfile.dict --build-arg BASE=ladym-enterprise:v0.5.2
+-t ladym-enterprise:v0.5.2-dict .`。
 
 **变体 B' — fulldict 编译标签**: `--build-arg BUILD_TAGS=enterprise,fulldict`
 把词典**编进**二进制(每个二进制 +31MB)。单二进制自包含、适合非容器的离线
