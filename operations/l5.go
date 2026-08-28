@@ -1,6 +1,7 @@
 package operations
 
 import (
+	"math"
 	"strconv"
 	"strings"
 
@@ -122,8 +123,9 @@ func normalize(v []float32) []float32 {
 		copy(out, v)
 		return out
 	}
+	sqrt := math.Sqrt(n)
 	for i, x := range v {
-		out[i] = float32(float64(x) / n)
+		out[i] = float32(float64(x) / sqrt)
 	}
 	return out
 }

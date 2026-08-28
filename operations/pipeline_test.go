@@ -684,6 +684,13 @@ func TestNormalizeAndDot(t *testing.T) {
 	if got := dot([]float32{1, 2}, []float32{3, 4}); got != 11 {
 		t.Errorf("dot = %v, want 11", got)
 	}
+	nu := normalize([]float32{3, 4})
+	want := []float32{0.6, 0.8}
+	for i := range nu {
+		if nu[i]-want[i] > 1e-6 || want[i]-nu[i] > 1e-6 {
+			t.Errorf("normalize([3,4]) = %v, want %v", nu, want)
+		}
+	}
 }
 
 func TestConnectedComponents(t *testing.T) {
@@ -700,6 +707,12 @@ func TestConnectedComponents(t *testing.T) {
 		if len(g) == 2 && (g[0] != "a" || g[1] != "b") {
 			t.Errorf("unexpected pair %v", g)
 		}
+	}
+	ids2 := []string{"d", "e"}
+	vecs2 := [][]float32{{3, 4}, {6, 8}}
+	comps2 := connectedComponents(ids2, vecs2, 0.9)
+	if len(comps2) != 1 || len(comps2[0]) != 2 {
+		t.Errorf("components = %v, want 1 group of 2", comps2)
 	}
 }
 
