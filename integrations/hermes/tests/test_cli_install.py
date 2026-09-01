@@ -10,6 +10,8 @@ import argparse
 import hashlib
 import io
 import json
+import shutil
+import subprocess
 import tarfile
 from pathlib import Path
 
@@ -180,6 +182,32 @@ def test_install_existing_binary_requires_force(tmp_path):
     install_binary(str(tmp_path), force=True, platform_key=("darwin", "arm64"),
                    **net.kwargs())
     assert dest.read_bytes() == FAKE_BINARY
+
+
+def test_install_over_busy_binary_succeeds(tmp_path):
+    """Regression (ETXTBSY): overwriting a RUNNING ladym binary must work.
+
+    Linux refuses a plain open("wb") on an executing file (ETXTBSY) — the
+    provider keeps `ladym serve` alive while the agent runs, so a naive
+    overwrite fails. The install must write a sibling temp file and
+    atomically rename over the destination. (Only Linux enforces ETXTBSY;
+    on macOS this passes either way but keeps the mechanism honest.)
+    """
+    net = StubNet()
+    dest = tmp_path / "ladym" / "bin" / "ladym"
+    dest.parent.mkdir(parents=True)
+    sleep = shutil.which("sleep")
+    if sleep is None:
+        pytest.skip("no sleep binary to occupy the destination")
+    shutil.copy(sleep, dest)
+    dest.chmod(0o755)
+    proc = subprocess.Popen([str(dest), "30"])
+    try:
+        install_binary(str(tmp_path), force=True,
+                       platform_key=("darwin", "arm64"), **net.kwargs())
+        assert dest.read_bytes() == FAKE_BINARY
+    finally:
+        proc.kill()
 
 
 def test_install_preserves_existing_config_keys(tmp_path):

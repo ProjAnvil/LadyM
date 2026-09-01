@@ -11,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
 import platform
 import shutil
 import sys
@@ -253,9 +254,23 @@ def install_binary(
                 raise LadymError(f"{inner_binary} not found inside {name}")
             src = tf.extractfile(member)
             assert src is not None
-            with open(dest, "wb") as out:
-                shutil.copyfileobj(src, out)
-        dest.chmod(0o755)
+            # Write a sibling temp file and atomically rename it over dest:
+            # POSIX rename succeeds even while the old binary is executing
+            # (the running process keeps its inode), whereas a plain
+            # open(dest, "wb") fails with ETXTBSY on Linux — and the
+            # provider holds a live `ladym serve` process during sessions.
+            fd, tmp_bin = tempfile.mkstemp(dir=bin_dir, prefix=".ladym-")
+            try:
+                with os.fdopen(fd, "wb") as out:
+                    shutil.copyfileobj(src, out)
+                os.chmod(tmp_bin, 0o755)
+                os.replace(tmp_bin, dest)
+            except BaseException:
+                try:
+                    os.unlink(tmp_bin)
+                except OSError:
+                    pass
+                raise
 
     cfg = load_config(hermes_home)
     cfg["ladym_bin"] = str(dest)
