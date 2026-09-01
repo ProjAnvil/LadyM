@@ -1,0 +1,36 @@
+# ladyM memory provider — next steps
+
+The plugin is installed. Now get the `ladym` binary and enable the provider:
+
+1. **Install the ladyM binary** (one command, downloads from GitHub releases):
+
+   ```sh
+   hermes ladym install
+   ```
+
+   Chinese users: add `--fulldict` for the variant with the embedded CJK
+   dictionary (better Chinese recall, +31MB):
+
+   ```sh
+   hermes ladym install --fulldict
+   ```
+
+   Other options: `--version vX.Y.Z` to pin a release, `--force` to
+   overwrite an existing install. (Windows/unsupported platforms: build from
+   source with `go build -o bin/ladym ./cmd/ladym` and set `LADYM_BIN`.)
+
+2. **Enable the provider:**
+
+   ```sh
+   hermes memory setup    # choose `ladym`
+   ```
+
+3. **Verify:**
+
+   ```sh
+   hermes memory status
+   hermes ladym status    # binary path, effective config, store stats
+   ```
+
+All state lives under `$HERMES_HOME/ladym/` — profile-isolated and covered by
+`hermes backup`.

@@ -312,6 +312,33 @@ langchain-golang LangGraph / LangChain agents. Two equivalent paths:
 See [`docs/langgraph-integration.md`](docs/langgraph-integration.md) for the design
 walkthrough.
 
+### Hermes Agent (memory provider)
+
+LadyM ships a [Hermes Agent](https://github.com/NousResearch/hermes-agent) memory
+provider in [`integrations/hermes/`](integrations/hermes/) — Hermes recalls through
+LadyM's two-tier recall before each turn, records every turn as an L1 episodic event,
+and consolidates (L1 → L2) at session end and before context compression. The plugin
+is a zero-dependency Python adapter that drives the `ladym` binary over MCP stdio;
+the Go engine remains the single source of truth.
+
+```bash
+# 1. install the plugin (subdirectory install — no manual file copying)
+hermes plugins install ProjAnvil/ladyM/integrations/hermes
+
+# 2. bootstrap the ladym binary (add --fulldict for the embedded CJK dictionary)
+hermes ladym install
+
+# 3. activate LadyM as the memory provider and verify
+hermes memory setup    # pick "ladym"
+hermes memory status   # Provider: ladym, available ✓
+```
+
+The database lives at `$HERMES_HOME/ladym/ladym.db` (per-profile isolation) and
+defaults to the offline hashing embedder — no API key, no external service. A pip
+install (`git+https://github.com/ProjAnvil/ladyM.git#subdirectory=integrations/hermes`,
+entry-point discovery) works too; see
+[`integrations/hermes/README.md`](integrations/hermes/README.md).
+
 ### CLI
 
 ```bash

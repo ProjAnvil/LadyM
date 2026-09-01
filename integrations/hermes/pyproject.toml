@@ -1,0 +1,16 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "ladym-hermes"
+version = "0.1.0"
+description = "LadyM brain-inspired memory provider plugin for Hermes Agent"
+requires-python = ">=3.9"
+dependencies = []
+
+[project.entry-points."hermes_agent.memory_providers"]
+ladym = "ladym_hermes:register"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ladym_hermes"]

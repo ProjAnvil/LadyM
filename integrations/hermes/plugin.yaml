@@ -1,0 +1,10 @@
+name: ladym
+version: 0.1.0
+description: >-
+  Brain-inspired multi-layer long-term memory via a local ladyM MCP server
+  (Go binary, stdio JSON-RPC). Zero third-party Python dependencies.
+hooks:
+  - prefetch
+  - sync_turn
+  - on_session_end
+  - on_pre_compress

@@ -293,6 +293,31 @@ eng, err := ladym.NewEngineWithModels(ladym.DefaultConfig(), &adapter.ModelRouti
 
 设计走查见 [`docs/langgraph-integration.md`](docs/langgraph-integration.md)。
 
+### Hermes Agent（memory provider）
+
+LadyM 在 [`integrations/hermes/`](integrations/hermes/) 内置了
+[Hermes Agent](https://github.com/NousResearch/hermes-agent) 的 memory provider
+插件——Hermes 每轮对话前通过 LadyM 的 two-tier recall 召回上下文，每轮结束把对话记为
+L1 episodic 事件，并在会话结束与上下文压缩前自动 consolidate（L1 → L2）。插件是零依赖的
+Python 适配层，通过 MCP stdio 驱动 `ladym` 二进制，Go 引擎仍是唯一事实来源。
+
+```bash
+# 1. 安装插件（子目录安装，无需手动拷贝文件）
+hermes plugins install ProjAnvil/ladyM/integrations/hermes
+
+# 2. 自举安装 ladym 二进制（中文用户加 --fulldict，内嵌 CJK 词典）
+hermes ladym install
+
+# 3. 激活 LadyM 为 memory provider 并验证
+hermes memory setup    # 选择 "ladym"
+hermes memory status   # Provider: ladym, available ✓
+```
+
+数据库位于 `$HERMES_HOME/ladym/ladym.db`（按 profile 隔离），默认离线 hashing
+embedding——无需 API key、无需外部服务。也可以用 pip 安装
+（`git+https://github.com/ProjAnvil/ladyM.git#subdirectory=integrations/hermes`，entry
+point 自动发现），详见 [`integrations/hermes/README.md`](integrations/hermes/README.md)。
+
 ### CLI
 
 ```bash
