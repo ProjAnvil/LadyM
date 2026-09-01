@@ -8,10 +8,8 @@ standard library only. **Zero third-party dependencies.**
 
 ## Install
 
-0. Prerequisite — the `ladym` binary. Either let the plugin install it
-   (after step 1): `hermes ladym install` (add `--fulldict` for the embedded
-   CJK dictionary, recommended for Chinese users), or make it resolvable
-   manually (any of):
+0. Prerequisite — the `ladym` binary. Easiest is the plugin's own
+   bootstrap command (step 2 below); alternatives are:
    - download a release asset from
      `https://github.com/ProjAnvil/LadyM/releases` and put it on `PATH`, or
    - `go build -o bin/ladym ./cmd/ladym` from the ladyM repo / `go install`, or
@@ -29,8 +27,15 @@ standard library only. **Zero third-party dependencies.**
      Hermes discovers the provider automatically via the
      `hermes_agent.memory_providers` entry point (`ladym = ladym_hermes:register`);
      nothing lands in the plugins directory.
-2. Enable and verify (same for both):
-   `hermes memory setup` → choose `ladym` → `hermes memory status`.
+2. Enable the provider and bootstrap the binary — order matters: the
+   `hermes ladym` CLI only registers for the **active** memory provider, so
+   activate first, then install the binary:
+   ```sh
+   hermes memory setup ladym        # activate (works before the binary exists)
+   hermes ladym install             # add --fulldict for the embedded CJK dictionary
+   hermes memory status             # Provider: ladym, available ✓
+   hermes ladym status              # binary path, effective config, store stats
+   ```
 3. Developers working on this repo can instead symlink the directory:
    `ln -s /path/to/ladyM/integrations/hermes ~/.hermes/plugins/ladym`
    (or copy it to `plugins/memory/ladym/` in a hermes-agent checkout).

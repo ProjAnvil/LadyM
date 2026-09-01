@@ -35,8 +35,15 @@ _SOURCE_BUILD_HINT = (
 
 
 def register_cli(subparser) -> None:
-    """Register the ``ladym`` subcommand tree onto the given argparse subparsers."""
-    status = subparser.add_parser(
+    """Build the ``hermes ladym`` argparse tree.
+
+    Hermes calls this with the already-created ``hermes ladym`` parser
+    (hermes_cli/main.py does ``subparsers.add_parser(name)`` then
+    ``setup_fn(parser)``), so subcommands need their own subparsers level.
+    """
+    subs = subparser.add_subparsers(dest="ladym_command")
+
+    status = subs.add_parser(
         "status", help="Show ladyM memory provider status"
     )
     status.add_argument(
@@ -46,7 +53,7 @@ def register_cli(subparser) -> None:
     )
     status.set_defaults(func=_cmd_status)
 
-    install = subparser.add_parser(
+    install = subs.add_parser(
         "install", help="Download the ladym binary from GitHub releases"
     )
     install.add_argument(
@@ -68,6 +75,10 @@ def register_cli(subparser) -> None:
         help="Overwrite an existing installed binary",
     )
     install.set_defaults(func=_cmd_install)
+
+    # Bare `hermes ladym` (no subcommand) prints usage instead of
+    # failing on a missing `func` default.
+    subparser.set_defaults(func=lambda args: subparser.print_help() or 0)
 
 
 # -- status ------------------------------------------------------------------------

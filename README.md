@@ -325,12 +325,15 @@ the Go engine remains the single source of truth.
 # 1. install the plugin (subdirectory install — no manual file copying)
 hermes plugins install ProjAnvil/ladyM/integrations/hermes
 
-# 2. bootstrap the ladym binary (add --fulldict for the embedded CJK dictionary)
+# 2. activate the provider, then bootstrap the ladym binary
+#    (the `hermes ladym` CLI only exists once ladym is the active provider;
+#     add --fulldict for the embedded CJK dictionary)
+hermes memory setup ladym
 hermes ladym install
 
-# 3. activate LadyM as the memory provider and verify
-hermes memory setup    # pick "ladym"
+# 3. verify
 hermes memory status   # Provider: ladym, available ✓
+hermes ladym status    # binary path, effective config, store stats
 ```
 
 The database lives at `$HERMES_HOME/ladym/ladym.db` (per-profile isolation) and

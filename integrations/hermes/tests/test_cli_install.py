@@ -216,12 +216,27 @@ def test_install_network_failure_is_clean_error(tmp_path):
 # -- CLI wiring --------------------------------------------------------------------
 
 def test_register_cli_exposes_install_subcommand():
+    # Mirror hermes_cli/main.py: it creates the `hermes ladym` parser itself
+    # (subparsers.add_parser("ladym")) and passes THAT parser to register_cli.
     parser = argparse.ArgumentParser()
     subs = parser.add_subparsers()
-    cli_mod.register_cli(subs)
+    ladym_parser = subs.add_parser("ladym")
+    cli_mod.register_cli(ladym_parser)
     args = parser.parse_args(
-        ["install", "--version", "v0.5.1", "--fulldict", "--force"])
+        ["ladym", "install", "--version", "v0.5.1", "--fulldict", "--force"])
     assert args.version == "v0.5.1"
     assert args.fulldict is True
     assert args.force is True
     assert callable(args.func)
+
+
+def test_register_cli_status_and_bare_invocation():
+    parser = argparse.ArgumentParser()
+    subs = parser.add_subparsers()
+    ladym_parser = subs.add_parser("ladym")
+    cli_mod.register_cli(ladym_parser)
+    args = parser.parse_args(["ladym", "status"])
+    assert callable(args.func)
+    # Bare `hermes ladym` falls back to a usage-printing handler.
+    bare = parser.parse_args(["ladym"])
+    assert callable(bare.func)

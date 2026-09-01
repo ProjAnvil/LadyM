@@ -1,8 +1,15 @@
 # ladyM memory provider — next steps
 
-The plugin is installed. Now get the `ladym` binary and enable the provider:
+The plugin is installed. Now enable the provider and get the `ladym` binary:
 
-1. **Install the ladyM binary** (one command, downloads from GitHub releases):
+1. **Enable the provider** (this also registers the `hermes ladym` CLI —
+   plugin commands only exist for the active memory provider):
+
+   ```sh
+   hermes memory setup ladym
+   ```
+
+2. **Install the ladyM binary** (one command, downloads from GitHub releases):
 
    ```sh
    hermes ladym install
@@ -19,17 +26,11 @@ The plugin is installed. Now get the `ladym` binary and enable the provider:
    overwrite an existing install. (Windows/unsupported platforms: build from
    source with `go build -o bin/ladym ./cmd/ladym` and set `LADYM_BIN`.)
 
-2. **Enable the provider:**
-
-   ```sh
-   hermes memory setup    # choose `ladym`
-   ```
-
 3. **Verify:**
 
    ```sh
-   hermes memory status
-   hermes ladym status    # binary path, effective config, store stats
+   hermes memory status     # Provider: ladym, available ✓
+   hermes ladym status      # binary path, effective config, store stats
    ```
 
 All state lives under `$HERMES_HOME/ladym/` — profile-isolated and covered by

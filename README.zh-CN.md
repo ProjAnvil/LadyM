@@ -305,12 +305,15 @@ Python 适配层，通过 MCP stdio 驱动 `ladym` 二进制，Go 引擎仍是�
 # 1. 安装插件（子目录安装，无需手动拷贝文件）
 hermes plugins install ProjAnvil/ladyM/integrations/hermes
 
-# 2. 自举安装 ladym 二进制（中文用户加 --fulldict，内嵌 CJK 词典）
-hermes ladym install
+# 2. 先激活 provider，再自举安装 ladym 二进制
+#    （`hermes ladym` CLI 只在 ladym 成为活跃 provider 后才注册；
+#     中文用户加 --fulldict，内嵌 CJK 词典）
+hermes memory setup ladym
+hermes ladym install --fulldict
 
-# 3. 激活 LadyM 为 memory provider 并验证
-hermes memory setup    # 选择 "ladym"
+# 3. 验证
 hermes memory status   # Provider: ladym, available ✓
+hermes ladym status    # 二进制路径、生效配置、存储统计
 ```
 
 数据库位于 `$HERMES_HOME/ladym/ladym.db`（按 profile 隔离），默认离线 hashing
