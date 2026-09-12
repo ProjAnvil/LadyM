@@ -657,7 +657,7 @@ func TestWorkerMetricsServer(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer resp.Body.Close()
-	if ct := resp.Header.Get("Content-Type"); ct != "text/plain; version=0.0.4; charset=utf-8" {
+	if ct := resp.Header.Get("Content-Type"); !strings.HasPrefix(ct, "text/plain; version=0.0.4") {
 		t.Fatalf("/metrics Content-Type = %q", ct)
 	}
 	body, _ := io.ReadAll(resp.Body)

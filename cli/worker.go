@@ -62,11 +62,7 @@ func runWorkerLoop(eng *engine.Engine, once bool, interval int, workspace string
 // --metrics-addr`.
 func workerMetricsHandler(eng *engine.Engine) http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /metrics", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
-		w.WriteHeader(http.StatusOK)
-		observability.Default().Render(w)
-	})
+	mux.Handle("GET /metrics", observability.Default().HTTPHandler())
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		if err := eng.Store.Ping(); err != nil {
 			http.Error(w, "store ping failed", http.StatusServiceUnavailable)

@@ -335,11 +335,9 @@ func statusClass(status int) string {
 }
 
 // handlePromMetrics serves the Prometheus text exposition (auth-exempt,
-// outside /api/).
+// outside /api/) via the registry's promhttp handler.
 func (h *Handler) handlePromMetrics(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
-	w.WriteHeader(http.StatusOK)
-	h.registry.Render(w)
+	h.registry.HTTPHandler().ServeHTTP(w, r)
 }
 
 // handleMetrics returns the in-process counters as JSON for the console

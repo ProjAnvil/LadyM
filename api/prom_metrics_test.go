@@ -34,7 +34,7 @@ func TestPromMetricsEndpoint(t *testing.T) {
 		if rec.Code != 200 {
 			t.Fatalf("/metrics: %d %s", rec.Code, rec.Body.String())
 		}
-		if ct := rec.Header().Get("Content-Type"); ct != "text/plain; version=0.0.4; charset=utf-8" {
+		if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, "text/plain; version=0.0.4") {
 			t.Fatalf("/metrics Content-Type = %q", ct)
 		}
 		return rec.Body.String()

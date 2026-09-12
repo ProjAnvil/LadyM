@@ -1,10 +1,22 @@
 package observability
 
 import (
+	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
 )
+
+// render scrapes the registry through its promhttp handler.
+func render(t *testing.T, r *Registry) string {
+	t.Helper()
+	rec := httptest.NewRecorder()
+	r.HTTPHandler().ServeHTTP(rec, httptest.NewRequest("GET", "/metrics", nil))
+	if rec.Code != 200 {
+		t.Fatalf("/metrics status = %d", rec.Code)
+	}
+	return rec.Body.String()
+}
 
 func TestCountersHistogramAndRender(t *testing.T) {
 	r := New()
@@ -20,9 +32,7 @@ func TestCountersHistogramAndRender(t *testing.T) {
 	r.IncSystem2Cycle("ran")
 	r.IncSystem2Cycle("skipped")
 
-	var sb strings.Builder
-	r.Render(&sb)
-	out := sb.String()
+	out := render(t, r)
 
 	for _, want := range []string{
 		"# HELP ladym_http_requests_total ",
@@ -60,10 +70,31 @@ func TestCountersHistogramAndRender(t *testing.T) {
 func TestLabelEscaping(t *testing.T) {
 	r := New()
 	r.IncRequests("/api/weird\"\\\npath", "2xx")
-	var sb strings.Builder
-	r.Render(&sb)
-	if !strings.Contains(sb.String(), `endpoint="/api/weird\"\\\npath"`) {
-		t.Errorf("label value not escaped:\n%s", sb.String())
+	out := render(t, r)
+	if !strings.Contains(out, `endpoint="/api/weird\"\\\npath"`) {
+		t.Errorf("label value not escaped:\n%s", out)
+	}
+}
+
+func TestJSONReadFaces(t *testing.T) {
+	r := New()
+	r.IncRequests("/api/recall", "2xx")
+	r.IncRequests("/api/recall", "5xx")
+	r.IncRequests("/api/recall", "4xx")
+	r.ObserveDuration("/api/recall", 0.5)
+	r.ObserveDuration("/api/recall", 1.5)
+	r.IncSystem2Cycle("ran")
+
+	stats := r.EndpointStatsSnapshot()
+	if got := stats["/api/recall"]; got.Requests != 3 || got.Errors != 2 {
+		t.Errorf("EndpointStatsSnapshot[/api/recall] = %+v, want {3 2}", got)
+	}
+	sum, count := r.DurationSumCount("/api/recall")
+	if sum != 2.0 || count != 2 {
+		t.Errorf("DurationSumCount = (%v, %d), want (2, 2)", sum, count)
+	}
+	if got := r.System2Cycles()["ran"]; got != 1 {
+		t.Errorf("System2Cycles[ran] = %d, want 1", got)
 	}
 }
 
@@ -80,8 +111,9 @@ func TestConcurrentAccess(t *testing.T) {
 			r.IncInFlight()
 			r.DecInFlight()
 			r.IncSystem2Cycle("ran")
-			var sb strings.Builder
-			r.Render(&sb)
+			// A scrape concurrent with the increments exercises Gather races.
+			rec := httptest.NewRecorder()
+			r.HTTPHandler().ServeHTTP(rec, httptest.NewRequest("GET", "/metrics", nil))
 		}()
 	}
 	wg.Wait()
@@ -96,9 +128,7 @@ func TestConcurrentAccess(t *testing.T) {
 	if got := r.System2Cycles()["ran"]; got != n {
 		t.Errorf("cycles ran = %d, want %d", got, n)
 	}
-	var sb strings.Builder
-	r.Render(&sb)
-	if !strings.Contains(sb.String(), "ladym_http_requests_in_flight 0") {
-		t.Errorf("in-flight should be back to 0:\n%s", sb.String())
+	if out := render(t, r); !strings.Contains(out, "ladym_http_requests_in_flight 0") {
+		t.Errorf("in-flight should be back to 0:\n%s", out)
 	}
 }

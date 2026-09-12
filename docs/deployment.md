@@ -230,7 +230,8 @@ docker compose -f docker-compose.dev.yml -p ladym-dev down -v
   - `endpoints`:每个端点 `{requests, errors}`(errors = 非 2xx);
   - `recall_avg_ms`:recall 请求的运行平均耗时。
 - **`GET /metrics`**(免鉴权,与 `/healthz` 同级):Prometheus 0.0.4 文本 exposition,
-  手写格式、零新依赖。指标清单:
+  基于官方 `prometheus/client_golang`(生态兼容:service discovery / pushgateway /
+  客户端工具链直接可用)。指标清单:
   - `ladym_http_requests_total{endpoint,status}` — counter,endpoint 用路由模式
     (`/api/memories/{id}` 而非原始 path),status 为 `2xx/4xx/5xx` 类别;路由前被
     拒绝的请求(401、未知路径)计入 `endpoint="unknown"`;
