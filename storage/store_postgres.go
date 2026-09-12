@@ -38,6 +38,11 @@ const indexLockAdvisoryKey int64 = 727274
 // serialise their CREATE ... IF NOT EXISTS runs instead of racing.
 const schemaSetupAdvisoryKey int64 = 727275
 
+// workerLockAdvisoryKey identifies ladyM's System2 worker-cycle lock —
+// distinct from indexLockAdvisoryKey and schemaSetupAdvisoryKey (keys are
+// arbitrary but stable; the 72727x block is ladyM's).
+const workerLockAdvisoryKey int64 = 727276
+
 // pgSchema returns the idempotent schema statements (one per entry — pgx's
 // extended protocol rejects multi-statement Exec). dim sizes the vector col.
 func pgSchema(dim int) []string {
@@ -868,27 +873,40 @@ func (s *PostgresStore) ListUsers() ([]*schema.User, error) {
 // ---- cross-process index lock (pg advisory lock) ----
 
 // TryAcquireIndexLock takes the cross-process code-index lock as a pg
-// advisory lock. Advisory locks are session-scoped, so a dedicated connection
-// is acquired from the pool and held until the returned release function runs
-// (pg_advisory_unlock + conn.Release). Contention fails fast with
-// ErrIndexLockHeld — callers do not queue.
+// advisory lock. Contention fails fast with ErrIndexLockHeld — callers do not
+// queue.
 func (s *PostgresStore) TryAcquireIndexLock() (func(), error) {
+	return s.tryAdvisoryLock(indexLockAdvisoryKey, ErrIndexLockHeld)
+}
+
+// TryAcquireWorkerLock takes the cross-process System2 worker-cycle lock as a
+// pg advisory lock. Contention fails fast with ErrWorkerLockHeld — callers
+// skip the cycle instead of queueing.
+func (s *PostgresStore) TryAcquireWorkerLock() (func(), error) {
+	return s.tryAdvisoryLock(workerLockAdvisoryKey, ErrWorkerLockHeld)
+}
+
+// tryAdvisoryLock runs pg_try_advisory_lock(key). Advisory locks are
+// session-scoped, so a dedicated connection is acquired from the pool and
+// held until the returned release function runs (pg_advisory_unlock +
+// conn.Release); a crashed process drops its session and the lock with it.
+func (s *PostgresStore) tryAdvisoryLock(key int64, held error) (func(), error) {
 	ctx := context.Background()
 	conn, err := s.pool.Acquire(ctx)
 	if err != nil {
 		return nil, err
 	}
 	var ok bool
-	if err := conn.QueryRow(ctx, "SELECT pg_try_advisory_lock($1)", indexLockAdvisoryKey).Scan(&ok); err != nil {
+	if err := conn.QueryRow(ctx, "SELECT pg_try_advisory_lock($1)", key).Scan(&ok); err != nil {
 		conn.Release()
 		return nil, err
 	}
 	if !ok {
 		conn.Release()
-		return nil, ErrIndexLockHeld
+		return nil, held
 	}
 	return func() {
-		_, _ = conn.Exec(context.Background(), "SELECT pg_advisory_unlock($1)", indexLockAdvisoryKey)
+		_, _ = conn.Exec(context.Background(), "SELECT pg_advisory_unlock($1)", key)
 		conn.Release()
 	}, nil
 }

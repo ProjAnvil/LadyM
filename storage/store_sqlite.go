@@ -247,6 +247,17 @@ func (s *SQLiteStore) TryAcquireIndexLock() (func(), error) {
 	return acquireIndexLock(s.DBPath)
 }
 
+// workerLockPath names the System2 worker lock file <db>.worker.lock — a
+// sidecar parallel to the index lock.
+func workerLockPath(dbPath string) string { return dbPath + ".worker.lock" }
+
+// TryAcquireWorkerLock takes the cross-process System2 worker-cycle lock on
+// <db>.worker.lock and returns the release function. Contention fails fast
+// with ErrWorkerLockHeld — callers skip the cycle instead of queueing.
+func (s *SQLiteStore) TryAcquireWorkerLock() (func(), error) {
+	return acquireWorkerLock(s.DBPath)
+}
+
 // ---- memory CRUD ----
 
 func (s *SQLiteStore) PutMemory(mem *schema.Memory, vector []float32) error {

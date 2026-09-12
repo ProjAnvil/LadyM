@@ -457,15 +457,36 @@ func (e *Engine) StartSystem2(intervalS int, workspace string) chan struct{} {
 				return
 			default:
 			}
-			if _, err := operations.RunSystem2Cycle(workerEng, workspace); err != nil {
+			// Take the cross-process worker lock per cycle so redundant
+			// replicas never run a cycle twice; a held lock means standby —
+			// skip the cycle without counting it as a failure.
+			release, err := workerEng.Store.TryAcquireWorkerLock()
+			if errors.Is(err, storage.ErrWorkerLockHeld) {
+				observability.Default().IncSystem2Cycle("skipped")
+				log.Printf("[ladym.system2] cycle skipped: another worker holds the lock")
+			} else if err != nil {
+				observability.Default().IncSystem2Cycle("failed")
 				consecutiveErrs++
-				log.Printf("[ladym.system2] cycle failed (%d/%d consecutive): %v", consecutiveErrs, maxErrs, err)
+				log.Printf("[ladym.system2] worker lock failed (%d/%d consecutive): %v", consecutiveErrs, maxErrs, err)
 				if consecutiveErrs >= maxErrs {
 					log.Printf("[ladym.system2] worker stopping after %d consecutive failures", consecutiveErrs)
 					return
 				}
 			} else {
-				consecutiveErrs = 0
+				_, err := operations.RunSystem2Cycle(workerEng, workspace)
+				release()
+				if err != nil {
+					observability.Default().IncSystem2Cycle("failed")
+					consecutiveErrs++
+					log.Printf("[ladym.system2] cycle failed (%d/%d consecutive): %v", consecutiveErrs, maxErrs, err)
+					if consecutiveErrs >= maxErrs {
+						log.Printf("[ladym.system2] worker stopping after %d consecutive failures", consecutiveErrs)
+						return
+					}
+				} else {
+					observability.Default().IncSystem2Cycle("ran")
+					consecutiveErrs = 0
+				}
 			}
 			select {
 			case <-stop:

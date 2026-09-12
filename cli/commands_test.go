@@ -6,6 +6,9 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"io"
+	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -17,6 +20,7 @@ import (
 	"github.com/ProjAnvil/LadyM/code"
 	"github.com/ProjAnvil/LadyM/config"
 	"github.com/ProjAnvil/LadyM/engine"
+	"github.com/ProjAnvil/LadyM/observability"
 )
 
 // ---- helpers ----
@@ -602,6 +606,72 @@ func TestRunWorkerLoopOncePropagatesError(t *testing.T) {
 	eng.Close() // cycles against a closed store fail
 	if err := runWorkerLoop(eng, true, 0, ""); err == nil {
 		t.Error("expected cycle error to propagate in --once mode")
+	}
+}
+
+// A held worker lock means another replica is running the cycle: the standby
+// replica skips it, which is not an error even in --once mode.
+func TestRunWorkerLoopSkipsWhenLockHeld(t *testing.T) {
+	eng, err := engine.New(config.ForTesting(t.TempDir()))
+	if err != nil {
+		t.Fatalf("engine.New: %v", err)
+	}
+	t.Cleanup(func() { eng.Close() })
+	release, err := eng.Store.TryAcquireWorkerLock()
+	if err != nil {
+		t.Fatalf("TryAcquireWorkerLock: %v", err)
+	}
+	defer release()
+	if err := runWorkerLoop(eng, true, 0, ""); err != nil {
+		t.Errorf("--once with held lock = %v, want nil (standby skip)", err)
+	}
+}
+
+// `ladym worker --metrics-addr` serves the global registry: after one cycle,
+// ladym_system2_cycles_total{result="ran"} shows up on /metrics.
+func TestWorkerMetricsServer(t *testing.T) {
+	eng, err := engine.New(config.ForTesting(t.TempDir()))
+	if err != nil {
+		t.Fatalf("engine.New: %v", err)
+	}
+	t.Cleanup(func() { eng.Close() })
+
+	before := observability.Default().System2Cycles()["ran"]
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := &http.Server{Handler: workerMetricsHandler(eng)}
+	go func() { _ = srv.Serve(ln) }()
+	t.Cleanup(func() { srv.Close() })
+
+	if err := runWorkerLoop(eng, true, 0, ""); err != nil {
+		t.Fatalf("worker cycle: %v", err)
+	}
+	if got := observability.Default().System2Cycles()["ran"]; got != before+1 {
+		t.Fatalf("cycles ran delta = %d-%d, want +1", got, before)
+	}
+
+	resp, err := http.Get("http://" + ln.Addr().String() + "/metrics")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if ct := resp.Header.Get("Content-Type"); ct != "text/plain; version=0.0.4; charset=utf-8" {
+		t.Fatalf("/metrics Content-Type = %q", ct)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	if !strings.Contains(string(body), `ladym_system2_cycles_total{result="ran"}`) {
+		t.Errorf("/metrics missing system2 cycle counter:\n%s", body)
+	}
+
+	resp, err = http.Get("http://" + ln.Addr().String() + "/healthz")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Errorf("/healthz = %d, want 200", resp.StatusCode)
 	}
 }
 

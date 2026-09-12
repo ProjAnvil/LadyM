@@ -89,6 +89,9 @@ services:
     # The worker role IS the `worker` command (System 2 loop). There is no
     # LADYM_SYSTEM2_ENABLED env in config applyEnv — cycle knobs
     # (interval etc.) are the command's flags / ladym.toml [system2].
+    # Running extra replicas is safe: each cycle takes a cross-process lock
+    # (pg advisory lock) and standby replicas skip the cycle, so e.g.
+    # `deploy.replicas: 2` adds failover without duplicate consolidation.
     command: ["worker"]
     volumes:
       - cjk-dict:/data/cjk-dict
