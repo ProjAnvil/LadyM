@@ -259,6 +259,45 @@ repo-local `bin/ladym`. Requires Python ≥ 3.12. See
 implementation is preserved on the
 [`python`](https://github.com/ProjAnvil/LadyM/tree/python) branch.)
 
+### Python SDK (HTTP data-plane)
+
+For talking to a running `ladym serve --http` deployment (including multi-replica
+enterprise setups behind the gateway) there is [`sdk/python`](sdk/python/) — package
+`ladym-client`, zero runtime dependencies, Python ≥ 3.10. It mirrors the Go HTTP
+client (`client/golang`): `remember` / `recall` / `record_event` / `consolidate` /
+`stats` / `link` / `forget` plus the memories CRUD, with Basic-auth support.
+
+```python
+from ladym_client import Client
+
+c = Client("http://127.0.0.1:8080", username="alice", password="s3cret")
+c.remember("deploys go through Argo CD", tags=["ops"])
+for hit in c.recall("how do we deploy?").results:
+    print(hit.score, hit.memory.summary)
+```
+
+See [`sdk/python/README.md`](sdk/python/README.md) for install and testing.
+
+### TypeScript SDK (HTTP data-plane)
+
+[`sdk/typescript`](sdk/typescript/) is the same HTTP client for Node ≥ 20 /
+browsers — package `ladym-client`, zero runtime dependencies (global fetch,
+injectable for tests), ESM + `.d.ts`. The method surface mirrors the Go and
+Python SDKs in camelCase (`remember` / `recall` / `recordEvent` / `stats` /
+`listMemories` / …), errors throw `LadymError` with the HTTP status.
+
+```ts
+import { LadymClient } from "ladym-client";
+
+const c = new LadymClient("http://127.0.0.1:8080", { username: "alice", password: "s3cret" });
+await c.remember("deploys go through Argo CD", { tags: ["ops"] });
+for (const hit of (await c.recall("how do we deploy?")).results) {
+  console.log(hit.score, hit.memory.summary);
+}
+```
+
+See [`sdk/typescript/README.md`](sdk/typescript/README.md) for install and testing.
+
 ### Injecting your own langchain-golang models
 
 If your app already configures langchain-golang chat / embedding models
