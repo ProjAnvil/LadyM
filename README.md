@@ -421,9 +421,9 @@ encrypted storage and rely on OS file permissions (dir `0700`, files `0600`). **
 
 | Command | What it does |
 |---|---|
-| `ladym serve --http :8080` | HTTP data-plane API (`/api/*`, optional Basic auth) plus the embedded management console at `/` (login, memory CRUD, user admin, stats) |
+| `ladym serve --http :8080` | HTTP data-plane API (`/api/*`, optional Basic auth) plus the embedded management console at `/` (login, memory CRUD, user admin, stats); Prometheus exposition at `/metrics` (auth-exempt, next to `/healthz`) |
 | `ladym config <sub>` | Encrypted secret store: `set` / `set-master-key` / `reset-master-key` / `list` / `rm` |
-| `ladym worker` | Background System 2 consolidation daemon; flags: `--once`, `--interval N` (seconds) |
+| `ladym worker` | Background System 2 consolidation daemon; flags: `--once`, `--interval N` (seconds), `--metrics-addr :9090` (serve `/metrics` + `/healthz`) |
 
 ## Testing
 

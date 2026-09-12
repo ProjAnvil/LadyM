@@ -41,9 +41,9 @@ docker-compose 拓扑、配置参考与运维基线。个人版 / 企业版的�
   (`api-1:8080` + `api-2:8080`,默认轮询),`/` 反代到 `console:8080`。其余服务
   都在内部 network,不映射任何宿主端口。
 - **api**:无状态,可水平扩副本——参考部署直接起 **api-1 / api-2 两个节点**,由
-  gateway 轮询负载均衡。注意单副本内所有 `/api/*` 请求经一把进程级互斥锁
-  串行(`api.Handler.mu`),因此**单副本吞吐靠串行,横向扩展靠多副本**(多副本共享
-  同一个 PG,工作区隔离见下文)。
+  gateway 轮询负载均衡。副本内 `/api/*` 请求并发执行,按请求 workspace scope
+  隔离(`engine.Scope`),存储层并发由 PG 连接池兜底;**横向扩展靠多副本**(多副本
+  共享同一个 PG,工作区隔离见下文)。
   企业版的 api 节点**完全不内嵌管理台**(`ladym` 二进制不含 Vue 资产,由
   `go list -deps` 门禁保证):`/` 与其他非 `/api` 路径返回 404 JSON
   (`console not embedded in enterprise build; run \`ladymconsole\``);`/api/*`
@@ -61,6 +61,12 @@ docker-compose 拓扑、配置参考与运维基线。个人版 / 企业版的�
   之类的 env;周期参数用 `--interval`(秒,默认 300)/ `--once`,更深的旋钮走
   `ladym.toml` 的 `[system2]` 表。离线部署(LLM provider = none)时 worker 自动跳过
   L5/L6 两个需要 LLM 的步骤,其余步骤照常。
+  worker 可以跑**多个副本**(冗余/故障转移):每个周期先抢跨进程互斥锁
+  (PG 用 session 级 advisory lock,sqlite 用 flock `<db>.worker.lock`),抢不到
+  的副本作为 standby 跳过本周期(不算失败);锁按周期获取-释放,任一副本崩溃后
+  其余副本下个周期自动接管,不会重复执行 consolidate(重复 = 重复 LLM 调用 +
+  写冲突)。参考拓扑默认仍只跑 1 个 worker,多副本自行加 `deploy.replicas` 或
+  复制 service 即可。
 - **pg**:唯一的持久层。三层拓扑里**不映射宿主端口**,只经内部 network 被
   ladym 服务访问。schema(memories / edges / code_symbols / …)与
   `CREATE EXTENSION IF NOT EXISTS vector` 由服务启动时自动建立,无需手工迁移。
@@ -223,6 +229,31 @@ docker compose -f docker-compose.dev.yml -p ladym-dev down -v
 - **`GET /api/metrics`**(与 `/api/*` 一样受鉴权):进程内计数器,字段:
   - `endpoints`:每个端点 `{requests, errors}`(errors = 非 2xx);
   - `recall_avg_ms`:recall 请求的运行平均耗时。
+- **`GET /metrics`**(免鉴权,与 `/healthz` 同级):Prometheus 0.0.4 文本 exposition,
+  手写格式、零新依赖。指标清单:
+  - `ladym_http_requests_total{endpoint,status}` — counter,endpoint 用路由模式
+    (`/api/memories/{id}` 而非原始 path),status 为 `2xx/4xx/5xx` 类别;路由前被
+    拒绝的请求(401、未知路径)计入 `endpoint="unknown"`;
+  - `ladym_http_request_duration_seconds{endpoint}` — histogram(固定 buckets
+    .005–5s,带 `_sum`/`_count`;`/api/metrics` 的 `recall_avg_ms` 也从这里算);
+  - `ladym_http_requests_in_flight` — gauge;
+  - `ladym_system2_cycles_total{result}` — counter,`result ∈ ran/skipped/failed`,
+    由 worker 周期(loop 与 `--once`)与 engine 内嵌 System2 写入;
+  - `ladym_go_goroutines` — gauge,scrape 时实时值。
+  `/metrics` 与 `/healthz` 本身不计入请求指标。
+- **worker 的指标**:`ladym worker` 不 serve HTTP,加 `--metrics-addr :9090` 即在
+  该地址起只含 `/metrics` + `/healthz` 的极简 server,随 worker 退出关闭。compose
+  里给 Prometheus 挂 scrape 的示例:
+
+  ```yaml
+  # prometheus.yml 片段(与 worker 同 network)
+  scrape_configs:
+    - job_name: ladym
+      static_configs:
+        - targets: ["api-1:8080", "api-2:8080", "worker:9090"]
+  ```
+
+  对应 worker 服务加 `command: ["worker", "--metrics-addr", ":9090"]`。
 - **启动 banner**(stderr):监听地址、db、workspace、鉴权模式(`auth=off/on`;
   `auth=on` 且 users 表为空时带 WARNING,提示 `ladym user add`)。
 
