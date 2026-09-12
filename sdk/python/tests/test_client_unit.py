@@ -146,6 +146,12 @@ def test_list_memories_defaults_send_no_query():
     assert ft.calls[0]["query"] == {}
 
 
+def test_list_memories_layer_and_type_filters():
+    c, ft = make_client((200, {"memories": [], "total": 0}))
+    c.list_memories(layer="semantic", type="fact")
+    assert ft.calls[0]["query"] == {"layer": "semantic", "type": "fact"}
+
+
 def test_update_memory_partial_patch():
     c, ft = make_client((200, {"memory": {"id": "m1", "content": "new"}}))
     out = c.update_memory("m1", content="new")

@@ -127,6 +127,8 @@ func TestListOffsetBounds(t *testing.T) {
 		{"negative offset clamps to zero", 10, -1, 3},
 		{"negative limit and offset", -3, -2, 3},
 		{"offset past end", 10, 99, 0},
+		{"limit truncates the page", 2, 0, 2},
+		{"limit truncates after offset", 1, 1, 1},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

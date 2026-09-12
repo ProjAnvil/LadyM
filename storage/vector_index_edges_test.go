@@ -12,13 +12,19 @@ func TestVectorIndexDelete(t *testing.T) {
 		t.Errorf("Len = %d, want 0", ix.Len())
 	}
 
-	vecs := map[string][]float32{
-		"a": {1, 0},
-		"b": {0, 1},
-		"c": {1, 1},
+	// Insert in a fixed order (a, b, c) so "a" is guaranteed to be a middle
+	// element and "c" the last one — a map's random iteration order made
+	// the swap branch below flaky.
+	vecs := []struct {
+		id string
+		v  []float32
+	}{
+		{"a", []float32{1, 0}},
+		{"b", []float32{0, 1}},
+		{"c", []float32{1, 1}},
 	}
-	for id, v := range vecs {
-		if err := ix.Upsert(id, v); err != nil {
+	for _, e := range vecs {
+		if err := ix.Upsert(e.id, e.v); err != nil {
 			t.Fatal(err)
 		}
 	}
