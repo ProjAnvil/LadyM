@@ -3,11 +3,10 @@
 // parameter semantics of mcp/server.go, with optional database-backed HTTP
 // Basic auth (users table) and per-user workspace enforcement.
 //
-// Concurrency: engine.Engine is built for single-process CLI/MCP use (shared
-// Config, per-layer Workspace fields, lazily-resolved LLM agents). Rather than
-// auditing every call path for races, every engine call is serialized through
-// one request-level mutex — simple and safe; throughput is not a goal of this
-// front-end.
+// Concurrency: engine calls run without a request-level lock. Per-request
+// workspace isolation goes through engine.Scope (a workspace-bound view of the
+// shared engine); store concurrency is handled by database/sql and the backend
+// (SQLite writes serialize via WAL + busy_timeout).
 package api
 
 import (
@@ -19,12 +18,12 @@ import (
 	"net/http"
 	"os"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/ProjAnvil/LadyM/code"
 	"github.com/ProjAnvil/LadyM/config"
 	"github.com/ProjAnvil/LadyM/engine"
+	"github.com/ProjAnvil/LadyM/observability"
 	"github.com/ProjAnvil/LadyM/schema"
 	"github.com/ProjAnvil/LadyM/storage"
 	"golang.org/x/crypto/bcrypt"
@@ -35,12 +34,9 @@ type Handler struct {
 	eng *engine.Engine
 	cfg *config.Config
 
-	// mu serializes all engine calls (see package doc).
-	mu sync.Mutex
-
 	authEnabled bool // [auth] enabled: /api/* requires users-table Basic auth
 
-	metrics *httpMetrics // in-process request counters for /api/metrics
+	registry *observability.Registry // request counters for /metrics + /api/metrics
 }
 
 type ctxKey int
@@ -54,7 +50,13 @@ const (
 // data-plane mux (NewMux) plus the edition-dependent console mount at "/"
 // (console_mount_*.go), wrapped in the standard middleware.
 func NewHandler(eng *engine.Engine, cfg *config.Config) http.Handler {
-	mux, wrap := NewMux(eng, cfg)
+	return NewHandlerWithRegistry(eng, cfg, observability.Default())
+}
+
+// NewHandlerWithRegistry is NewHandler with an injectable metrics registry
+// (tests use isolated instances; production uses observability.Default()).
+func NewHandlerWithRegistry(eng *engine.Engine, cfg *config.Config, reg *observability.Registry) http.Handler {
+	mux, wrap := NewMuxWithRegistry(eng, cfg, reg)
 	mountConsole(mux)
 	return wrap(mux)
 }
@@ -66,33 +68,46 @@ func NewHandler(eng *engine.Engine, cfg *config.Config) http.Handler {
 // returned wrapper applies the standard middleware chain (auth +
 // observability) and must be applied AFTER any extra top-level mounts.
 func NewMux(eng *engine.Engine, cfg *config.Config) (mux *http.ServeMux, wrap func(http.Handler) http.Handler) {
-	h := &Handler{eng: eng, cfg: cfg, authEnabled: cfg.AuthEnabled, metrics: newHTTPMetrics()}
+	return NewMuxWithRegistry(eng, cfg, observability.Default())
+}
+
+// NewMuxWithRegistry is NewMux with an injectable metrics registry (tests use
+// isolated instances; production uses observability.Default()).
+func NewMuxWithRegistry(eng *engine.Engine, cfg *config.Config, reg *observability.Registry) (mux *http.ServeMux, wrap func(http.Handler) http.Handler) {
+	h := &Handler{eng: eng, cfg: cfg, authEnabled: cfg.AuthEnabled, registry: reg}
 
 	mux = http.NewServeMux()
 	mux.HandleFunc("GET /healthz", h.handleHealthz)
-	mux.HandleFunc("GET /api/metrics", h.handleMetrics)
-	mux.HandleFunc("POST /api/login", h.handleLogin)
-	mux.HandleFunc("POST /api/recall", h.handleRecall)
-	mux.HandleFunc("POST /api/remember", h.handleRemember)
-	mux.HandleFunc("POST /api/record_event", h.handleRecordEvent)
-	mux.HandleFunc("POST /api/search_code", h.handleSearchCode)
-	mux.HandleFunc("POST /api/index_code", h.handleIndexCode)
-	mux.HandleFunc("POST /api/consolidate", h.handleConsolidate)
-	mux.HandleFunc("POST /api/stats", h.handleStats)
-	mux.HandleFunc("POST /api/link", h.handleLink)
-	mux.HandleFunc("POST /api/forget", h.handleForget)
+	// Prometheus scrape endpoint: outside /api/ so it is auth-exempt (like
+	// /healthz) and excluded from the request metrics it serves.
+	mux.HandleFunc("GET /metrics", h.handlePromMetrics)
+	// Every /api/* route is registered through instrument with its static
+	// route pattern as the metric label: r.Pattern is not visible outside the
+	// mux (ServeMux shallow-copies the request), and raw paths with {id}
+	// segments would explode label cardinality.
+	mux.HandleFunc("GET /api/metrics", h.instrument("/api/metrics", h.handleMetrics))
+	mux.HandleFunc("POST /api/login", h.instrument("/api/login", h.handleLogin))
+	mux.HandleFunc("POST /api/recall", h.instrument("/api/recall", h.handleRecall))
+	mux.HandleFunc("POST /api/remember", h.instrument("/api/remember", h.handleRemember))
+	mux.HandleFunc("POST /api/record_event", h.instrument("/api/record_event", h.handleRecordEvent))
+	mux.HandleFunc("POST /api/search_code", h.instrument("/api/search_code", h.handleSearchCode))
+	mux.HandleFunc("POST /api/index_code", h.instrument("/api/index_code", h.handleIndexCode))
+	mux.HandleFunc("POST /api/consolidate", h.instrument("/api/consolidate", h.handleConsolidate))
+	mux.HandleFunc("POST /api/stats", h.instrument("/api/stats", h.handleStats))
+	mux.HandleFunc("POST /api/link", h.instrument("/api/link", h.handleLink))
+	mux.HandleFunc("POST /api/forget", h.instrument("/api/forget", h.handleForget))
 	// Console data CRUD (spec §3.1): memories list/update/delete plus the
 	// admin-only users management endpoints.
-	mux.HandleFunc("GET /api/memories", h.handleListMemories)
-	mux.HandleFunc("PUT /api/memories/{id}", h.handleUpdateMemory)
-	mux.HandleFunc("DELETE /api/memories/{id}", h.handleDeleteMemory)
-	mux.HandleFunc("GET /api/users", h.handleListUsers)
-	mux.HandleFunc("POST /api/users", h.handleCreateUser)
-	mux.HandleFunc("PUT /api/users/{username}", h.handleUpdateUser)
-	mux.HandleFunc("DELETE /api/users/{username}", h.handleDeleteUser)
-	mux.HandleFunc("GET /api/cjk_dict", h.handleCJKDictStatus)
-	mux.HandleFunc("POST /api/cjk_dict/download", h.handleCJKDictDownload)
-	mux.HandleFunc("DELETE /api/cjk_dict", h.handleCJKDictRemove)
+	mux.HandleFunc("GET /api/memories", h.instrument("/api/memories", h.handleListMemories))
+	mux.HandleFunc("PUT /api/memories/{id}", h.instrument("/api/memories/{id}", h.handleUpdateMemory))
+	mux.HandleFunc("DELETE /api/memories/{id}", h.instrument("/api/memories/{id}", h.handleDeleteMemory))
+	mux.HandleFunc("GET /api/users", h.instrument("/api/users", h.handleListUsers))
+	mux.HandleFunc("POST /api/users", h.instrument("/api/users", h.handleCreateUser))
+	mux.HandleFunc("PUT /api/users/{username}", h.instrument("/api/users/{username}", h.handleUpdateUser))
+	mux.HandleFunc("DELETE /api/users/{username}", h.instrument("/api/users/{username}", h.handleDeleteUser))
+	mux.HandleFunc("GET /api/cjk_dict", h.instrument("/api/cjk_dict", h.handleCJKDictStatus))
+	mux.HandleFunc("POST /api/cjk_dict/download", h.instrument("/api/cjk_dict/download", h.handleCJKDictDownload))
+	mux.HandleFunc("DELETE /api/cjk_dict", h.instrument("/api/cjk_dict", h.handleCJKDictRemove))
 	// Observability wraps auth so rejected (401) /api/* requests are also
 	// logged and counted. /healthz is not under /api/ and stays exempt.
 	return mux, func(inner http.Handler) http.Handler {
@@ -239,47 +254,14 @@ func (h *Handler) handleHealthz(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
 }
 
-// httpMetrics is the process-internal minimal metrics store: per-endpoint
-// request/error counts plus a running average of recall latency. One mutex,
-// no registry abstraction.
-type httpMetrics struct {
-	mu        sync.Mutex
-	endpoints map[string]*endpointStats
-	recallSum float64 // total recall duration, ms
-	recallN   int
-}
-
-type endpointStats struct {
-	Requests int `json:"requests"`
-	Errors   int `json:"errors"` // non-2xx responses
-}
-
-func newHTTPMetrics() *httpMetrics {
-	return &httpMetrics{endpoints: map[string]*endpointStats{}}
-}
-
-func (m *httpMetrics) record(path string, status int, ms float64) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	st := m.endpoints[path]
-	if st == nil {
-		st = &endpointStats{}
-		m.endpoints[path] = st
-	}
-	st.Requests++
-	if status < 200 || status >= 300 {
-		st.Errors++
-	}
-	if path == "/api/recall" {
-		m.recallSum += ms
-		m.recallN++
-	}
-}
-
 // statusRecorder captures the response status for the request log/metrics.
+// counted marks that a route-level instrument wrapper already recorded the
+// request, so the outer middleware only counts requests that never reached
+// routing (auth 401s, unknown paths) — under the fixed "unknown" label.
 type statusRecorder struct {
 	http.ResponseWriter
-	status int
+	status  int
+	counted bool
 }
 
 func (r *statusRecorder) WriteHeader(status int) {
@@ -287,10 +269,35 @@ func (r *statusRecorder) WriteHeader(status int) {
 	r.ResponseWriter.WriteHeader(status)
 }
 
+// instrument wraps one route's handler with the metrics feed (in-flight
+// gauge, requests counter, duration histogram) under the route's static
+// pattern as label.
+func (h *Handler) instrument(pattern string, fn http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if rec, ok := w.(*statusRecorder); ok {
+			rec.counted = true
+		}
+		h.registry.IncInFlight()
+		defer h.registry.DecInFlight()
+		start := time.Now()
+		fn(w, r)
+		h.registry.IncRequests(pattern, statusClass(recStatus(w)))
+		h.registry.ObserveDuration(pattern, time.Since(start).Seconds())
+	}
+}
+
+func recStatus(w http.ResponseWriter) int {
+	if rec, ok := w.(*statusRecorder); ok {
+		return rec.status
+	}
+	return http.StatusOK
+}
+
 // withObservability emits one stderr log line per /api/* request
 // ("method path status duration_ms workspace", same fmt.Fprintf(os.Stderr)
-// style as the project's WARNING lines) and feeds the /api/metrics counters.
-// It wraps the auth middleware so 401s are logged and counted too.
+// style as the project's WARNING lines). Route-level metrics come from
+// instrument; this layer additionally counts requests rejected before routing
+// (401s, unknown paths) under endpoint "unknown".
 func (h *Handler) withObservability(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !strings.HasPrefix(r.URL.Path, "/api/") {
@@ -301,7 +308,9 @@ func (h *Handler) withObservability(next http.Handler) http.Handler {
 		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
 		next.ServeHTTP(rec, r)
 		ms := float64(time.Since(start).Microseconds()) / 1000
-		h.metrics.record(r.URL.Path, rec.status, ms)
+		if !rec.counted {
+			h.registry.IncRequests("unknown", statusClass(rec.status))
+		}
 		// The effective workspace: the forced user workspace (echoed by auth
 		// as X-Ladym-Workspace) or, failing that, the server default. A
 		// body-level workspace override by an admin caller is not visible at
@@ -314,18 +323,34 @@ func (h *Handler) withObservability(next http.Handler) http.Handler {
 	})
 }
 
-// handleMetrics returns the in-process counters (auth-gated like the rest of
-// /api/*).
-func (h *Handler) handleMetrics(w http.ResponseWriter, r *http.Request) {
-	h.metrics.mu.Lock()
-	defer h.metrics.mu.Unlock()
-	endpoints := make(map[string]endpointStats, len(h.metrics.endpoints))
-	for path, st := range h.metrics.endpoints {
-		endpoints[path] = *st
+func statusClass(status int) string {
+	switch {
+	case status >= 500:
+		return "5xx"
+	case status >= 400:
+		return "4xx"
+	default:
+		return "2xx"
 	}
+}
+
+// handlePromMetrics serves the Prometheus text exposition (auth-exempt,
+// outside /api/).
+func (h *Handler) handlePromMetrics(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	h.registry.Render(w)
+}
+
+// handleMetrics returns the in-process counters as JSON for the console
+// (auth-gated like the rest of /api/*). The response shape is frozen; the
+// data source is the same registry that /metrics renders.
+func (h *Handler) handleMetrics(w http.ResponseWriter, r *http.Request) {
+	endpoints := h.registry.EndpointStatsSnapshot()
+	sum, count := h.registry.DurationSumCount("/api/recall")
 	var recallAvg float64
-	if h.metrics.recallN > 0 {
-		recallAvg = h.metrics.recallSum / float64(h.metrics.recallN)
+	if count > 0 {
+		recallAvg = sum / float64(count) * 1000
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"endpoints": endpoints, "recall_avg_ms": recallAvg,
@@ -388,25 +413,6 @@ func (h *Handler) effectiveWS(r *http.Request, bodyWS string) string {
 	return bodyWS
 }
 
-// withWorkspace runs fn with the engine's write workspace temporarily
-// retargeted. engine.Remember/RecordEvent have no per-call workspace parameter
-// (their layers read Config.Workspace); since every engine call is serialized
-// under h.mu, mutating + restoring these fields is race-free and leaves no
-// shared-state change behind. engine.SetWorkspace is deliberately not used —
-// it would also rebuild the WorkingMemory layer, which HTTP writes don't need.
-func (h *Handler) withWorkspace(ws string, fn func() error) error {
-	if ws == "" {
-		return fn()
-	}
-	e := h.eng
-	oldCfg, oldSem, oldEpi := e.Config.Workspace, e.Semantic.Workspace, e.Episodic.Workspace
-	e.Config.Workspace, e.Semantic.Workspace, e.Episodic.Workspace = ws, ws, ws
-	defer func() {
-		e.Config.Workspace, e.Semantic.Workspace, e.Episodic.Workspace = oldCfg, oldSem, oldEpi
-	}()
-	return fn()
-}
-
 // recallResultsJSON mirrors the MCP recall result shape (mcp/server.go).
 func recallResultsJSON(results []*schema.RecallResult) []map[string]any {
 	out := make([]map[string]any, 0, len(results))
@@ -447,8 +453,6 @@ func (h *Handler) handleRecall(w http.ResponseWriter, r *http.Request) {
 	}
 	ws := h.effectiveWS(r, body.Workspace)
 
-	h.mu.Lock()
-	defer h.mu.Unlock()
 	var resp *schema.RecallResponse
 	var err error
 	if body.CodeOnly {
@@ -489,14 +493,7 @@ func (h *Handler) handleRemember(w http.ResponseWriter, r *http.Request) {
 	}
 	ws := h.effectiveWS(r, body.Workspace)
 
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	var m *schema.Memory
-	err := h.withWorkspace(ws, func() error {
-		var err error
-		m, err = h.eng.Remember(body.Content, schema.LayerSemantic, schema.TypeFact, body.Tags, nil, source, "")
-		return err
-	})
+	m, err := h.eng.Scope(ws).Remember(body.Content, schema.LayerSemantic, schema.TypeFact, body.Tags, nil, source, "")
 	if err != nil {
 		engineError(w, err)
 		return
@@ -527,14 +524,7 @@ func (h *Handler) handleRecordEvent(w http.ResponseWriter, r *http.Request) {
 	}
 	ws := h.effectiveWS(r, body.Workspace)
 
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	var m *schema.Memory
-	err := h.withWorkspace(ws, func() error {
-		var err error
-		m, err = h.eng.RecordEvent(body.Agent, body.Action, body.Observation, body.Outcome, body.Tags, nil)
-		return err
-	})
+	m, err := h.eng.Scope(ws).RecordEvent(body.Agent, body.Action, body.Observation, body.Outcome, body.Tags, nil)
 	if err != nil {
 		engineError(w, err)
 		return
@@ -561,8 +551,6 @@ func (h *Handler) handleSearchCode(w http.ResponseWriter, r *http.Request) {
 	}
 	ws := h.effectiveWS(r, body.Workspace)
 
-	h.mu.Lock()
-	defer h.mu.Unlock()
 	resp, err := h.eng.SearchCode(body.Query, body.TopK, ws)
 	if err != nil {
 		engineError(w, err)
@@ -590,8 +578,6 @@ func (h *Handler) handleIndexCode(w http.ResponseWriter, r *http.Request) {
 	}
 	ws := h.effectiveWS(r, body.Workspace)
 
-	h.mu.Lock()
-	defer h.mu.Unlock()
 	report, err := h.eng.IndexCode(body.Root, body.Force, ws, body.Languages)
 	if err != nil {
 		engineError(w, err)
@@ -616,8 +602,6 @@ func (h *Handler) handleConsolidate(w http.ResponseWriter, r *http.Request) {
 	}
 	ws := h.effectiveWS(r, body.Workspace)
 
-	h.mu.Lock()
-	defer h.mu.Unlock()
 	report, err := h.eng.Consolidate(ws, body.Since)
 	if err != nil {
 		engineError(w, err)
@@ -639,8 +623,6 @@ func (h *Handler) handleStats(w http.ResponseWriter, r *http.Request) {
 	}
 	ws := h.effectiveWS(r, body.Workspace)
 
-	h.mu.Lock()
-	defer h.mu.Unlock()
 	st, err := h.eng.StatsFor(ws)
 	if err != nil {
 		engineError(w, err)
@@ -698,8 +680,6 @@ func (h *Handler) handleLink(w http.ResponseWriter, r *http.Request) {
 		body.Relation = "related_to"
 	}
 
-	h.mu.Lock()
-	defer h.mu.Unlock()
 	if !h.enforceMemoryWorkspace(w, r, body.Src, body.Dst) {
 		return
 	}
@@ -724,8 +704,6 @@ func (h *Handler) handleForget(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.mu.Lock()
-	defer h.mu.Unlock()
 	if !h.enforceMemoryWorkspace(w, r, body.MemoryID) {
 		return
 	}

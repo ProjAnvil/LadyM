@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"sync"
 )
 
 // SearchHit is one (id, similarity) pair returned by Search.
@@ -25,6 +26,7 @@ type VectorIndex interface {
 // Python port with a pure-Go equivalent; vectors are still persisted as BLOBs
 // in the store so a reopened store can rebuild the index.
 type InMemoryVectorIndex struct {
+	mu      sync.RWMutex
 	dim     int
 	ids     []string
 	idToIdx map[string]int
@@ -54,6 +56,8 @@ func (ix *InMemoryVectorIndex) Upsert(itemID string, vector []float32) error {
 			vec[i] = float32(float64(vec[i]) / n)
 		}
 	}
+	ix.mu.Lock()
+	defer ix.mu.Unlock()
 	if idx, ok := ix.idToIdx[itemID]; ok {
 		ix.mat[idx] = vec
 		return nil
@@ -65,6 +69,10 @@ func (ix *InMemoryVectorIndex) Upsert(itemID string, vector []float32) error {
 }
 
 func (ix *InMemoryVectorIndex) Search(query []float32, topK int) []SearchHit {
+	// `all` is built from the index's slices under the read lock and sorted
+	// afterwards, so Search never mutates shared state.
+	ix.mu.RLock()
+	defer ix.mu.RUnlock()
 	if len(ix.ids) == 0 {
 		return nil
 	}
@@ -104,6 +112,8 @@ func (ix *InMemoryVectorIndex) Search(query []float32, topK int) []SearchHit {
 }
 
 func (ix *InMemoryVectorIndex) Delete(itemID string) {
+	ix.mu.Lock()
+	defer ix.mu.Unlock()
 	idx, ok := ix.idToIdx[itemID]
 	if !ok {
 		return
@@ -120,4 +130,8 @@ func (ix *InMemoryVectorIndex) Delete(itemID string) {
 	ix.mat = ix.mat[:last]
 }
 
-func (ix *InMemoryVectorIndex) Len() int { return len(ix.ids) }
+func (ix *InMemoryVectorIndex) Len() int {
+	ix.mu.RLock()
+	defer ix.mu.RUnlock()
+	return len(ix.ids)
+}

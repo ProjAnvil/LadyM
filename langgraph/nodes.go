@@ -86,9 +86,9 @@ func CreateRecallNode(eng *engine.Engine, topK int, prefix string, wsFn Workspac
 
 // CreateRetainNode returns a graph node that stores the latest human+AI turn
 // into long-term memory (subject to ladyM's attention gate), mirroring
-// Python's create_retain_node. For per-request multi-user isolation (a
-// resolved workspace different from the engine default) a short-lived
-// workspace-bound Engine is built per call and closed afterwards.
+// Python's create_retain_node. Per-request multi-user isolation goes through
+// eng.Scope: the write lands in the resolved workspace without touching the
+// shared engine's workspace state.
 func CreateRetainNode(eng *engine.Engine, wsFn WorkspaceFunc) lcgraph.NodeFunc {
 	return func(rt lgruntime.Runtime, state map[string]any) (any, error) {
 		msgs := stateMessages(state)
@@ -111,19 +111,8 @@ func CreateRetainNode(eng *engine.Engine, wsFn WorkspaceFunc) lcgraph.NodeFunc {
 		}
 		content := "Q: " + lcmessages.Text(*human) + "\nA: " + lcmessages.Text(*ai)
 
-		local := eng
 		ws := resolveWorkspace(eng, wsFn, rt)
-		if ws != eng.Config.Workspace {
-			cfg := *eng.Config // shallow copy, retarget workspace
-			cfg.Workspace = ws
-			shortLived, err := engine.New(&cfg)
-			if err != nil {
-				return nil, err
-			}
-			defer shortLived.Close()
-			local = shortLived
-		}
-		if _, err := local.Remember(content, schema.LayerSemantic, schema.TypeFact, nil, nil, "langgraph-node", ""); err != nil {
+		if _, err := eng.Scope(ws).Remember(content, schema.LayerSemantic, schema.TypeFact, nil, nil, "langgraph-node", ""); err != nil {
 			return nil, err
 		}
 		return map[string]any{}, nil

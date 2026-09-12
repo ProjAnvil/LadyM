@@ -4,6 +4,7 @@
 package engine
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"strconv"
@@ -14,6 +15,7 @@ import (
 	"github.com/ProjAnvil/LadyM/code"
 	"github.com/ProjAnvil/LadyM/config"
 	"github.com/ProjAnvil/LadyM/layers"
+	"github.com/ProjAnvil/LadyM/observability"
 	"github.com/ProjAnvil/LadyM/operations"
 	"github.com/ProjAnvil/LadyM/providers"
 	"github.com/ProjAnvil/LadyM/schema"
@@ -39,6 +41,10 @@ type Engine struct {
 	Associative *layers.AssociativeMemory
 
 	routing *adapter.ModelRouting
+
+	// working caches per-workspace L0 buffers for non-default workspaces
+	// (Scope); the default workspace uses the public Working field.
+	working sync.Map
 
 	mu                  sync.Mutex
 	llmClassify         operations.LLMClassifier
@@ -275,73 +281,18 @@ func (e *Engine) resolveLLMClassify() (operations.LLMClassifier, error) {
 
 // ---- write path ----
 
-// Remember is the generic write, routing to the right layer. It returns an
-// unpersisted Memory tagged gated=dedropped when the attention gate drops the
-// content.
+// Remember is the generic write, routing to the right layer. It runs in the
+// engine's default workspace; use Scope for a per-call workspace. It returns
+// an unpersisted Memory tagged gated=dedropped when the attention gate drops
+// the content.
 func (e *Engine) Remember(content string, layer schema.Layer, type_ schema.MemoryType, tags []string, metadata map[string]any, source, summary string) (*schema.Memory, error) {
-	gate, err := operations.AttentionGate(content, e.Config, e.Store, e.getAgent, layer)
-	if err != nil {
-		return nil, err
-	}
-	if gate.Action == "drop" {
-		meta := map[string]any{}
-		for k, v := range metadata {
-			meta[k] = v
-		}
-		meta["gated"] = "dropped"
-		meta["reason"] = gate.Reason
-		m := schema.NewMemory(layer, type_)
-		m.Content = content
-		m.Summary = summary
-		m.Tags = tags
-		m.Metadata = meta
-		m.Source = source
-		m.Workspace = e.Config.Workspace
-		return m, nil
-	}
-	if gate.Action == "rewrite" && gate.Content != "" {
-		if metadata == nil {
-			metadata = map[string]any{}
-		}
-		metadata["gated"] = "rewritten"
-		metadata["original"] = content
-		content = gate.Content
-	}
-
-	switch layer {
-	case schema.LayerWorking:
-		return e.Working.Push(content, tags, metadata, source), nil
-	case schema.LayerEpisodic:
-		agent := source
-		if agent == "" {
-			agent = "user"
-		}
-		action := summary
-		if action == "" {
-			action = truncate80(content)
-		}
-		return e.Episodic.Record(agent, action, content, "", tags, metadata)
-	case schema.LayerProcedural:
-		if type_ == schema.TypeSnippet {
-			title := summary
-			if title == "" {
-				title = "snippet"
-			}
-			return e.Procedural.PutSnippet(title, content, "python", tags)
-		}
-		name := summary
-		if name == "" {
-			name = truncate80(content)
-		}
-		return e.Procedural.PutPlaybook(name, splitLines(content), nil, "", tags)
-	default:
-		return e.Semantic.PutFact(content, summary, tags, metadata, source)
-	}
+	return e.Scope("").Remember(content, layer, type_, tags, metadata, source, summary)
 }
 
-// RecordEvent logs an L1 episodic event.
+// RecordEvent logs an L1 episodic event in the engine's default workspace;
+// use Scope for a per-call workspace.
 func (e *Engine) RecordEvent(agent, action, observation, outcome string, tags []string, metadata map[string]any) (*schema.Memory, error) {
-	return e.Episodic.Record(agent, action, observation, outcome, tags, metadata)
+	return e.Scope("").RecordEvent(agent, action, observation, outcome, tags, metadata)
 }
 
 // LinkOption customises an associative edge created by Link.
