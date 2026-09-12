@@ -5,15 +5,15 @@ go 1.26.4
 require (
 	github.com/BurntSushi/toml v1.6.0
 	github.com/go-ego/gse v1.0.2
-	github.com/jackc/pgx/v5 v5.10.0
-	github.com/odvcencio/gotreesitter v0.49.0
+	github.com/jackc/pgx/v5 v5.11.0
+	github.com/odvcencio/gotreesitter v0.52.0
 	github.com/pgvector/pgvector-go v0.4.1
 	github.com/pgvector/pgvector-go/pgx v0.4.1
-	github.com/projanvil/langchain-golang v0.6.3
+	github.com/projanvil/langchain-golang v0.7.0
 	github.com/spf13/cobra v1.10.2
-	golang.org/x/crypto v0.55.0
-	golang.org/x/sys v0.47.0
-	modernc.org/sqlite v1.56.0
+	golang.org/x/crypto v0.57.0
+	golang.org/x/sys v0.48.0
+	modernc.org/sqlite v1.58.0
 )
 
 require (
@@ -31,9 +31,9 @@ require (
 	github.com/tiktoken-go/tokenizer v0.8.1 // indirect
 	github.com/vcaesar/cedar v0.30.0 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
-	golang.org/x/sync v0.22.0 // indirect
-	golang.org/x/text v0.41.0 // indirect
-	modernc.org/libc v1.74.4 // indirect
+	golang.org/x/sync v0.23.0 // indirect
+	golang.org/x/text v0.42.0 // indirect
+	modernc.org/libc v1.75.6 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
-	modernc.org/memory v1.11.0 // indirect
+	modernc.org/memory v1.12.1 // indirect
 )
