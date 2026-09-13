@@ -51,8 +51,6 @@ func parsePagination(r *http.Request) (limit, offset int, err error) {
 // handleListMemories lists memories with workspace/layer/type filters and
 // in-memory pagination (v1 accepts the in-memory slice: IterMemories has no
 // SQL-level LIMIT yet). total is the filtered count before pagination.
-// IterMemories is a pure store read (database/sql / pgxpool are
-// concurrency-safe), so this handler skips the engine mutex.
 func (h *Handler) handleListMemories(w http.ResponseWriter, r *http.Request) {
 	limit, offset, err := parsePagination(r)
 	if err != nil {
@@ -99,8 +97,6 @@ func (h *Handler) handleUpdateMemory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.mu.Lock()
-	defer h.mu.Unlock()
 	m, err := h.eng.Store.GetMemory(id)
 	if err != nil {
 		engineError(w, err)
@@ -157,8 +153,6 @@ func (h *Handler) handleUpdateMemory(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) handleDeleteMemory(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
-	h.mu.Lock()
-	defer h.mu.Unlock()
 	m, err := h.eng.Store.GetMemory(id)
 	if err != nil {
 		engineError(w, err)

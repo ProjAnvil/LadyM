@@ -884,3 +884,23 @@ func TestSuiteIndexLockConflict(t *testing.T) {
 		release2()
 	})
 }
+
+// TestSuiteWorkerLockConflict pins the same fail-fast contract for the
+// System2 worker-cycle lock (PG leg exercises workerLockAdvisoryKey).
+func TestSuiteWorkerLockConflict(t *testing.T) {
+	runStoreBackends(t, func(t *testing.T, s Store) {
+		release, err := s.TryAcquireWorkerLock()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.TryAcquireWorkerLock(); !errors.Is(err, ErrWorkerLockHeld) {
+			t.Errorf("second acquire err = %v, want ErrWorkerLockHeld", err)
+		}
+		release()
+		release2, err := s.TryAcquireWorkerLock()
+		if err != nil {
+			t.Fatalf("acquire after release: %v", err)
+		}
+		release2()
+	})
+}

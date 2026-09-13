@@ -381,20 +381,30 @@ func TestRetainNodeWorkspaceOverride(t *testing.T) {
 	if update := out.(map[string]any); len(update) != 0 {
 		t.Fatalf("retain node should not update state, got %v", update)
 	}
-	// The short-lived engine has its own in-memory vector index, so verify
-	// through the shared store instead of eng.Recall.
-	mems, err := eng.Store.IterMemories("team-override", "", "")
+	// The scope shares the engine's store and vector index, so recall in the
+	// override workspace finds the turn directly...
+	resp, err := eng.Recall("quixplorer keys", "team-override", 5, nil, nil, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	found := false
-	for _, m := range mems {
-		if strings.Contains(m.Content, "quixplorer rotate --force") {
+	for _, r := range resp.Results {
+		if strings.Contains(r.Memory.Content, "quixplorer rotate --force") {
 			found = true
 		}
 	}
 	if !found {
-		t.Fatalf("turn not retained in override workspace: %v", mems)
+		t.Fatalf("turn not retained in override workspace: %v", resp.Results)
+	}
+	// ...and the engine's default workspace stays untouched.
+	resp, err = eng.Recall("quixplorer keys", eng.Config.Workspace, 5, nil, nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range resp.Results {
+		if strings.Contains(r.Memory.Content, "quixplorer rotate --force") {
+			t.Fatalf("turn leaked into default workspace: %v", r.Memory)
+		}
 	}
 }
 

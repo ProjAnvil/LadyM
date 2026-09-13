@@ -71,6 +71,13 @@ type Store interface {
 	// performs the translation.
 	TryAcquireIndexLock() (func(), error)
 
+	// Cross-process mutex for System2 worker cycles, so redundant worker
+	// replicas never run the same cycle concurrently (repeat LLM calls, write
+	// conflicts). Callers acquire per cycle and release afterwards; when the
+	// lock is already held it returns an error matching ErrWorkerLockHeld —
+	// callers skip the cycle instead of queueing.
+	TryAcquireWorkerLock() (func(), error)
+
 	// RebuildVectorIndex resets the vector index at a new dim (engine's
 	// enforceEmbeddingDim on dim change).
 	RebuildVectorIndex(newDim int)

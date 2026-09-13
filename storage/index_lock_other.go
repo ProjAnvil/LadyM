@@ -17,16 +17,25 @@ var (
 )
 
 func acquireIndexLock(dbPath string) (func(), error) {
-	p := indexLockPath(dbPath)
+	return acquirePathLock(indexLockPath(dbPath), ErrIndexLockHeld)
+}
+
+func acquireWorkerLock(dbPath string) (func(), error) {
+	return acquirePathLock(workerLockPath(dbPath), ErrWorkerLockHeld)
+}
+
+// acquirePathLock records p in the process-local held set (paths differ per
+// lock kind, so one set serves both) and still creates the lock file for name
+// parity with the Unix/Python path.
+func acquirePathLock(p string, held error) (func(), error) {
 	indexLocksMu.Lock()
 	if indexLocks[p] {
 		indexLocksMu.Unlock()
-		return nil, ErrIndexLockHeld
+		return nil, held
 	}
 	indexLocks[p] = true
 	indexLocksMu.Unlock()
 
-	// Still create the lock file for name parity with the Unix/Python path.
 	f, err := os.OpenFile(p, os.O_CREATE|os.O_RDWR, 0o644)
 	if err != nil {
 		indexLocksMu.Lock()

@@ -18,16 +18,19 @@ import (
 	"github.com/ProjAnvil/LadyM/api"
 	"github.com/ProjAnvil/LadyM/config"
 	"github.com/ProjAnvil/LadyM/engine"
+	"github.com/ProjAnvil/LadyM/observability"
 	"github.com/ProjAnvil/LadyM/schema"
 	"github.com/ProjAnvil/LadyM/storage"
 	"golang.org/x/crypto/bcrypt"
 )
 
-// newTestHandler builds an engine + HTTP handler against a temp sqlite db.
+// newTestHandler builds an engine + HTTP handler against a temp sqlite db,
+// with an isolated metrics registry (the default registry is process-global
+// and would leak counts between tests).
 func newTestHandler(t *testing.T, mutate func(*config.Config)) http.Handler {
 	t.Helper()
 	eng, _ := newTestEngine(t, mutate)
-	return api.NewHandler(eng, eng.Config)
+	return api.NewHandlerWithRegistry(eng, eng.Config, observability.New())
 }
 
 // newTestEngine builds an engine against a temp sqlite db (returned so tests
@@ -290,7 +293,7 @@ func newBasicAuthHandler(t *testing.T) http.Handler {
 	addUser(t, eng, "root", "s3cret-admin", "", true)
 	addUser(t, eng, "alice", "pw-alice", "acme", false)
 	addUser(t, eng, "nopw", "", "globex", false)
-	return api.NewHandler(eng, cfg)
+	return api.NewHandlerWithRegistry(eng, cfg, observability.New())
 }
 
 func TestBasicAuthMatrix(t *testing.T) {

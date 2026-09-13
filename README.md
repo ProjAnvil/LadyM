@@ -259,6 +259,45 @@ repo-local `bin/ladym`. Requires Python ≥ 3.12. See
 implementation is preserved on the
 [`python`](https://github.com/ProjAnvil/LadyM/tree/python) branch.)
 
+### Python SDK (HTTP data-plane)
+
+For talking to a running `ladym serve --http` deployment (including multi-replica
+enterprise setups behind the gateway) there is [`sdk/python`](sdk/python/) — package
+`ladym-client`, zero runtime dependencies, Python ≥ 3.10. It mirrors the Go HTTP
+client (`client/golang`): `remember` / `recall` / `record_event` / `consolidate` /
+`stats` / `link` / `forget` plus the memories CRUD, with Basic-auth support.
+
+```python
+from ladym_client import Client
+
+c = Client("http://127.0.0.1:8080", username="alice", password="s3cret")
+c.remember("deploys go through Argo CD", tags=["ops"])
+for hit in c.recall("how do we deploy?").results:
+    print(hit.score, hit.memory.summary)
+```
+
+See [`sdk/python/README.md`](sdk/python/README.md) for install and testing.
+
+### TypeScript SDK (HTTP data-plane)
+
+[`sdk/typescript`](sdk/typescript/) is the same HTTP client for Node ≥ 20 /
+browsers — package `ladym-client`, zero runtime dependencies (global fetch,
+injectable for tests), ESM + `.d.ts`. The method surface mirrors the Go and
+Python SDKs in camelCase (`remember` / `recall` / `recordEvent` / `stats` /
+`listMemories` / …), errors throw `LadymError` with the HTTP status.
+
+```ts
+import { LadymClient } from "ladym-client";
+
+const c = new LadymClient("http://127.0.0.1:8080", { username: "alice", password: "s3cret" });
+await c.remember("deploys go through Argo CD", { tags: ["ops"] });
+for (const hit of (await c.recall("how do we deploy?")).results) {
+  console.log(hit.score, hit.memory.summary);
+}
+```
+
+See [`sdk/typescript/README.md`](sdk/typescript/README.md) for install and testing.
+
 ### Injecting your own langchain-golang models
 
 If your app already configures langchain-golang chat / embedding models
@@ -421,9 +460,9 @@ encrypted storage and rely on OS file permissions (dir `0700`, files `0600`). **
 
 | Command | What it does |
 |---|---|
-| `ladym serve --http :8080` | HTTP data-plane API (`/api/*`, optional Basic auth) plus the embedded management console at `/` (login, memory CRUD, user admin, stats) |
+| `ladym serve --http :8080` | HTTP data-plane API (`/api/*`, optional Basic auth) plus the embedded management console at `/` (login, memory CRUD, user admin, stats); Prometheus exposition at `/metrics` (auth-exempt, next to `/healthz`) |
 | `ladym config <sub>` | Encrypted secret store: `set` / `set-master-key` / `reset-master-key` / `list` / `rm` |
-| `ladym worker` | Background System 2 consolidation daemon; flags: `--once`, `--interval N` (seconds) |
+| `ladym worker` | Background System 2 consolidation daemon; flags: `--once`, `--interval N` (seconds), `--metrics-addr :9090` (serve `/metrics` + `/healthz`) |
 
 ## Testing
 

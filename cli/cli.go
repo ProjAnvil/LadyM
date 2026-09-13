@@ -507,7 +507,7 @@ func serveHTTP(cfg *config.Config, addr string) error {
 }
 
 func workerCmd() *cobra.Command {
-	var db, workspace, dictDir string
+	var db, workspace, dictDir, metricsAddr string
 	var once bool
 	var interval int
 	cmd := &cobra.Command{
@@ -524,6 +524,11 @@ func workerCmd() *cobra.Command {
 				return err
 			}
 			defer eng.Close()
+			closeMetrics, err := startWorkerMetrics(eng, metricsAddr)
+			if err != nil {
+				return err
+			}
+			defer closeMetrics()
 			return runWorkerLoop(eng, once, interval, workspace)
 		},
 	}
@@ -531,6 +536,7 @@ func workerCmd() *cobra.Command {
 	addDictDirFlag(cmd, &dictDir)
 	cmd.Flags().BoolVar(&once, "once", false, "Run one cycle and exit.")
 	cmd.Flags().IntVar(&interval, "interval", 300, "Seconds between cycles.")
+	cmd.Flags().StringVar(&metricsAddr, "metrics-addr", "", "Serve /metrics + /healthz on this address (e.g. :9090); empty disables.")
 	return cmd
 }
 

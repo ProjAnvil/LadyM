@@ -3,6 +3,7 @@
 package storage
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -56,6 +57,26 @@ func TestOpenStorePostgresWithoutDSN(t *testing.T) {
 	msg := err.Error()
 	if !strings.Contains(msg, "store.dsn") || !strings.Contains(msg, "LADYM_STORE_DSN") {
 		t.Errorf("error not actionable: %q", msg)
+	}
+}
+
+// TestOpenStorePostgresWithDSN: with a reachable server the postgres
+// backend returns a live PostgresStore (gated on LADYM_TEST_PG_DSN).
+func TestOpenStorePostgresWithDSN(t *testing.T) {
+	dsn := os.Getenv("LADYM_TEST_PG_DSN")
+	if dsn == "" {
+		t.Skip("LADYM_TEST_PG_DSN not set")
+	}
+	cfg := config.ForTesting(t.TempDir())
+	cfg.StoreBackend = "postgres"
+	cfg.StoreDSN = freshPGDatabase(t, dsn)
+	st, err := OpenStore(cfg, 8)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	if _, ok := st.(*PostgresStore); !ok {
+		t.Errorf("OpenStore(postgres) = %T, want *PostgresStore", st)
 	}
 }
 
