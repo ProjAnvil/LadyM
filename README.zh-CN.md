@@ -20,17 +20,21 @@ SQLite 基于 [modernc.org/sqlite](https://pkg.go.dev/modernc.org/sqlite)，向�
 
 ---
 
-## 0.5.0 更新
+## 0.6.0 更新
 
-- **中日韩（CJK）支持** —— CJK 文本获得与 Python 版对齐的分词质量：开箱即用的
-  单字 + 相邻二元模式完全离线、零配置；可选的词典分词（gse）由控制台或管理 API
-  按需下载——LadyM 绝不主动联网下载。发布资产提供内嵌词典的 `fulldict` 变体，
-  Dockerfile 带词典数据层，compose 覆盖文件可一键跑起整套词典内嵌的栈。
-- **langchain-golang v0.6.2** —— 合作方聊天模型新增 `reasoning_effort` 与原生
-  JSON 模式（结构化输出）；LangGraph 辅助层面向宿主应用重新导出。
-- **整合成本有界** —— 已处理的 episode 带 `consolidated_at` 戳记，每轮 System 2
-  只为新 episode 付费，不再全量重分类历史；ADD 判定存储 LLM 改写后的事实而非
-  原始事件文本；`consolidate` 在 HTTP、MCP、Go SDK 三端都接受 `since` 边界。
+- **并发 HTTP 数据面** —— 全局请求互斥锁被移除：跨 workspace 的请求通过请求级
+  `engine.Scope` 视图完全并行，写操作只在存储层串行（SQLite WAL 单写者；
+  Postgres 完全并行），进程内向量索引也由 `RWMutex` 保护。
+- **多副本 System 2 worker** —— 周期级 leader 选举（Postgres advisory lock /
+  SQLite flock）让 standby worker 安全可用：副本崩溃后其周期由任一存活副本接管，
+  不再有重复整合的算力浪费。
+- **Prometheus 观测性** —— 原生 `/metrics` 端点（基于 `prometheus/client_golang`）
+  覆盖请求速率、延迟直方图、在途请求与 System 2 周期结果；
+  `ladym worker --metrics-addr` 让 worker 角色暴露同样的指标。
+- **Python 与 TypeScript SDK** —— HTTP 数据面的零运行时依赖客户端
+  （`sdk/python`、`sdk/typescript`)，与 Go SDK 能力对齐，各自带单元测试与
+  真实回环集成测试。测试覆盖率提升至 97.9%(Postgres 模式），各包测试均按
+  场景命名。
 
 ---
 

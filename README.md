@@ -23,21 +23,23 @@ identical everywhere.
 
 ---
 
-## What's New in 0.5.0
+## What's New in 0.6.0
 
-- **CJK support (Chinese / Japanese / Korean)** — CJK text tokenizes with Python-parity
-  quality: the out-of-the-box per-character + adjacent-bigram mode is fully offline and
-  needs zero configuration, while opt-in dictionary segmentation (gse) downloads on
-  demand from the console or the admin API — LadyM never downloads anything unprompted.
-  Release assets ship a `fulldict` variant with the dictionary embedded, the Dockerfile
-  grows a dict data layer, and compose overlays run the whole stack dictionary-baked.
-- **langchain-golang v0.6.2** — partner chat models gain `reasoning_effort` and native
-  JSON mode for structured output; the LangGraph helper layer is re-exported for host
-  applications.
-- **Bounded consolidation cost** — processed episodes carry a `consolidated_at` stamp,
-  so each System 2 cycle pays for new episodes instead of re-classifying the whole
-  history; ADD verdicts store the LLM's rewritten fact rather than the raw event text;
-  `consolidate` accepts a `since` bound over HTTP, MCP, and the Go SDK.
+- **Concurrent HTTP data plane** — the global request mutex is gone: requests across
+  workspaces run fully in parallel via per-request `engine.Scope` views, writes
+  serialize only at the storage backend (SQLite WAL single-writer; Postgres fully
+  parallel), and the in-memory vector index is now `RWMutex`-guarded.
+- **Multi-replica System 2 workers** — cycle-level leader election (Postgres advisory
+  lock / SQLite flock) makes standby workers safe: a crashed replica's cycles are
+  picked up by any survivor, with no duplicate consolidation spend.
+- **Prometheus observability** — a native `/metrics` endpoint (via
+  `prometheus/client_golang`) covers request rates, latency histograms, in-flight
+  requests, and System 2 cycle outcomes; `ladym worker --metrics-addr` exposes the
+  same from the worker role.
+- **Python & TypeScript SDKs** — zero-runtime-dependency clients for the HTTP data
+  plane (`sdk/python`, `sdk/typescript`), feature-parity with the Go SDK, each with
+  unit suites and a live round-trip integration leg. Test coverage is now 97.9%
+  (Postgres mode) with scenario-named suites across every package.
 
 ---
 
