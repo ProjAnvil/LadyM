@@ -144,8 +144,13 @@ func TestReadPathBudget(t *testing.T) {
 	smallEmb := storage.NewHashingEmbedding(256)
 	smallEng := seedFacts(t, smallEmb, 20)
 	p95Small := measureOverheadP95Ms(t, smallEng, smallEmb, 50)
-	if limit := 10 * p95Small; p95Big > limit {
-		t.Errorf("engine overhead p95 %.3fms @200 memories > 10x %.3fms @20 memories", p95Big, p95Small)
+	// Floor the small-engine baseline: on a quiet machine p95Small approaches
+	// zero, and 10x of ~0ms flunks any scheduler jitter on a loaded runner.
+	// A rescan regression at 200 memories costs orders of magnitude more than
+	// this limit, so the check keeps its teeth.
+	const floorMs = 0.5
+	if limit := 10 * math.Max(p95Small, floorMs); p95Big > limit {
+		t.Errorf("engine overhead p95 %.3fms @200 memories > 10x max(%.3fms, %.1fms) @20 memories", p95Big, p95Small, floorMs)
 	}
 	t.Logf("engine overhead p95: %.3fms @200 memories, %.3fms @20 memories", p95Big, p95Small)
 }
