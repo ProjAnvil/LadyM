@@ -6,6 +6,7 @@
 package langgraph
 
 import (
+	"cmp"
 	"strings"
 
 	"github.com/ProjAnvil/LadyM/engine"
@@ -54,9 +55,7 @@ func CreateRecallNode(eng *engine.Engine, topK int, prefix string, wsFn Workspac
 	if topK <= 0 {
 		topK = 6
 	}
-	if prefix == "" {
-		prefix = "Relevant long-term memory:"
-	}
+	prefix = cmp.Or(prefix, "Relevant long-term memory:")
 	return func(rt lgruntime.Runtime, state map[string]any) (any, error) {
 		msgs := stateMessages(state)
 		if len(msgs) == 0 {
@@ -73,9 +72,7 @@ func CreateRecallNode(eng *engine.Engine, topK int, prefix string, wsFn Workspac
 		lines := make([]string, 0, len(resp.Results))
 		for _, r := range resp.Results {
 			summary := r.Memory.Summary
-			if summary == "" {
-				summary = r.Memory.Content
-			}
+			summary = cmp.Or(summary, r.Memory.Content)
 			lines = append(lines, "- "+summary)
 		}
 		return map[string]any{

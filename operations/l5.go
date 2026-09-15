@@ -1,6 +1,7 @@
 package operations
 
 import (
+	"cmp"
 	"maps"
 	"math"
 	"strconv"
@@ -249,9 +250,7 @@ func mergeL5(store storage.Store, embedder storage.EmbeddingProvider, cfg *confi
 		}
 		title, _ := result["title"].(string)
 		body, _ := result["model"].(string)
-		if title == "" {
-			title = "mental model"
-		}
+		title = cmp.Or(title, "mental model")
 		oldIDs := make([]any, 0, len(oldModels))
 		for _, om := range oldModels {
 			oldIDs = append(oldIDs, om.ID)
@@ -285,17 +284,13 @@ func mergeL5(store storage.Store, embedder storage.EmbeddingProvider, cfg *confi
 // ExtractL5 clusters uncovered L2/L3 memories into mental models.
 func ExtractL5(store storage.Store, embedder storage.EmbeddingProvider, cfg *config.Config, workspace string, llm providers.LLMProvider, prompt string) (*L5ExtractionReport, error) {
 	ws := workspace
-	if ws == "" {
-		ws = cfg.Workspace
-	}
+	ws = cmp.Or(ws, cfg.Workspace)
 	report := &L5ExtractionReport{}
 	if llm == nil {
 		report.Skipped = true
 		return report, nil
 	}
-	if prompt == "" {
-		prompt = l5DefaultPrompt
-	}
+	prompt = cmp.Or(prompt, l5DefaultPrompt)
 
 	covered, err := coveredMemberIDs(store, ws)
 	if err != nil {
@@ -345,9 +340,7 @@ func ExtractL5(store storage.Store, embedder storage.EmbeddingProvider, cfg *con
 		}
 		title, _ := result["title"].(string)
 		body, _ := result["model"].(string)
-		if title == "" {
-			title = "mental model"
-		}
+		title = cmp.Or(title, "mental model")
 		modelMem, err := storeModel(store, embedder, title, body, ws, "l5_extract", map[string]any{"n_members": len(members)})
 		if err != nil {
 			return nil, err

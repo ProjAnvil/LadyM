@@ -1,6 +1,7 @@
 package providers
 
 import (
+	"cmp"
 	"fmt"
 	"os"
 
@@ -105,9 +106,7 @@ func (r *AgentRegistry) Get(op string) (*AgentConfig, error) {
 	}
 
 	provider := get("provider", r.cfg.LLMProvider)
-	if provider == "" {
-		provider = "none"
-	}
+	provider = cmp.Or(provider, "none")
 	return &AgentConfig{
 		Op:               op,
 		Provider:         provider,

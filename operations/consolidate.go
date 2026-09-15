@@ -94,9 +94,7 @@ func offlineClassify(candidate, candidateHash string, similar []similarFact, thr
 // at or after that time, so 0 means "everything still pending".
 func Consolidate(store storage.Store, embedder storage.EmbeddingProvider, cfg *config.Config, workspace string, llmClassify LLMClassifier, since float64) (*ConsolidationReport, error) {
 	ws := workspace
-	if ws == "" {
-		ws = cfg.Workspace
-	}
+	ws = cmp.Or(ws, cfg.Workspace)
 	sem := layers.NewSemanticMemory(store, embedder, ws)
 	threshold := cfg.Consolidate.DedupSimilarityThreshold
 	report := newConsolidationReport()
@@ -183,9 +181,7 @@ func Consolidate(store storage.Store, embedder storage.EmbeddingProvider, cfg *c
 			}
 			meta["source_episode"] = ep.ID
 			addedContent := newText
-			if addedContent == "" {
-				addedContent = ep.Content
-			}
+			addedContent = cmp.Or(addedContent, ep.Content)
 			if _, err := sem.PutFact(addedContent, ep.Summary, ep.Tags, meta, "consolidate"); err != nil {
 				return nil, err
 			}
@@ -196,9 +192,7 @@ func Consolidate(store storage.Store, embedder storage.EmbeddingProvider, cfg *c
 			}
 			target := similar[0].Memory
 			mergedContent := newText
-			if mergedContent == "" {
-				mergedContent = ep.Content
-			}
+			mergedContent = cmp.Or(mergedContent, ep.Content)
 			merged := target.Clone()
 			merged.ID = schema.NewID()
 			merged.Content = mergedContent

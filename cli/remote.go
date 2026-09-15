@@ -9,6 +9,7 @@
 package cli
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -49,13 +50,9 @@ type remoteAuth struct{ user, password string }
 // passwordless server account.
 func resolveRemoteAuth(flagUser, flagPassword string) remoteAuth {
 	user := flagUser
-	if user == "" {
-		user = os.Getenv("LADYM_USER")
-	}
+	user = cmp.Or(user, os.Getenv("LADYM_USER"))
 	password := flagPassword
-	if password == "" {
-		password = os.Getenv("LADYM_PASSWORD")
-	}
+	password = cmp.Or(password, os.Getenv("LADYM_PASSWORD"))
 	return remoteAuth{user, password}
 }
 

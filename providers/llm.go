@@ -4,10 +4,12 @@ package providers
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 )
@@ -85,9 +87,7 @@ func defaultBaseURL(kind string) string {
 }
 
 func newHTTPLLM(kind, baseURL, model, apiKey string, maxTokens int, temperature float64, timeoutS float64, structuredMethod string) *HTTPLLM {
-	if baseURL == "" {
-		baseURL = defaultBaseURL(kind)
-	}
+	baseURL = cmp.Or(baseURL, defaultBaseURL(kind))
 	return &HTTPLLM{
 		name: kind, baseURL: strings.TrimRight(baseURL, "/"), apiKey: apiKey,
 		model: model, maxTokens: maxTokens, temperature: temperature,
@@ -222,7 +222,7 @@ func extractJSON(s string) string {
 }
 
 func (h *HTTPLLM) openAIComplete(messages []Message, structured bool, schema JSONSchema, method string) (string, error) {
-	msgs := append([]Message{}, messages...)
+	msgs := slices.Clone(messages)
 	payload := map[string]any{
 		"model":       h.model,
 		"messages":    msgs,
@@ -353,7 +353,7 @@ func (h *HTTPLLM) anthropicComplete(messages []Message, structured bool, schema 
 }
 
 func (h *HTTPLLM) ollamaComplete(messages []Message, structured bool, schema JSONSchema) (string, error) {
-	msgs := append([]Message{}, messages...)
+	msgs := slices.Clone(messages)
 	payload := map[string]any{
 		"model":    h.model,
 		"messages": msgs,
@@ -387,9 +387,7 @@ func (h *HTTPLLM) ollamaComplete(messages []Message, structured bool, schema JSO
 // kinds accept and ignore it.
 func MakeLLMProvider(kind, baseURL, model, apiKey, structuredMethod, reasoningEffort string, maxTokens int, temperature, timeoutS float64) (LLMProvider, error) {
 	k := strings.ToLower(kind)
-	if k == "" {
-		k = "none"
-	}
+	k = cmp.Or(k, "none")
 	effort, err := normalizedReasoningEffort(reasoningEffort)
 	if err != nil {
 		return nil, err

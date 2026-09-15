@@ -1,6 +1,7 @@
 package code
 
 import (
+	"cmp"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -78,9 +79,7 @@ func IndexCodebase(root string, store storage.Store, embedder storage.EmbeddingP
 
 	start := time.Now()
 	ws := workspace
-	if ws == "" {
-		ws = cfg.Workspace
-	}
+	ws = cmp.Or(ws, cfg.Workspace)
 	absRoot, err := filepath.Abs(root)
 	if err != nil {
 		return nil, err

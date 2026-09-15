@@ -10,6 +10,7 @@
 package api
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -175,9 +176,7 @@ func (h *Handler) authenticate(r *http.Request) (u *schema.User, forcedWS string
 		return u, "", true
 	}
 	forcedWS = u.Workspace
-	if forcedWS == "" {
-		forcedWS = h.cfg.Workspace
-	}
+	forcedWS = cmp.Or(forcedWS, h.cfg.Workspace)
 	return u, forcedWS, true
 }
 
@@ -316,9 +315,7 @@ func (h *Handler) withObservability(next http.Handler) http.Handler {
 		// body-level workspace override by an admin caller is not visible at
 		// this layer.
 		ws := rec.Header().Get("X-Ladym-Workspace")
-		if ws == "" {
-			ws = h.cfg.Workspace
-		}
+		ws = cmp.Or(ws, h.cfg.Workspace)
 		fmt.Fprintf(os.Stderr, "%s %s %d %.1fms %s\n", r.Method, r.URL.Path, rec.status, ms, ws)
 	})
 }
@@ -446,9 +443,7 @@ func (h *Handler) handleRecall(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "missing required field: query")
 		return
 	}
-	if body.TopK == 0 {
-		body.TopK = 8
-	}
+	body.TopK = cmp.Or(body.TopK, 8)
 	ws := h.effectiveWS(r, body.Workspace)
 
 	var resp *schema.RecallResponse
@@ -486,9 +481,7 @@ func (h *Handler) handleRemember(w http.ResponseWriter, r *http.Request) {
 	}
 	// MCP falls back to source "mcp"; the HTTP front-end labels itself "http".
 	source := body.Source
-	if source == "" {
-		source = "http"
-	}
+	source = cmp.Or(source, "http")
 	ws := h.effectiveWS(r, body.Workspace)
 
 	m, err := h.eng.Scope(ws).Remember(body.Content, schema.LayerSemantic, schema.TypeFact, body.Tags, nil, source, "")
@@ -544,9 +537,7 @@ func (h *Handler) handleSearchCode(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "missing required field: query")
 		return
 	}
-	if body.TopK == 0 {
-		body.TopK = 10
-	}
+	body.TopK = cmp.Or(body.TopK, 10)
 	ws := h.effectiveWS(r, body.Workspace)
 
 	resp, err := h.eng.SearchCode(body.Query, body.TopK, ws)
@@ -674,9 +665,7 @@ func (h *Handler) handleLink(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "missing required field: src/dst")
 		return
 	}
-	if body.Relation == "" {
-		body.Relation = "related_to"
-	}
+	body.Relation = cmp.Or(body.Relation, "related_to")
 
 	if !h.enforceMemoryWorkspace(w, r, body.Src, body.Dst) {
 		return

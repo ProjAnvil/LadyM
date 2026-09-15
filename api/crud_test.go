@@ -100,7 +100,7 @@ func TestListMemoriesFiltersAndPagination(t *testing.T) {
 		t.Fatalf("page size = %d, want 2", len(got))
 	}
 	// Sorted by id: the page must be ids[1], ids[2].
-	want := append([]string{}, ids...)
+	want := slices.Clone(ids)
 	slices.Sort(want)
 	if got[0] != want[1] || got[1] != want[2] {
 		t.Errorf("page = %v, want [%s %s]", got, want[1], want[2])

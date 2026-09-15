@@ -1262,15 +1262,6 @@ func TestLatestInChainMultiHopAndCycle(t *testing.T) {
 
 // --- edge cases ------------------------------------------------------------------
 
-func TestMaxF(t *testing.T) {
-	if got := maxF(0.5, 0.1); got != 0.5 {
-		t.Errorf("maxF(0.5, 0.1) = %v", got)
-	}
-	if got := maxF(0.1, 0.5); got != 0.5 {
-		t.Errorf("maxF(0.1, 0.5) = %v", got)
-	}
-}
-
 func TestRecallFiltersAndTruncation(t *testing.T) {
 	store, emb := newParityStore(t)
 	cfg := config.ForTesting(t.TempDir())

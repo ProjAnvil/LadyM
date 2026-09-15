@@ -2,6 +2,7 @@
 package layers
 
 import (
+	"cmp"
 	"sync"
 
 	"github.com/ProjAnvil/LadyM/schema"
@@ -20,9 +21,7 @@ func NewWorkingMemory(capacity int, workspace string) *WorkingMemory {
 	if capacity <= 0 {
 		capacity = 64
 	}
-	if workspace == "" {
-		workspace = "default"
-	}
+	workspace = cmp.Or(workspace, "default")
 	return &WorkingMemory{capacity: capacity, workspace: workspace}
 }
 

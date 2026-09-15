@@ -396,9 +396,7 @@ func (s *PostgresStore) DeleteMemory(id string) error {
 // PutMemory upsert, which would NULL them); a non-nil vector rewrites the
 // embedding and recomputes content_hash. A missing id is a no-op.
 func (s *PostgresStore) UpdateMemoryContent(id, content, summary string, tags []string, vector []float32, now float64) error {
-	if now == 0 {
-		now = schema.Now()
-	}
+	now = cmp.Or(now, schema.Now())
 	tagsJSON, _ := json.Marshal(tags)
 	var err error
 	if vector == nil {
@@ -765,9 +763,7 @@ func (s *PostgresStore) GetIndexedHash(filePath string) (string, error) {
 
 // SetIndexed records the body hash for a file.
 func (s *PostgresStore) SetIndexed(filePath, bodyHash string, now float64) error {
-	if now == 0 {
-		now = schema.Now()
-	}
+	now = cmp.Or(now, schema.Now())
 	_, err := s.pool.Exec(context.Background(),
 		`INSERT INTO index_state (file_path, body_hash, indexed_at) VALUES ($1,$2,$3)
 		 ON CONFLICT (file_path) DO UPDATE SET body_hash=excluded.body_hash, indexed_at=excluded.indexed_at`,

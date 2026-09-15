@@ -1,7 +1,9 @@
 package layers
 
 import (
+	"cmp"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/ProjAnvil/LadyM/schema"
@@ -17,9 +19,7 @@ type ProceduralMemory struct {
 
 // NewProceduralMemory builds a ProceduralMemory.
 func NewProceduralMemory(store storage.Store, embedder storage.EmbeddingProvider, workspace string) *ProceduralMemory {
-	if workspace == "" {
-		workspace = "default"
-	}
+	workspace = cmp.Or(workspace, "default")
 	return &ProceduralMemory{Store: store, Embedder: embedder, Workspace: workspace}
 }
 
@@ -58,7 +58,7 @@ func (p *ProceduralMemory) PutPlaybook(name string, steps []string, precondition
 	m := schema.NewMemory(schema.LayerProcedural, schema.TypePlaybook)
 	m.Content = content
 	m.Summary = name
-	m.Tags = append(append([]string{}, tags...), "playbook")
+	m.Tags = append(slices.Clone(tags), "playbook")
 	m.Metadata = body
 	m.Source = "proceduralize"
 	m.Workspace = p.Workspace
@@ -76,9 +76,7 @@ func (p *ProceduralMemory) PutPlaybook(name string, steps []string, precondition
 
 // PutSnippet writes a verified code snippet.
 func (p *ProceduralMemory) PutSnippet(title, code, language string, tags []string) (*schema.Memory, error) {
-	if language == "" {
-		language = "python"
-	}
+	language = cmp.Or(language, "python")
 	if tags == nil {
 		tags = []string{}
 	}
@@ -86,7 +84,7 @@ func (p *ProceduralMemory) PutSnippet(title, code, language string, tags []strin
 	m := schema.NewMemory(schema.LayerProcedural, schema.TypeSnippet)
 	m.Content = content
 	m.Summary = title
-	m.Tags = append(append([]string{}, tags...), "snippet", language)
+	m.Tags = append(slices.Clone(tags), "snippet", language)
 	m.Metadata = map[string]any{"language": language, "code": code, "title": title}
 	m.Workspace = p.Workspace
 

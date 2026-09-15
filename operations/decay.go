@@ -1,6 +1,8 @@
 package operations
 
 import (
+	"cmp"
+
 	"github.com/ProjAnvil/LadyM/config"
 	"github.com/ProjAnvil/LadyM/schema"
 	"github.com/ProjAnvil/LadyM/storage"
@@ -22,15 +24,9 @@ func Decay(store storage.Store, workspace string, weights *config.ActivationWeig
 			TypeBoost: 0.25, RecencyHalfLifeS: 7 * 24 * 3600.0,
 		}
 	}
-	if maxAgeS == 0 {
-		maxAgeS = 30 * 24 * 3600.0
-	}
-	if activationFloor == 0 {
-		activationFloor = 0.05
-	}
-	if now == 0 {
-		now = schema.Now()
-	}
+	maxAgeS = cmp.Or(maxAgeS, 30*24*3600.0)
+	activationFloor = cmp.Or(activationFloor, 0.05)
+	now = cmp.Or(now, schema.Now())
 	report := &DecayReport{}
 	episodes, err := store.IterMemories(workspace, string(schema.LayerEpisodic), "")
 	if err != nil {

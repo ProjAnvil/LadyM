@@ -2,6 +2,7 @@
 package cli
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"io"
@@ -702,9 +703,7 @@ func writeStats(w io.Writer, s *schema.Stats, scopedWS string) {
 		wsList = []string{scopedWS}
 	}
 	ws := strings.Join(wsList, ", ")
-	if ws == "" {
-		ws = "(none)"
-	}
+	ws = cmp.Or(ws, "(none)")
 	fmt.Fprintf(w, "  workspaces: %s\n", ws)
 	if len(s.ByLayer) > 0 {
 		fmt.Fprintln(w, "  by layer:")

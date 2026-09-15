@@ -1,5 +1,7 @@
 package storage
 
+import "slices"
+
 // CachedEmbedding wraps an inner EmbeddingProvider with an LRU cache for
 // Embed() calls. EmbedBatch always delegates straight through.
 type CachedEmbedding struct {
@@ -25,7 +27,7 @@ func (c *CachedEmbedding) Dim() int { return c.inner.Dim() }
 func (c *CachedEmbedding) Embed(text string) ([]float32, error) {
 	if v, ok := c.cache[text]; ok {
 		c.touch(text)
-		return append([]float32{}, v...), nil
+		return slices.Clone(v), nil
 	}
 	v, err := c.inner.Embed(text)
 	if err != nil {
@@ -43,7 +45,7 @@ func (c *CachedEmbedding) Embed(text string) ([]float32, error) {
 			c.idx[k] = i
 		}
 	}
-	return append([]float32{}, v...), nil
+	return slices.Clone(v), nil
 }
 
 func (c *CachedEmbedding) touch(text string) {

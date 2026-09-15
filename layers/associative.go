@@ -1,6 +1,8 @@
 package layers
 
 import (
+	"cmp"
+
 	"github.com/ProjAnvil/LadyM/schema"
 	"github.com/ProjAnvil/LadyM/storage"
 )
@@ -18,9 +20,7 @@ func NewAssociativeMemory(store storage.Store) *AssociativeMemory {
 // Link creates an edge between two memories. A nil weight defaults to 1.0; an
 // explicitly supplied weight (including 0) is stored verbatim.
 func (a *AssociativeMemory) Link(srcID, dstID, relation string, weight *float64, metadata map[string]any, validFrom, validTo *float64) (*schema.Edge, error) {
-	if relation == "" {
-		relation = "related_to"
-	}
+	relation = cmp.Or(relation, "related_to")
 	w := 1.0
 	if weight != nil {
 		w = *weight

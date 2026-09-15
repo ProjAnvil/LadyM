@@ -78,7 +78,7 @@ func timeEmbedMs(emb storage.EmbeddingProvider, q string, n int) float64 {
 }
 
 func percentileMs(xs []float64, p int) float64 {
-	sorted := append([]float64(nil), xs...)
+	sorted := slices.Clone(xs)
 	slices.Sort(sorted)
 	k := int(math.Round(float64(p) / 100 * float64(len(sorted)-1)))
 	return sorted[k]

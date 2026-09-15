@@ -3,6 +3,7 @@
 package storage
 
 import (
+	"cmp"
 	"database/sql"
 	"encoding/binary"
 	"encoding/json"
@@ -354,9 +355,7 @@ func (s *SQLiteStore) DeleteMemory(id string) error {
 // embedding, recomputes content_hash and re-indexes the vector. A missing id
 // is a no-op.
 func (s *SQLiteStore) UpdateMemoryContent(id, content, summary string, tags []string, vector []float32, now float64) error {
-	if now == 0 {
-		now = schema.Now()
-	}
+	now = cmp.Or(now, schema.Now())
 	tagsJSON, _ := json.Marshal(tags)
 	var (
 		res sql.Result
@@ -746,9 +745,7 @@ func (s *SQLiteStore) GetIndexedHash(filePath string) (string, error) {
 
 // SetIndexed records the body hash for a file.
 func (s *SQLiteStore) SetIndexed(filePath, bodyHash string, now float64) error {
-	if now == 0 {
-		now = schema.Now()
-	}
+	now = cmp.Or(now, schema.Now())
 	_, err := s.db.Exec(
 		`INSERT INTO index_state (file_path, body_hash, indexed_at) VALUES (?,?,?)
 		 ON CONFLICT(file_path) DO UPDATE SET body_hash=excluded.body_hash, indexed_at=excluded.indexed_at`,

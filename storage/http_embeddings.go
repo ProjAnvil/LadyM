@@ -159,9 +159,7 @@ func (o *OllamaEmbedding) Embed(text string) ([]float32, error) {
 	if err != nil {
 		return nil, err
 	}
-	if o.dim == 0 {
-		o.dim = len(vec)
-	}
+	o.dim = cmp.Or(o.dim, len(vec))
 	return vec, nil
 }
 
@@ -184,9 +182,7 @@ type OpenAIEmbedding struct {
 // NewOpenAIEmbedding builds an OpenAIEmbedding. Empty baseURL defaults to
 // https://api.openai.com/v1.
 func NewOpenAIEmbedding(model, baseURL, apiKey string, timeoutS float64) *OpenAIEmbedding {
-	if baseURL == "" {
-		baseURL = "https://api.openai.com/v1"
-	}
+	baseURL = cmp.Or(baseURL, "https://api.openai.com/v1")
 	if timeoutS <= 0 {
 		timeoutS = 10.0
 	}
@@ -233,9 +229,7 @@ func (o *OpenAIEmbedding) Embed(text string) ([]float32, error) {
 	if err != nil {
 		return nil, err
 	}
-	if o.dim == 0 {
-		o.dim = len(vec)
-	}
+	o.dim = cmp.Or(o.dim, len(vec))
 	return vec, nil
 }
 

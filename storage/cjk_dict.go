@@ -25,6 +25,7 @@
 package storage
 
 import (
+	"cmp"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -405,18 +406,14 @@ func DownloadCJKDict() (CJKDictStatus, error) {
 // the new one does not use are cleaned up, so a failed or variant-switching
 // download leaves a coherent dictionary behind.
 func DownloadCJKDictTo(dict CJKDictName, dir string, mirrorBase string) (CJKDictStatus, error) {
-	if dict == "" {
-		dict = CJKDictZH
-	}
+	dict = cmp.Or(dict, CJKDictZH)
 	reg := cjkRegistryFn()
 	v, ok := reg[dict]
 	if !ok {
 		return CJKDictStatus{}, fmt.Errorf("unknown dictionary %q (available: %s)",
 			dict, strings.Join(cjkDictNames(reg), ", "))
 	}
-	if dir == "" {
-		dir = cjkDictDirFn()
-	}
+	dir = cmp.Or(dir, cjkDictDirFn())
 	mirrors := cjkDictMirrorFn()
 	if mirrorBase != "" {
 		mirrors = []string{mirrorBase}

@@ -51,7 +51,7 @@ func (ix *InMemoryVectorIndex) Upsert(itemID string, vector []float32) error {
 	if len(vector) != ix.dim {
 		return fmt.Errorf("vector dim %d != index dim %d", len(vector), ix.dim)
 	}
-	vec := append([]float32{}, vector...)
+	vec := slices.Clone(vector)
 	if n := l2Norm(vec); n > 0 {
 		for i := range vec {
 			vec[i] = float32(float64(vec[i]) / n)
@@ -77,7 +77,7 @@ func (ix *InMemoryVectorIndex) Search(query []float32, topK int) []SearchHit {
 	if len(ix.ids) == 0 {
 		return nil
 	}
-	q := append([]float32{}, query...)
+	q := slices.Clone(query)
 	if n := l2Norm(q); n > 0 {
 		for i := range q {
 			q[i] = float32(float64(q[i]) / n)

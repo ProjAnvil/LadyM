@@ -2,6 +2,7 @@ package operations
 
 import (
 	"cmp"
+	"maps"
 	"slices"
 	"strings"
 	"time"
@@ -69,14 +70,10 @@ type candidate struct {
 func Recall(store storage.Store, embedder storage.EmbeddingProvider, query string, cfg *config.Config, workspace string, topK int, layers []schema.Layer, types []schema.MemoryType, minSimilarity float64) (*schema.RecallResponse, error) {
 	start := time.Now()
 	ws := workspace
-	if ws == "" {
-		ws = cfg.Workspace
-	}
+	ws = cmp.Or(ws, cfg.Workspace)
 	rcfg := cfg.Recall
 	k1 := topK
-	if k1 == 0 {
-		k1 = rcfg.TopKTier1
-	}
+	k1 = cmp.Or(k1, rcfg.TopKTier1)
 	queryVec, err := embedder.Embed(query)
 	if err != nil {
 		return nil, err
@@ -157,9 +154,7 @@ func Recall(store storage.Store, embedder storage.EmbeddingProvider, query strin
 		byID[ex.Memory.ID] = &schema.RecallResult{Memory: ex.Memory, Score: act, Tier: 2, Via: ex.Via}
 	}
 	k2 := topK
-	if k2 == 0 {
-		k2 = rcfg.TopKTier2
-	}
+	k2 = cmp.Or(k2, rcfg.TopKTier2)
 	merged := make([]*schema.RecallResult, 0, len(byID))
 	for _, r := range byID {
 		merged = append(merged, r)
@@ -243,7 +238,7 @@ func tier2Expand(store storage.Store, tier1 []*schema.RecallResult, cfg *config.
 						return nil, err
 					}
 					if newer != nil && newer.Workspace == workspace {
-						out = append(out, expandedItem{Memory: newer, Sim: maxF(0.05, anchor.Score*0.6/float64(cur.depth)), Via: append(append([]string{}, cur.path...), e.DstID)})
+						out = append(out, expandedItem{Memory: newer, Sim: max(0.05, anchor.Score*0.6/float64(cur.depth)), Via: append(slices.Clone(cur.path), e.DstID)})
 					}
 				}
 			}
@@ -269,8 +264,8 @@ func tier2Expand(store storage.Store, tier1 []*schema.RecallResult, cfg *config.
 				if other == nil || other.Workspace != workspace {
 					continue
 				}
-				path := append(append([]string{}, cur.path...), otherID)
-				out = append(out, expandedItem{Memory: other, Sim: maxF(0.05, anchor.Score*0.5/float64(cur.depth)), Via: path})
+				path := append(slices.Clone(cur.path), otherID)
+				out = append(out, expandedItem{Memory: other, Sim: max(0.05, anchor.Score*0.5/float64(cur.depth)), Via: path})
 				frontier = append(frontier, frontierNode{otherID, cur.depth + 1, path})
 			}
 		}
@@ -279,10 +274,7 @@ func tier2Expand(store storage.Store, tier1 []*schema.RecallResult, cfg *config.
 	// backtrack: for code symbols, pull their file memory too.
 	// Iterate over a snapshot (Python: for mem_id in list(seen)) — the loop
 	// body adds file memories to seen, and they must not be visited here.
-	seenIDs := make([]string, 0, len(seen))
-	for memID := range seen {
-		seenIDs = append(seenIDs, memID)
-	}
+	seenIDs := slices.Collect(maps.Keys(seen))
 	for _, memID := range seenIDs {
 		mem, err := store.GetMemory(memID)
 		if err != nil {
@@ -307,13 +299,6 @@ func tier2Expand(store storage.Store, tier1 []*schema.RecallResult, cfg *config.
 		}
 	}
 	return out, nil
-}
-
-func maxF(a, b float64) float64 {
-	if a > b {
-		return a
-	}
-	return b
 }
 
 func commitAccess(store storage.Store, ids []string) {

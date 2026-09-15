@@ -4,6 +4,7 @@
 package engine
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"log"
@@ -393,12 +394,8 @@ func (e *Engine) PredictForwardIntents(workspace string) (*operations.L6Predicti
 
 // Decay forgets low-activation episodic events.
 func (e *Engine) Decay(workspace string, dryRun bool, maxAgeS, activationFloor float64) (*operations.DecayReport, error) {
-	if maxAgeS == 0 {
-		maxAgeS = 30 * 24 * 3600.0
-	}
-	if activationFloor == 0 {
-		activationFloor = 0.05
-	}
+	maxAgeS = cmp.Or(maxAgeS, 30*24*3600.0)
+	activationFloor = cmp.Or(activationFloor, 0.05)
 	return operations.Decay(e.Store, workspace, &e.Config.Activation, maxAgeS, activationFloor, 0, dryRun)
 }
 
@@ -417,9 +414,7 @@ func (e *Engine) Forget(memoryID string) error {
 // CountRecentEpisodes counts episodic events in workspace.
 func (e *Engine) CountRecentEpisodes(workspace string) (int, error) {
 	ws := workspace
-	if ws == "" {
-		ws = e.Config.Workspace
-	}
+	ws = cmp.Or(ws, e.Config.Workspace)
 	eps, err := e.Store.IterMemories(ws, string(schema.LayerEpisodic), "")
 	if err != nil {
 		return 0, err
@@ -435,9 +430,7 @@ func (e *Engine) MinEpisodesToRun() int { return e.Config.System2.MinEpisodesToR
 func (e *Engine) StartSystem2(intervalS int, workspace string) chan struct{} {
 	stop := make(chan struct{})
 	interval := intervalS
-	if interval == 0 {
-		interval = e.Config.System2.IntervalS
-	}
+	interval = cmp.Or(interval, e.Config.System2.IntervalS)
 	maxErrs := e.Config.System2.MaxConsecutiveErrors
 
 	workerCfg := *e.Config // shallow copy; nested structs are value types
@@ -509,9 +502,7 @@ func (e *Engine) Stats() (*schema.Stats, error) {
 // (empty string falls back to the engine's default workspace). Store-wide
 // aggregates (edges, code symbols, workspace list) are not workspace-scoped.
 func (e *Engine) StatsFor(workspace string) (*schema.Stats, error) {
-	if workspace == "" {
-		workspace = e.Config.Workspace
-	}
+	workspace = cmp.Or(workspace, e.Config.Workspace)
 	counts, err := e.Store.Count(workspace)
 	if err != nil {
 		return nil, err

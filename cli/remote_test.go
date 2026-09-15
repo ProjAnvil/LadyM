@@ -13,6 +13,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -42,7 +43,7 @@ func fakeRemoteServer(t *testing.T, respond func(w http.ResponseWriter, body str
 	return srv, func() []remoteReq {
 		mu.Lock()
 		defer mu.Unlock()
-		return append([]remoteReq(nil), reqs...)
+		return slices.Clone(reqs)
 	}
 }
 

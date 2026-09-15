@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"cmp"
 	"maps"
 
 	"github.com/ProjAnvil/LadyM/layers"
@@ -27,9 +28,7 @@ type Scope struct {
 // default workspace).
 func (e *Engine) Scope(workspace string) *Scope {
 	ws := workspace
-	if ws == "" {
-		ws = e.Config.Workspace
-	}
+	ws = cmp.Or(ws, e.Config.Workspace)
 	working := e.Working
 	if ws != e.Config.Workspace {
 		// Non-default workspaces get their own L0 buffer so concurrent
@@ -86,26 +85,18 @@ func (s *Scope) Remember(content string, layer schema.Layer, type_ schema.Memory
 		return s.Working.Push(content, tags, metadata, source), nil
 	case schema.LayerEpisodic:
 		agent := source
-		if agent == "" {
-			agent = "user"
-		}
+		agent = cmp.Or(agent, "user")
 		action := summary
-		if action == "" {
-			action = truncate80(content)
-		}
+		action = cmp.Or(action, truncate80(content))
 		return s.Episodic.Record(agent, action, content, "", tags, metadata)
 	case schema.LayerProcedural:
 		if type_ == schema.TypeSnippet {
 			title := summary
-			if title == "" {
-				title = "snippet"
-			}
+			title = cmp.Or(title, "snippet")
 			return s.Procedural.PutSnippet(title, content, "python", tags)
 		}
 		name := summary
-		if name == "" {
-			name = truncate80(content)
-		}
+		name = cmp.Or(name, truncate80(content))
 		return s.Procedural.PutPlaybook(name, splitLines(content), nil, "", tags)
 	default:
 		return s.Semantic.PutFact(content, summary, tags, metadata, source)

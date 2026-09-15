@@ -40,17 +40,13 @@ type L6PredictionReport struct {
 // PredictL6 predicts next intents from recent episodes, with TTL expiry.
 func PredictL6(store storage.Store, embedder storage.EmbeddingProvider, cfg *config.Config, workspace string, llm providers.LLMProvider, prompt string) (*L6PredictionReport, error) {
 	ws := workspace
-	if ws == "" {
-		ws = cfg.Workspace
-	}
+	ws = cmp.Or(ws, cfg.Workspace)
 	report := &L6PredictionReport{}
 	if llm == nil {
 		report.Skipped = true
 		return report, nil
 	}
-	if prompt == "" {
-		prompt = l6DefaultPrompt
-	}
+	prompt = cmp.Or(prompt, l6DefaultPrompt)
 	now := schema.Now()
 
 	// 1. expire sweep

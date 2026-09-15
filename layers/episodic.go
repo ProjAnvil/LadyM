@@ -19,9 +19,7 @@ type EpisodicMemory struct {
 
 // NewEpisodicMemory builds an EpisodicMemory.
 func NewEpisodicMemory(store storage.Store, embedder storage.EmbeddingProvider, workspace string) *EpisodicMemory {
-	if workspace == "" {
-		workspace = "default"
-	}
+	workspace = cmp.Or(workspace, "default")
 	return &EpisodicMemory{Store: store, Embedder: embedder, Workspace: workspace}
 }
 

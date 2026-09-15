@@ -12,6 +12,7 @@
 package langgraph
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"strings"
@@ -30,13 +31,11 @@ func CreateTools(eng *engine.Engine, workspace string, defaultTopK int) ([]lctoo
 		defaultTopK = 8
 	}
 	ws := workspace
-	if ws == "" {
-		ws = eng.Config.Workspace
-	}
+	ws = cmp.Or(ws, eng.Config.Workspace)
 
 	type recallArgs struct {
 		Query string `json:"query"`
-		TopK  int    `json:"top_k,omitempty"`
+		TopK  int    `json:"top_k,omitzero"`
 	}
 	type rememberArgs struct {
 		Content string   `json:"content"`
@@ -62,9 +61,7 @@ func CreateTools(eng *engine.Engine, workspace string, defaultTopK int) ([]lctoo
 			lines := make([]string, 0, len(resp.Results))
 			for _, r := range resp.Results {
 				summary := r.Memory.Summary
-				if summary == "" {
-					summary = r.Memory.Content
-				}
+				summary = cmp.Or(summary, r.Memory.Content)
 				lines = append(lines, fmt.Sprintf("[%s|%s|%.2f] %s", r.Memory.Layer, r.Memory.Type, r.Score, summary))
 			}
 			return lctools.Result{Content: strings.Join(lines, "\n")}, nil
@@ -84,9 +81,7 @@ func CreateTools(eng *engine.Engine, workspace string, defaultTopK int) ([]lctoo
 				return lctools.Result{}, err
 			}
 			gate, _ := m.Metadata["gated"].(string)
-			if gate == "" {
-				gate = "pass"
-			}
+			gate = cmp.Or(gate, "pass")
 			return lctools.Result{Content: fmt.Sprintf("stored id=%s gate=%s", m.ID, gate)}, nil
 		})
 	if err != nil {

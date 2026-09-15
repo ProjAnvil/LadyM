@@ -9,6 +9,8 @@
 package secrets
 
 import (
+	"bytes"
+	"cmp"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/hmac"
@@ -54,7 +56,7 @@ func DeriveAESKey(userKey string) []byte {
 	prk := hmacSHA256(salt, ikm)
 	info := []byte("ladym-master-key")
 	// HKDF-Expand to 32 bytes: T(1) = HMAC(PRK, T(0)="" || info || 0x01)
-	return hmacSHA256(prk, append(append([]byte{}, info...), 0x01))
+	return hmacSHA256(prk, append(bytes.Clone(info), 0x01))
 }
 
 // Store is the encrypted secret store.
@@ -67,9 +69,7 @@ type Store struct {
 
 // NewStore returns a Store rooted at dir (defaults to ~/.ladyM).
 func NewStore(dir string) *Store {
-	if dir == "" {
-		dir = Dir()
-	}
+	dir = cmp.Or(dir, Dir())
 	return &Store{
 		dir:     dir,
 		master:  filepath.Join(dir, "master.key"),

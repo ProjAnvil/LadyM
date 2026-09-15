@@ -12,9 +12,7 @@ import (
 // (expired predictions, superseded models). limit<=0 means 20; offset pages
 // (negative offset is clamped to 0). Read-only: it never calls the LLM.
 func (e *Engine) List(workspace string, layer *schema.Layer, limit, offset int) ([]*schema.Memory, error) {
-	if workspace == "" {
-		workspace = e.Config.Workspace
-	}
+	workspace = cmp.Or(workspace, e.Config.Workspace)
 	layerStr := ""
 	if layer != nil {
 		layerStr = string(*layer)

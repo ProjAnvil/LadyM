@@ -66,15 +66,9 @@ func classifyPlaybook(candidateHash string, similar []similarFact, threshold flo
 // Proceduralize clusters successful episodic events into L3 playbooks.
 func Proceduralize(store storage.Store, embedder storage.EmbeddingProvider, cfg *config.Config, workspace string, minClusterSize int, similarityThreshold float64) (*ProceduralizeReport, error) {
 	ws := workspace
-	if ws == "" {
-		ws = cfg.Workspace
-	}
-	if minClusterSize == 0 {
-		minClusterSize = 3
-	}
-	if similarityThreshold == 0 {
-		similarityThreshold = 0.55
-	}
+	ws = cmp.Or(ws, cfg.Workspace)
+	minClusterSize = cmp.Or(minClusterSize, 3)
+	similarityThreshold = cmp.Or(similarityThreshold, 0.55)
 	proc := layers.NewProceduralMemory(store, embedder, ws)
 	report := newProceduralizeReport()
 
@@ -128,9 +122,7 @@ func Proceduralize(store storage.Store, embedder storage.EmbeddingProvider, cfg 
 			var actionOrder []string
 			for _, c := range cluster {
 				a := c.MetaString("action")
-				if a == "" {
-					a = "do"
-				}
+				a = cmp.Or(a, "do")
 				if _, ok := actionCounts[a]; !ok {
 					actionOrder = append(actionOrder, a)
 				}
@@ -163,9 +155,7 @@ func Proceduralize(store storage.Store, embedder storage.EmbeddingProvider, cfg 
 			seenAgents := map[string]bool{}
 			for _, c := range cluster {
 				a := c.MetaString("agent")
-				if a == "" {
-					a = "agent"
-				}
+				a = cmp.Or(a, "agent")
 				if !seenAgents[a] {
 					seenAgents[a] = true
 					preconditions = append(preconditions, a)

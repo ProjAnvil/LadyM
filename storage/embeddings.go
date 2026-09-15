@@ -3,6 +3,7 @@
 package storage
 
 import (
+	"cmp"
 	"encoding/binary"
 	"fmt"
 	"math"
@@ -216,9 +217,7 @@ func (h *HashingEmbedding) Embed(text string) ([]float32, error) {
 		norm += v * v
 	}
 	norm = math.Sqrt(norm)
-	if norm == 0 {
-		norm = 1.0
-	}
+	norm = cmp.Or(norm, 1.0)
 	out := make([]float32, h.dim)
 	for i, v := range vec {
 		out[i] = float32(v / norm)
@@ -329,19 +328,13 @@ func MakeProvider(cfg *config.Config) (EmbeddingProvider, error) {
 			return nil, configError(missingEmbeddingKeyMsg(cfg.EmbeddingAPIKeyEnv))
 		}
 		model := cfg.EmbeddingModel
-		if model == "" {
-			model = "text-embedding-3-small"
-		}
+		model = cmp.Or(model, "text-embedding-3-small")
 		provider = NewOpenAIEmbedding(model, cfg.EmbeddingBaseURL, apiKey, cfg.EmbeddingTimeoutS)
 	case "ollama":
 		base := cfg.EmbeddingBaseURL
-		if base == "" {
-			base = "http://localhost:11434"
-		}
+		base = cmp.Or(base, "http://localhost:11434")
 		model := cfg.EmbeddingModel
-		if model == "" {
-			model = "nomic-embed-text"
-		}
+		model = cmp.Or(model, "nomic-embed-text")
 		provider = NewOllamaEmbedding(base, model, cfg.EmbeddingTimeoutS, nil)
 	case "http":
 		provider = NewHTTPEmbedding(HTTPEmbeddingOptions{

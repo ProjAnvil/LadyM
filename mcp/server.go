@@ -3,6 +3,7 @@ package mcp
 
 import (
 	"bufio"
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -44,7 +45,7 @@ type textContent struct {
 
 type callResult struct {
 	Content []textContent `json:"content"`
-	IsError bool          `json:"isError,omitempty"`
+	IsError bool          `json:"isError,omitzero"`
 }
 
 // Run starts the MCP stdio server using cfg.
@@ -320,9 +321,7 @@ func (s *server) call(name string, args map[string]any) (string, error) {
 		s.eng.SetWorkspace(ws)
 		// Python: `source or "mcp"` — an explicitly empty source falls back too.
 		source := getStr("source", "mcp")
-		if source == "" {
-			source = "mcp"
-		}
+		source = cmp.Or(source, "mcp")
 		m, err := s.eng.Remember(content, schema.LayerSemantic, schema.TypeFact, getStrList("tags"), nil, source, "")
 		if err != nil {
 			return "", err

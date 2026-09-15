@@ -7,6 +7,7 @@
 package adapter
 
 import (
+	"cmp"
 	"context"
 
 	"github.com/ProjAnvil/LadyM/providers"
@@ -50,9 +51,7 @@ func (a *langchainEmbedding) Embed(text string) ([]float32, error) {
 	if err != nil {
 		return nil, err
 	}
-	if a.dim == 0 {
-		a.dim = len(vec)
-	}
+	a.dim = cmp.Or(a.dim, len(vec))
 	return toFloat32s(vec), nil
 }
 
@@ -63,9 +62,7 @@ func (a *langchainEmbedding) EmbedBatch(texts []string) ([][]float32, error) {
 	}
 	out := make([][]float32, len(vecs))
 	for i, v := range vecs {
-		if a.dim == 0 {
-			a.dim = len(v)
-		}
+		a.dim = cmp.Or(a.dim, len(v))
 		out[i] = toFloat32s(v)
 	}
 	return out, nil

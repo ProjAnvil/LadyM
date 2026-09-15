@@ -19,6 +19,7 @@
 package config
 
 import (
+	"cmp"
 	"fmt"
 	"maps"
 	"os"
@@ -357,9 +358,7 @@ func stripSecrets(data map[string]any, source string, allowPlaintext bool) map[s
 // ParseTomlSafely parses TOML text, stripping secret literals (with a stderr
 // warning per drop).
 func ParseTomlSafely(text string, source string) (map[string]any, error) {
-	if source == "" {
-		source = "<string>"
-	}
+	source = cmp.Or(source, "<string>")
 	var raw map[string]any
 	if _, err := toml.Decode(text, &raw); err != nil {
 		return nil, err

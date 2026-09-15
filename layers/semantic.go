@@ -1,6 +1,8 @@
 package layers
 
 import (
+	"cmp"
+
 	"github.com/ProjAnvil/LadyM/schema"
 	"github.com/ProjAnvil/LadyM/storage"
 )
@@ -14,17 +16,13 @@ type SemanticMemory struct {
 
 // NewSemanticMemory builds a SemanticMemory.
 func NewSemanticMemory(store storage.Store, embedder storage.EmbeddingProvider, workspace string) *SemanticMemory {
-	if workspace == "" {
-		workspace = "default"
-	}
+	workspace = cmp.Or(workspace, "default")
 	return &SemanticMemory{Store: store, Embedder: embedder, Workspace: workspace}
 }
 
 // PutFact writes a semantic fact directly.
 func (s *SemanticMemory) PutFact(content, summary string, tags []string, metadata map[string]any, source string) (*schema.Memory, error) {
-	if summary == "" {
-		summary = truncate(content, 80)
-	}
+	summary = cmp.Or(summary, truncate(content, 80))
 	if tags == nil {
 		tags = []string{}
 	}

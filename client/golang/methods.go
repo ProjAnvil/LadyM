@@ -77,7 +77,7 @@ func (c *Client) Recall(ctx context.Context, query string, opts RecallOptions) (
 		Query     string `json:"query"`
 		TopK      int    `json:"top_k"`
 		Workspace string `json:"workspace"`
-		CodeOnly  bool   `json:"code_only,omitempty"`
+		CodeOnly  bool   `json:"code_only,omitzero"`
 	}{Query: query, TopK: opts.TopK, Workspace: opts.Workspace, CodeOnly: opts.CodeOnly}
 	var out schema.RecallResponse
 	if err := c.post(ctx, "/api/recall", body, &out); err != nil {

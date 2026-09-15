@@ -3,6 +3,7 @@
 package operations
 
 import (
+	"cmp"
 	"math"
 	"strings"
 
@@ -13,9 +14,7 @@ import (
 // RecencyFactor is exponential decay: 1.0 right after access, 0.5 after
 // halfLifeS seconds.
 func RecencyFactor(lastAccessAt, halfLifeS, now float64) float64 {
-	if now == 0 {
-		now = schema.Now()
-	}
+	now = cmp.Or(now, schema.Now())
 	age := now - lastAccessAt
 	if age < 0 {
 		age = 0
