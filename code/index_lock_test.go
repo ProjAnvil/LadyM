@@ -39,8 +39,7 @@ func TestIndexLockConflict(t *testing.T) {
 	}
 
 	_, err = IndexCodebase(root, store, emb, cfg, "test", false, nil)
-	var inProg *IndexInProgressError
-	if !errors.As(err, &inProg) {
+	if _, ok := errors.AsType[*IndexInProgressError](err); !ok {
 		t.Fatalf("err = %v, want IndexInProgressError", err)
 	}
 	if !strings.Contains(err.Error(), dbPath) {
@@ -77,7 +76,7 @@ func TestIndexLockReleasedBetweenRuns(t *testing.T) {
 	cfg := config.ForTesting(tmp)
 	emb := storage.NewHashingEmbedding(256)
 
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		if _, err := IndexCodebase(root, store, emb, cfg, "test", false, nil); err != nil {
 			t.Fatalf("run %d: %v", i+1, err)
 		}

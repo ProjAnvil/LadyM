@@ -434,7 +434,7 @@ func TestTokenizeNeverDownloads(t *testing.T) {
 	setCJKDictDir(t, t.TempDir()) // empty: no local dict anywhere
 
 	// Tokenize repeatedly so lazy load AND probe cycles both run.
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		if got := Tokenize("数据库连接池耗尽"); len(got) == 0 {
 			t.Fatal("offline tokenization returned empty tokens")
 		}

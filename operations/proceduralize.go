@@ -1,7 +1,8 @@
 package operations
 
 import (
-	"sort"
+	"cmp"
+	"slices"
 	"strconv"
 
 	"github.com/ProjAnvil/LadyM/config"
@@ -46,7 +47,7 @@ func retrieveExistingPlaybooks(store storage.Store, candidateVec []float32, ws s
 		}
 		similar = append(similar, similarFact{Memory: m, Sim: h.Similarity})
 	}
-	sort.SliceStable(similar, func(a, b int) bool { return similar[a].Sim > similar[b].Sim })
+	slices.SortStableFunc(similar, func(a, b similarFact) int { return cmp.Compare(b.Sim, a.Sim) })
 	return similar, nil
 }
 
@@ -81,7 +82,7 @@ func Proceduralize(store storage.Store, embedder storage.EmbeddingProvider, cfg 
 	if err != nil {
 		return nil, err
 	}
-	sort.SliceStable(episodes, func(a, b int) bool { return episodes[a].CreatedAt < episodes[b].CreatedAt })
+	slices.SortStableFunc(episodes, func(a, b *schema.Memory) int { return cmp.Compare(a.CreatedAt, b.CreatedAt) })
 
 	var succ []*schema.Memory
 	for _, e := range episodes {

@@ -1,7 +1,8 @@
 package operations
 
 import (
-	"sort"
+	"cmp"
+	"slices"
 	"strings"
 
 	"github.com/ProjAnvil/LadyM/config"
@@ -91,7 +92,7 @@ func PredictL6(store storage.Store, embedder storage.EmbeddingProvider, cfg *con
 	if err != nil {
 		return nil, err
 	}
-	sort.SliceStable(episodes, func(a, b int) bool { return episodes[a].CreatedAt < episodes[b].CreatedAt })
+	slices.SortStableFunc(episodes, func(a, b *schema.Memory) int { return cmp.Compare(a.CreatedAt, b.CreatedAt) })
 	var recent []*schema.Memory
 	for _, e := range episodes {
 		if e.CreatedAt > watermark {

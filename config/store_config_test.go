@@ -100,7 +100,7 @@ func TestStoreDSNDirectWinsOverEnv(t *testing.T) {
 	t.Setenv("LADYM_TEST_DSN", "postgres://from-env/db")
 	cfg := Default()
 	// map iteration order is random; priority must hold either way
-	for i := 0; i < 8; i++ {
+	for i := range 8 {
 		c := Default()
 		applyToml(c, map[string]any{
 			"store": map[string]any{

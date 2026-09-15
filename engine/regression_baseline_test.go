@@ -117,8 +117,7 @@ func TestConfiguredLLMDoesNotBreakReadPath(t *testing.T) {
 	if _, err := eng.Consolidate("", 0); err == nil {
 		t.Error("consolidate with a keyless LLM configured: want a fail-fast ConfigError, got nil")
 	} else {
-		var ce *config.ConfigError
-		if !errors.As(err, &ce) {
+		if _, ok := errors.AsType[*config.ConfigError](err); !ok {
 			t.Errorf("consolidate error = %T (%v), want *config.ConfigError", err, err)
 		}
 	}

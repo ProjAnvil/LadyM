@@ -57,7 +57,7 @@ func TestRemoteCmds_ServerError_PropagatesMessage(t *testing.T) {
 // transport detail.
 func TestTranslateErr_DeadlineExceeded_ReportsTimeout(t *testing.T) {
 	rc := newRemoteClient("http://127.0.0.1:1", remoteAuth{})
-	ctx, cancel := context.WithTimeout(context.Background(), time.Nanosecond)
+	ctx, cancel := context.WithTimeout(t.Context(), time.Nanosecond)
 	defer cancel()
 	time.Sleep(5 * time.Millisecond) // let the deadline pass
 

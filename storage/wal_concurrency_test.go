@@ -63,10 +63,8 @@ func TestWALConcurrentReadWhileWriting(t *testing.T) {
 	var wg sync.WaitGroup
 	errCh := make(chan error, 2)
 
-	wg.Add(1)
-	go func() { // writer connection: keep committing new memories
-		defer wg.Done()
-		for i := 0; i < 30; i++ {
+	wg.Go(func() { // writer connection: keep committing new memories
+		for i := range 30 {
 			m := schema.NewMemory(schema.LayerEpisodic, schema.TypeEvent)
 			m.Content = fmt.Sprintf("concurrent episode %d", i)
 			m.Workspace = "w"
@@ -81,12 +79,10 @@ func TestWALConcurrentReadWhileWriting(t *testing.T) {
 			}
 			time.Sleep(2 * time.Millisecond)
 		}
-	}()
+	})
 
-	wg.Add(1)
-	go func() { // reader connection: keep recalling while the writer works
-		defer wg.Done()
-		for i := 0; i < 20; i++ {
+	wg.Go(func() { // reader connection: keep recalling while the writer works
+		for range 20 {
 			if _, err := reader.IterMemories("w", "", ""); err != nil {
 				errCh <- err
 				return
@@ -99,7 +95,7 @@ func TestWALConcurrentReadWhileWriting(t *testing.T) {
 			reader.vectorIndex.Search(qvec, 8)
 			time.Sleep(5 * time.Millisecond)
 		}
-	}()
+	})
 
 	wg.Wait()
 	close(errCh)

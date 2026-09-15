@@ -7,7 +7,6 @@ package storage
 // come from a conflicting pre-existing table and from a closed pool.
 
 import (
-	"context"
 	"os"
 	"strings"
 	"testing"
@@ -19,7 +18,7 @@ import (
 // execPG runs a raw statement against the store's pool.
 func execPG(t *testing.T, s *PostgresStore, stmt string, args ...any) {
 	t.Helper()
-	if _, err := s.pool.Exec(context.Background(), stmt, args...); err != nil {
+	if _, err := s.pool.Exec(t.Context(), stmt, args...); err != nil {
 		t.Fatalf("exec %q: %v", stmt, err)
 	}
 }
@@ -194,14 +193,14 @@ func TestNewPostgresStoreSchemaConflict(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	conn, err := pgx.ConnectConfig(context.Background(), cfg)
+	conn, err := pgx.ConnectConfig(t.Context(), cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := conn.Exec(context.Background(), "CREATE TABLE memories (id TEXT PRIMARY KEY)"); err != nil {
+	if _, err := conn.Exec(t.Context(), "CREATE TABLE memories (id TEXT PRIMARY KEY)"); err != nil {
 		t.Fatal(err)
 	}
-	conn.Close(context.Background())
+	conn.Close(t.Context())
 
 	_, err = NewPostgresStore(testDSN, suiteDim)
 	if err == nil || !strings.Contains(err.Error(), "postgres schema setup failed") {
@@ -221,7 +220,7 @@ func TestApplyPGSchemaOnClosedPool(t *testing.T) {
 		t.Fatal(err)
 	}
 	s.pool.Close()
-	if err := applyPGSchema(context.Background(), s.pool, suiteDim); err == nil ||
+	if err := applyPGSchema(t.Context(), s.pool, suiteDim); err == nil ||
 		!strings.Contains(err.Error(), "postgres schema setup failed") {
 		t.Errorf("applyPGSchema on closed pool = %v, want wrapped failure", err)
 	}

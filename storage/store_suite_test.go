@@ -13,7 +13,6 @@ package storage
 // lives in pg_gate_test.go so PG-only tests still run under -tags enterprise.
 
 import (
-	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -760,7 +759,7 @@ func embeddingColumnPresent(t *testing.T, s Store, id string) bool {
 		return n == 1
 	case *PostgresStore:
 		var ok bool
-		if err := st.pool.QueryRow(context.Background(),
+		if err := st.pool.QueryRow(t.Context(),
 			"SELECT embedding IS NOT NULL FROM memories WHERE id = $1", id).Scan(&ok); err != nil {
 			t.Fatal(err)
 		}

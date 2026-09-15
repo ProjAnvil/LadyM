@@ -130,8 +130,7 @@ func TestEnsureProviderDimProbeError(t *testing.T) {
 	if err == nil {
 		t.Fatal("New with failing dimensionality probe should fail")
 	}
-	var provErr *storage.EmbeddingProviderError
-	if !errors.As(err, &provErr) {
+	if _, ok := errors.AsType[*storage.EmbeddingProviderError](err); !ok {
 		t.Fatalf("err = %v, want EmbeddingProviderError", err)
 	}
 }
@@ -167,8 +166,7 @@ func TestReopenWithDimMismatchRejected(t *testing.T) {
 	if err == nil {
 		t.Fatal("reopen with a different dim should fail")
 	}
-	var mismatch *storage.EmbeddingDimensionMismatch
-	if !errors.As(err, &mismatch) {
+	if _, ok := errors.AsType[*storage.EmbeddingDimensionMismatch](err); !ok {
 		t.Fatalf("err = %v, want EmbeddingDimensionMismatch", err)
 	}
 }

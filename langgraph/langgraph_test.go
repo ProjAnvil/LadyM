@@ -3,7 +3,6 @@
 package langgraph
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -50,7 +49,7 @@ func TestCreateToolsRecallAndRemember(t *testing.T) {
 		if tl.Name() != "remember_fact" {
 			continue
 		}
-		res, err := tl.Invoke(context.Background(), map[string]any{"content": "Alice likes green tea", "tags": []string{"pref"}})
+		res, err := tl.Invoke(t.Context(), map[string]any{"content": "Alice likes green tea", "tags": []string{"pref"}})
 		if err != nil {
 			t.Fatalf("remember_fact: %v", err)
 		}
@@ -64,7 +63,7 @@ func TestCreateToolsRecallAndRemember(t *testing.T) {
 		if tl.Name() != "recall_memory" {
 			continue
 		}
-		res, err := tl.Invoke(context.Background(), map[string]any{"query": "green tea"})
+		res, err := tl.Invoke(t.Context(), map[string]any{"query": "green tea"})
 		if err != nil {
 			t.Fatalf("recall_memory: %v", err)
 		}
@@ -78,7 +77,7 @@ func TestCreateToolsRecallAndRemember(t *testing.T) {
 		if tl.Name() != "search_code" {
 			continue
 		}
-		res, err := tl.Invoke(context.Background(), map[string]any{"query": "anything"})
+		res, err := tl.Invoke(t.Context(), map[string]any{"query": "anything"})
 		if err != nil {
 			t.Fatalf("search_code: %v", err)
 		}
@@ -182,7 +181,7 @@ func TestCreateToolsDefaultsAndRecallNoHits(t *testing.T) {
 		if tl.Name() != "recall_memory" {
 			continue
 		}
-		res, err := tl.Invoke(context.Background(), map[string]any{"query": "nothing stored", "top_k": 3})
+		res, err := tl.Invoke(t.Context(), map[string]any{"query": "nothing stored", "top_k": 3})
 		if err != nil {
 			t.Fatalf("recall_memory: %v", err)
 		}
@@ -213,7 +212,7 @@ func TestCreateToolsSearchCodeHits(t *testing.T) {
 		if tl.Name() != "search_code" {
 			continue
 		}
-		res, err := tl.Invoke(context.Background(), map[string]any{"query": "hash password", "top_k": 5})
+		res, err := tl.Invoke(t.Context(), map[string]any{"query": "hash password", "top_k": 5})
 		if err != nil {
 			t.Fatalf("search_code: %v", err)
 		}
@@ -241,7 +240,7 @@ func TestCreateToolsEngineErrors(t *testing.T) {
 		"search_code":   {"query": "anything"},
 	}
 	for _, tl := range tools {
-		if _, err := tl.Invoke(context.Background(), argsByTool[tl.Name()]); err == nil {
+		if _, err := tl.Invoke(t.Context(), argsByTool[tl.Name()]); err == nil {
 			t.Fatalf("%s: expected error from closed engine", tl.Name())
 		}
 	}
@@ -294,7 +293,7 @@ func TestRecallNodeContentFallback(t *testing.T) {
 		if tl.Name() != "recall_memory" {
 			continue
 		}
-		res, err := tl.Invoke(context.Background(), map[string]any{"query": "zyxquark protocol"})
+		res, err := tl.Invoke(t.Context(), map[string]any{"query": "zyxquark protocol"})
 		if err != nil {
 			t.Fatalf("recall_memory: %v", err)
 		}

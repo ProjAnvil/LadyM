@@ -27,7 +27,7 @@ func TestWriteIndexReportPrintsFirstFiveErrors(t *testing.T) {
 	if !strings.Contains(out, "errors: 7") {
 		t.Errorf("output missing error count:\n%s", out)
 	}
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		if !strings.Contains(out, "err"+string(rune('0'+i))) {
 			t.Errorf("output missing error #%d:\n%s", i, out)
 		}
@@ -138,8 +138,8 @@ func TestConfigRMMissingKeyPrintsOnce(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected non-nil error for missing key")
 	}
-	var ee *exitError
-	if !errors.As(err, &ee) {
+	ee, ok := errors.AsType[*exitError](err)
+	if !ok {
 		t.Fatalf("error type = %T, want *exitError (silent; already printed)", err)
 	}
 	if ee.code == 0 {

@@ -175,7 +175,7 @@ func TestFullMemoryLifecycle(t *testing.T) {
 	eng := newTestEngine(t)
 
 	// 1. encode a bunch of episodes (some succeed, some fail)
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		if _, err := eng.RecordEvent("claude", "deploy to prod",
 			fmt.Sprintf("ran deploy.sh release %d", i), "success", nil, nil); err != nil {
 			t.Fatal(err)

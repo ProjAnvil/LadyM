@@ -24,17 +24,15 @@ func TestNewPostgresStoreConcurrentColdStart(t *testing.T) {
 	var wg sync.WaitGroup
 	errs := make(chan error, n)
 	stores := make(chan *PostgresStore, n)
-	for i := 0; i < n; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range n {
+		wg.Go(func() {
 			s, err := NewPostgresStore(fresh, suiteDim)
 			if err != nil {
 				errs <- err
 				return
 			}
 			stores <- s
-		}()
+		})
 	}
 	wg.Wait()
 	close(errs)

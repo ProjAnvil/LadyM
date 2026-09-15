@@ -208,7 +208,7 @@ func TestChunkFallbackHasNoCalls(t *testing.T) {
 	dir := t.TempDir()
 	var sb strings.Builder
 	sb.WriteString("lines_2()\n")
-	for i := 0; i < 44; i++ {
+	for range 44 {
 		sb.WriteString("nope\n")
 	}
 	if err := os.WriteFile(filepath.Join(dir, "data.rb"), []byte(sb.String()), 0o644); err != nil {

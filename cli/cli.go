@@ -5,9 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"os"
-	"sort"
+	"slices"
 	"strings"
 
 	"github.com/ProjAnvil/LadyM/api"
@@ -63,12 +64,10 @@ func newRootCmd() *cobra.Command {
 // exits silently with its code, ConfigError prints a one-liner unless --debug,
 // everything else prints the error (full detail under --debug).
 func fatalOnError(err error) {
-	var exitErr *exitError
-	if errors.As(err, &exitErr) {
+	if exitErr, ok := errors.AsType[*exitError](err); ok {
 		os.Exit(exitErr.code)
 	}
-	var cfgErr *config.ConfigError
-	if errors.As(err, &cfgErr) && !globalDebug {
+	if cfgErr, ok := errors.AsType[*config.ConfigError](err); ok && !globalDebug {
 		fmt.Fprintf(os.Stderr, "ladym: %s\n", cfgErr.Msg)
 		os.Exit(1)
 	}
@@ -283,7 +282,7 @@ func indexCmd() *cobra.Command {
 			defer eng.Close()
 			var langs []string
 			if languages != "" {
-				for _, l := range strings.Split(languages, ",") {
+				for l := range strings.SplitSeq(languages, ",") {
 					langs = append(langs, strings.TrimSpace(l))
 				}
 			}
@@ -709,11 +708,7 @@ func writeStats(w io.Writer, s *schema.Stats, scopedWS string) {
 	fmt.Fprintf(w, "  workspaces: %s\n", ws)
 	if len(s.ByLayer) > 0 {
 		fmt.Fprintln(w, "  by layer:")
-		layers := make([]string, 0, len(s.ByLayer))
-		for k := range s.ByLayer {
-			layers = append(layers, k)
-		}
-		sort.Strings(layers)
+		layers := slices.Sorted(maps.Keys(s.ByLayer))
 		for _, k := range layers {
 			fmt.Fprintf(w, "    %-16s %d\n", k, s.ByLayer[k])
 		}
@@ -725,7 +720,7 @@ func splitTags(s string) []string {
 		return []string{}
 	}
 	var out []string
-	for _, t := range strings.Split(s, ",") {
+	for t := range strings.SplitSeq(s, ",") {
 		t = strings.TrimSpace(t)
 		if t != "" {
 			out = append(out, t)

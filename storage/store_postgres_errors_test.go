@@ -7,7 +7,6 @@ package storage
 // query surfaces the error instead of a silent nil.
 
 import (
-	"context"
 	"errors"
 	"os"
 	"strings"
@@ -76,7 +75,7 @@ func TestPostgresRebuildVectorIndex(t *testing.T) {
 		t.Errorf("dim after rebuild = %d, want 4", s.dim)
 	}
 	var n int
-	if err := s.pool.QueryRow(context.Background(),
+	if err := s.pool.QueryRow(t.Context(),
 		"SELECT COUNT(*) FROM memories WHERE embedding IS NOT NULL").Scan(&n); err != nil {
 		t.Fatal(err)
 	}
@@ -103,7 +102,7 @@ func TestPostgresRebuildVectorIndex(t *testing.T) {
 // the dim unchanged and the rest of the store must be untouched.
 func TestPostgresRebuildVectorIndexFailureKeepsDim(t *testing.T) {
 	s := newPGStoreOrSkip(t, 8)
-	if _, err := s.pool.Exec(context.Background(), "DROP TABLE memories CASCADE"); err != nil {
+	if _, err := s.pool.Exec(t.Context(), "DROP TABLE memories CASCADE"); err != nil {
 		t.Fatal(err)
 	}
 	s.RebuildVectorIndex(4)
@@ -210,7 +209,7 @@ func TestPostgresVectorSearchZeroNorm(t *testing.T) {
 // tables must return the SQL error (VectorSearch degrades to nil by design).
 func TestPostgresStoreErrorsAfterDropTables(t *testing.T) {
 	s := newPGStoreOrSkip(t, suiteDim)
-	ctx := context.Background()
+	ctx := t.Context()
 	for _, table := range []string{"code_refs", "code_symbols", "edges", "users", "index_state", "meta", "memories"} {
 		if _, err := s.pool.Exec(ctx, "DROP TABLE "+table); err != nil {
 			t.Fatalf("drop %s: %v", table, err)

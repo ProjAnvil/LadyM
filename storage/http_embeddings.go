@@ -2,11 +2,12 @@ package storage
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
-	"sort"
+	"slices"
 	"strings"
 	"time"
 )
@@ -79,7 +80,7 @@ func (f *FakeHTTPPoster) Post(url string, payload any, headers map[string]string
 
 func extractPath(obj any, path string) (any, error) {
 	cur := obj
-	for _, part := range strings.Split(path, ".") {
+	for part := range strings.SplitSeq(path, ".") {
 		m, ok := cur.(map[string]any)
 		if !ok {
 			return nil, fmt.Errorf("cannot navigate %q into %T", part, cur)
@@ -271,8 +272,8 @@ func (o *OpenAIEmbedding) EmbedBatch(texts []string) ([][]float32, error) {
 	// Align results to input order via the "index" field (Python sorts
 	// resp.data by index); fall back to response order when index is absent.
 	if allIndexed {
-		sort.SliceStable(objs, func(i, j int) bool {
-			return objs[i]["index"].(float64) < objs[j]["index"].(float64)
+		slices.SortStableFunc(objs, func(a, b map[string]any) int {
+			return cmp.Compare(a["index"].(float64), b["index"].(float64))
 		})
 	}
 	out := make([][]float32, 0, len(objs))

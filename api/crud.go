@@ -6,9 +6,10 @@
 package api
 
 import (
+	"cmp"
 	"fmt"
 	"net/http"
-	"sort"
+	"slices"
 	"strconv"
 
 	"github.com/ProjAnvil/LadyM/schema"
@@ -64,7 +65,7 @@ func (h *Handler) handleListMemories(w http.ResponseWriter, r *http.Request) {
 		engineError(w, err)
 		return
 	}
-	sort.Slice(mems, func(i, j int) bool { return mems[i].ID < mems[j].ID })
+	slices.SortFunc(mems, func(a, b *schema.Memory) int { return cmp.Compare(a.ID, b.ID) })
 	total := len(mems)
 	page := make([]*schema.Memory, 0, limit)
 	if offset < total {

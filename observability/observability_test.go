@@ -102,10 +102,8 @@ func TestConcurrentAccess(t *testing.T) {
 	r := New()
 	const n = 64
 	var wg sync.WaitGroup
-	for i := 0; i < n; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range n {
+		wg.Go(func() {
 			r.IncRequests("/api/recall", "2xx")
 			r.ObserveDuration("/api/recall", 0.001)
 			r.IncInFlight()
@@ -114,7 +112,7 @@ func TestConcurrentAccess(t *testing.T) {
 			// A scrape concurrent with the increments exercises Gather races.
 			rec := httptest.NewRecorder()
 			r.HTTPHandler().ServeHTTP(rec, httptest.NewRequest("GET", "/metrics", nil))
-		}()
+		})
 	}
 	wg.Wait()
 

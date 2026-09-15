@@ -1,7 +1,8 @@
 package engine
 
 import (
-	"sort"
+	"cmp"
+	"slices"
 
 	"github.com/ProjAnvil/LadyM/operations"
 	"github.com/ProjAnvil/LadyM/schema"
@@ -31,11 +32,8 @@ func (e *Engine) List(workspace string, layer *schema.Layer, limit, offset int) 
 	if offset < 0 {
 		offset = 0
 	}
-	sort.SliceStable(live, func(i, j int) bool {
-		if live[i].UpdatedAt == live[j].UpdatedAt {
-			return live[i].ID > live[j].ID // deterministic tiebreak for equal timestamps
-		}
-		return live[i].UpdatedAt > live[j].UpdatedAt
+	slices.SortStableFunc(live, func(a, b *schema.Memory) int {
+		return cmp.Or(cmp.Compare(b.UpdatedAt, a.UpdatedAt), cmp.Compare(b.ID, a.ID)) // deterministic tiebreak for equal timestamps
 	})
 	if offset >= len(live) {
 		return []*schema.Memory{}, nil

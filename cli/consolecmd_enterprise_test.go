@@ -15,7 +15,6 @@ package cli
 // consoledeps_test.go.
 
 import (
-	"context"
 	crand "crypto/rand"
 	"encoding/hex"
 	"io"
@@ -129,7 +128,7 @@ func consoleTestPGDSN(t *testing.T, dsn string) string {
 	dbName := "ladym_test_" + hex.EncodeToString(suffix[:])
 	adminCfg := pcfg.Copy()
 	adminCfg.Database = "postgres"
-	ctx := context.Background()
+	ctx := t.Context()
 	admin, err := pgx.ConnectConfig(ctx, adminCfg)
 	if err != nil {
 		t.Fatalf("connect to postgres admin database: %v", err)

@@ -5,9 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 	"time"
 
@@ -91,7 +92,7 @@ func IndexCodebase(root string, store storage.Store, embedder storage.EmbeddingP
 	if err != nil {
 		return nil, err
 	}
-	sort.Strings(paths)
+	slices.Sort(paths)
 
 	for _, path := range paths {
 		report.FilesSeen++
@@ -100,7 +101,7 @@ func IndexCodebase(root string, store storage.Store, embedder storage.EmbeddingP
 			report.FilesSkippedUnsupported++
 			continue
 		}
-		if languageFilter != nil && !contains(languageFilter, lang) {
+		if languageFilter != nil && !slices.Contains(languageFilter, lang) {
 			continue
 		}
 		data, err := os.ReadFile(path)
@@ -166,15 +167,6 @@ func IndexCodebase(root string, store storage.Store, embedder storage.EmbeddingP
 	return report, nil
 }
 
-func contains(list []string, s string) bool {
-	for _, x := range list {
-		if x == s {
-			return true
-		}
-	}
-	return false
-}
-
 func walkFiles(root string, ignoreGlobs []string) ([]string, error) {
 	var out []string
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
@@ -223,11 +215,7 @@ func fileSummary(rel, lang string, syms []RawSymbol) string {
 	for _, s := range syms {
 		kinds[s.Kind]++
 	}
-	kindKeys := make([]string, 0, len(kinds))
-	for k := range kinds {
-		kindKeys = append(kindKeys, k)
-	}
-	sort.Strings(kindKeys)
+	kindKeys := slices.Sorted(maps.Keys(kinds))
 	var kindParts []string
 	for _, k := range kindKeys {
 		kindParts = append(kindParts, itoa(kinds[k])+" "+k)

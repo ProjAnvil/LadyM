@@ -57,7 +57,7 @@ func TestGoldenVectorSearchParity(t *testing.T) {
 	// Fixed dataset: 24 memories with deterministic ids and vectors.
 	const n = 24
 	for _, s := range stores {
-		for i := 0; i < n; i++ {
+		for i := range n {
 			m := schema.NewMemory(schema.LayerSemantic, schema.TypeFact)
 			m.ID = fmt.Sprintf("m%02d", i)
 			m.Content = "golden memory " + m.ID

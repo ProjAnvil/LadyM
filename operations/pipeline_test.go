@@ -982,7 +982,7 @@ func TestPredictL6StoresIntentsAndWatermark(t *testing.T) {
 
 func putSuccessEpisodes(t *testing.T, store storage.Store, emb *storage.HashingEmbedding, content, action, outcome string, n int) {
 	t.Helper()
-	for i := 0; i < n; i++ {
+	for range n {
 		putParityMem(t, store, emb, schema.LayerEpisodic, schema.TypeEvent, content,
 			map[string]any{"outcome": outcome, "action": action})
 	}
@@ -1543,7 +1543,7 @@ func TestProceduralizeSortsMultipleSimilarPlaybooks(t *testing.T) {
 	cfg := config.ForTesting(t.TempDir())
 	putSuccessEpisodes(t, store, emb, "deploy the service carefully", "deploy", "success", 3)
 	// two pre-existing playbooks similar to the candidate → retrieval sorts them
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		p := newCustomMem(schema.LayerProcedural, schema.TypePlaybook, "How to deploy (3 episodes)\n1. deploy", "test")
 		p.ContentHash = schema.ContentHash(p.Content)
 		putCustomMem(t, store, emb, p)
@@ -1696,7 +1696,7 @@ func TestConsolidateFaults(t *testing.T) {
 func TestConsolidateEpisodeCap(t *testing.T) {
 	store, emb := newParityStore(t)
 	cfg := config.ForTesting(t.TempDir())
-	for i := 0; i < 501; i++ {
+	for range 501 {
 		m := schema.NewMemory(schema.LayerEpisodic, schema.TypeEvent)
 		m.Content = "episode"
 		m.Workspace = "test"

@@ -15,7 +15,7 @@ package engine
 import (
 	"fmt"
 	"math"
-	"sort"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -69,7 +69,7 @@ func (c *countingEmbedder) reset() {
 
 func timeEmbedMs(emb storage.EmbeddingProvider, q string, n int) float64 {
 	t0 := time.Now()
-	for i := 0; i < n; i++ {
+	for range n {
 		if _, err := emb.Embed(q); err != nil {
 			return 0
 		}
@@ -79,7 +79,7 @@ func timeEmbedMs(emb storage.EmbeddingProvider, q string, n int) float64 {
 
 func percentileMs(xs []float64, p int) float64 {
 	sorted := append([]float64(nil), xs...)
-	sort.Float64s(sorted)
+	slices.Sort(sorted)
 	k := int(math.Round(float64(p) / 100 * float64(len(sorted)-1)))
 	return sorted[k]
 }
@@ -93,7 +93,7 @@ func seedFacts(t *testing.T, emb storage.EmbeddingProvider, n int) *Engine {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { eng.Close() })
-	for i := 0; i < n; i++ {
+	for i := range n {
 		if _, err := eng.Semantic.PutFact(fmt.Sprintf("fact number %d about topic %d", i, i%10), "", nil, nil, ""); err != nil {
 			t.Fatal(err)
 		}
@@ -110,7 +110,7 @@ func seedFacts(t *testing.T, emb storage.EmbeddingProvider, n int) *Engine {
 func measureOverheadP95Ms(t *testing.T, eng *Engine, emb storage.EmbeddingProvider, n int) float64 {
 	t.Helper()
 	samples := make([]float64, 0, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		q := fmt.Sprintf("topic %d", i%10)
 		tEmbed := timeEmbedMs(emb, q, 20)
 		t0 := time.Now()

@@ -1,9 +1,10 @@
 package storage
 
 import (
+	"cmp"
 	"fmt"
 	"math"
-	"sort"
+	"slices"
 	"sync"
 )
 
@@ -94,16 +95,10 @@ func (ix *InMemoryVectorIndex) Search(query []float32, topK int) []SearchHit {
 		}
 		all = append(all, scored{ix.ids[i], dot})
 	}
-	sort.SliceStable(all, func(a, b int) bool {
-		if all[a].sim != all[b].sim {
-			return all[a].sim > all[b].sim
-		}
-		return all[a].id < all[b].id
+	slices.SortStableFunc(all, func(a, b scored) int {
+		return cmp.Or(cmp.Compare(b.sim, a.sim), cmp.Compare(a.id, b.id))
 	})
-	k := topK
-	if k > len(all) {
-		k = len(all)
-	}
+	k := min(topK, len(all))
 	out := make([]SearchHit, 0, k)
 	for _, s := range all[:k] {
 		out = append(out, SearchHit{ID: s.id, Similarity: s.sim})

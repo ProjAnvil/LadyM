@@ -6,7 +6,6 @@ package storage
 // where the SQLite-side suite files are excluded by build tag.
 
 import (
-	"context"
 	crand "crypto/rand"
 	"encoding/hex"
 	"net"
@@ -36,7 +35,7 @@ func freshPGDatabase(t *testing.T, dsn string) string {
 	dbName := "ladym_test_" + hex.EncodeToString(suffix[:])
 	adminCfg := cfg.Copy()
 	adminCfg.Database = "postgres"
-	ctx := context.Background()
+	ctx := t.Context()
 	admin, err := pgx.ConnectConfig(ctx, adminCfg)
 	if err != nil {
 		t.Fatalf("connect to postgres admin database: %v", err)

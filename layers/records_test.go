@@ -53,7 +53,7 @@ func TestConstructorsDefaultWorkspace(t *testing.T) {
 		t.Errorf("working workspace = %q, want default", got)
 	}
 	// capacity <= 0 defaults to 64: push 70 items, expect only the last 64 kept.
-	for i := 0; i < 70; i++ {
+	for i := range 70 {
 		w.Push(string(rune('a'+i%26)), nil, nil, "s")
 	}
 	if got := w.Len(); got != 64 {

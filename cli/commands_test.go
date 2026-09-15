@@ -236,8 +236,7 @@ func runExecHelper(t *testing.T, args string, extraEnv ...string) (string, int) 
 	if err == nil {
 		return out.String(), 0
 	}
-	var ee *exec.ExitError
-	if errors.As(err, &ee) {
+	if ee, ok := errors.AsType[*exec.ExitError](err); ok {
 		return out.String(), ee.ExitCode()
 	}
 	t.Fatalf("helper process: %v", err)

@@ -54,7 +54,7 @@ func TestEpisodicRecentOrdersAndLimits(t *testing.T) {
 	store, dbPath := newTestStoreWithPath(t)
 	e := NewEpisodicMemory(store, storage.NewHashingEmbedding(16), "test")
 	ids := make([]string, 4)
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		m, err := e.Record("agent", "act"+string(rune('a'+i)), "", "", nil, nil)
 		if err != nil {
 			t.Fatal(err)

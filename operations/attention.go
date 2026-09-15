@@ -2,6 +2,7 @@ package operations
 
 import (
 	"encoding/hex"
+	"maps"
 	"strings"
 
 	"github.com/ProjAnvil/LadyM/config"
@@ -50,13 +51,10 @@ func AttentionGate(content string, cfg *config.Config, store storage.Store, getA
 
 	stripped := strings.TrimSpace(content)
 	tokens := map[string]bool{}
-	for _, w := range strings.Fields(stripped) {
+	for w := range strings.FieldsSeq(stripped) {
 		tokens[strings.ToLower(w)] = true
 	}
-	noise := map[string]bool{}
-	for k := range builtinNoise {
-		noise[k] = true
-	}
+	noise := maps.Clone(builtinNoise)
 	// Config noise words are used as-is (Python parity: they must be
 	// pre-lowercased in the config; tokens are already lower-cased above).
 	for _, w := range cfg.Attention.NoiseWords {

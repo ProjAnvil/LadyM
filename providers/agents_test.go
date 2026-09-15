@@ -274,8 +274,7 @@ func TestMakeAgent(t *testing.T) {
 		if err == nil {
 			t.Fatal("expected missing-key error")
 		}
-		var cfgErr *config.ConfigError
-		if !errors.As(err, &cfgErr) {
+		if _, ok := errors.AsType[*config.ConfigError](err); !ok {
 			t.Fatalf("error is %T, want *config.ConfigError", err)
 		}
 	})

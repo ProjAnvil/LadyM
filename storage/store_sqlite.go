@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"os"
@@ -737,7 +738,7 @@ func (s *SQLiteStore) DeleteSymbolMemories(qualifiedName, workspace string) erro
 func (s *SQLiteStore) GetIndexedHash(filePath string) (string, error) {
 	var h string
 	err := s.db.QueryRow("SELECT body_hash FROM index_state WHERE file_path = ?", filePath).Scan(&h)
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return "", nil
 	}
 	return h, err
@@ -777,7 +778,7 @@ func (s *SQLiteStore) Workspaces() ([]string, error) {
 func (s *SQLiteStore) GetMeta(key string) (string, error) {
 	var v string
 	err := s.db.QueryRow("SELECT value FROM meta WHERE key = ?", key).Scan(&v)
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return "", nil
 	}
 	return v, err

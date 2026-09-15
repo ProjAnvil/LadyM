@@ -1,12 +1,13 @@
 package storage
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
-	"sort"
+	"slices"
 	"strconv"
 
 	"github.com/ProjAnvil/LadyM/schema"
@@ -298,11 +299,8 @@ func (s *PostgresStore) VectorSearch(queryVec []float32, topK int) []SearchHit {
 	// Canonical sim-desc / id-asc ordering is enforced here so the ANN
 	// pre-selection and the zero-norm UNION branch merge deterministically,
 	// exactly matching InMemoryVectorIndex.Search.
-	sort.SliceStable(out, func(a, b int) bool {
-		if out[a].Similarity != out[b].Similarity {
-			return out[a].Similarity > out[b].Similarity
-		}
-		return out[a].ID < out[b].ID
+	slices.SortStableFunc(out, func(a, b SearchHit) int {
+		return cmp.Or(cmp.Compare(b.Similarity, a.Similarity), cmp.Compare(a.ID, b.ID))
 	})
 	if len(out) > topK {
 		out = out[:topK]

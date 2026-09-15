@@ -83,11 +83,10 @@ func remoteGuard(db, server string) error {
 // network/transport failures pass through — the SDK already formats those
 // exactly as the CLI did ("cannot reach ladym server at %s: %v" et al).
 func (c *remoteClient) translateErr(ctx context.Context, timeout time.Duration, err error) error {
-	var apiErr *client.Error
-	if errors.As(err, &apiErr) {
+	if apiErr, ok := errors.AsType[*client.Error](err); ok {
 		return &config.ConfigError{Msg: fmt.Sprintf("ladym server at %s: %s", c.baseURL, apiErr.Message)}
 	}
-	if ctx.Err() == context.DeadlineExceeded {
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 		return &config.ConfigError{Msg: fmt.Sprintf("ladym server at %s did not respond within %s", c.baseURL, timeout)}
 	}
 	return &config.ConfigError{Msg: err.Error()}

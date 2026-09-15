@@ -20,6 +20,7 @@ package config
 
 import (
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -396,9 +397,7 @@ func renameDeprecated(data map[string]any, source string) map[string]any {
 
 func deepMerge(base, overlay map[string]any) map[string]any {
 	out := map[string]any{}
-	for k, v := range base {
-		out[k] = v
-	}
+	maps.Copy(out, base)
 	for k, v := range overlay {
 		if vd, ok := v.(map[string]any); ok {
 			if bd, ok2 := out[k].(map[string]any); ok2 {
@@ -558,13 +557,9 @@ func applyToml(cfg *Config, data map[string]any) {
 					}
 					merged := map[string]any{}
 					if existing, ok := cfg.AgentsOverrides[op]; ok {
-						for mk, mv := range existing {
-							merged[mk] = mv
-						}
+						maps.Copy(merged, existing)
 					}
-					for mk, mv := range od {
-						merged[mk] = mv
-					}
+					maps.Copy(merged, od)
 					cfg.AgentsOverrides[op] = merged
 				}
 			}

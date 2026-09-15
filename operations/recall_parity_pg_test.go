@@ -8,7 +8,6 @@ package operations
 // LADYM_TEST_PG_DSN; skips cleanly without it.
 
 import (
-	"context"
 	crand "crypto/rand"
 	"encoding/hex"
 	"fmt"
@@ -41,7 +40,7 @@ func recallParityPGDSN(t *testing.T, dsn string) string {
 	dbName := "ladym_test_" + hex.EncodeToString(suffix[:])
 	adminCfg := cfg.Copy()
 	adminCfg.Database = "postgres"
-	ctx := context.Background()
+	ctx := t.Context()
 	admin, err := pgx.ConnectConfig(ctx, adminCfg)
 	if err != nil {
 		t.Fatalf("connect to postgres admin database: %v", err)

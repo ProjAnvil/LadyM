@@ -8,7 +8,6 @@ package client
 // bodies) and the *Error shape.
 
 import (
-	"context"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -58,8 +57,8 @@ func adminUser(t *testing.T, username, password string) *schema.User {
 // asError unwraps err into *Error or fails the test.
 func asError(t *testing.T, err error) *Error {
 	t.Helper()
-	var cerr *Error
-	if !errors.As(err, &cerr) {
+	cerr, ok := errors.AsType[*Error](err)
+	if !ok {
 		t.Fatalf("error is %T (%v), want *client.Error", err, err)
 	}
 	return cerr
@@ -69,7 +68,7 @@ func asError(t *testing.T, err error) *Error {
 
 func TestPing(t *testing.T) {
 	srv := newTestServer(t, false)
-	if err := New(srv.URL).Ping(context.Background()); err != nil {
+	if err := New(srv.URL).Ping(t.Context()); err != nil {
 		t.Fatalf("Ping: %v", err)
 	}
 }
@@ -77,7 +76,7 @@ func TestPing(t *testing.T) {
 func TestLogin(t *testing.T) {
 	srv := newTestServer(t, true, adminUser(t, "alice", "s3cret"))
 
-	u, err := New(srv.URL, WithAuth("alice", "s3cret")).Login(context.Background())
+	u, err := New(srv.URL, WithAuth("alice", "s3cret")).Login(t.Context())
 	if err != nil {
 		t.Fatalf("Login: %v", err)
 	}
@@ -85,7 +84,7 @@ func TestLogin(t *testing.T) {
 		t.Errorf("Login user = %+v, want alice admin", u)
 	}
 
-	_, err = New(srv.URL, WithAuth("alice", "wrong")).Login(context.Background())
+	_, err = New(srv.URL, WithAuth("alice", "wrong")).Login(t.Context())
 	cerr := asError(t, err)
 	if cerr.StatusCode != http.StatusUnauthorized || cerr.Message != "unauthorized" {
 		t.Errorf("Login wrong password: Error = %+v, want 401 unauthorized", cerr)
@@ -97,7 +96,7 @@ func TestLogin(t *testing.T) {
 func TestRememberRecallStatsForgetRoundtrip(t *testing.T) {
 	srv := newTestServer(t, false)
 	c := New(srv.URL)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	rem, err := c.Remember(ctx, "the client sdk zephyr quixotic fact", []string{"sdk", "test"}, "")
 	if err != nil {
@@ -143,7 +142,7 @@ func TestRememberRecallStatsForgetRoundtrip(t *testing.T) {
 
 func TestRecordEvent(t *testing.T) {
 	srv := newTestServer(t, false)
-	res, err := New(srv.URL).RecordEvent(context.Background(),
+	res, err := New(srv.URL).RecordEvent(t.Context(),
 		"tester", "ran sdk tests", "all green", "pass", []string{"ci"}, "")
 	if err != nil {
 		t.Fatalf("RecordEvent: %v", err)
@@ -155,7 +154,7 @@ func TestRecordEvent(t *testing.T) {
 
 func TestConsolidate(t *testing.T) {
 	srv := newTestServer(t, false)
-	res, err := New(srv.URL).Consolidate(context.Background(), "", 0)
+	res, err := New(srv.URL).Consolidate(t.Context(), "", 0)
 	if err != nil {
 		t.Fatalf("Consolidate: %v", err)
 	}
@@ -167,7 +166,7 @@ func TestConsolidate(t *testing.T) {
 func TestLink(t *testing.T) {
 	srv := newTestServer(t, false)
 	c := New(srv.URL)
-	ctx := context.Background()
+	ctx := t.Context()
 	a, err := c.Remember(ctx, "link source fact about alpha", nil, "")
 	if err != nil {
 		t.Fatalf("Remember a: %v", err)
@@ -190,7 +189,7 @@ func TestLink(t *testing.T) {
 func TestMemoriesCRUD(t *testing.T) {
 	srv := newTestServer(t, false)
 	c := New(srv.URL)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	m1, err := c.Remember(ctx, "crud alpha memory", []string{"a"}, "")
 	if err != nil {
@@ -252,7 +251,7 @@ func TestMemoriesCRUD(t *testing.T) {
 func TestUsersCRUD(t *testing.T) {
 	srv := newTestServer(t, true, adminUser(t, "root", "pw"))
 	c := New(srv.URL, WithAuth("root", "pw"))
-	ctx := context.Background()
+	ctx := t.Context()
 
 	u, err := c.CreateUser(ctx, "bob", "bobpw", "bob-ws", false)
 	if err != nil {
@@ -307,7 +306,7 @@ func TestUsersCRUD(t *testing.T) {
 
 func TestUnauthorizedWithoutCredentials(t *testing.T) {
 	srv := newTestServer(t, true, adminUser(t, "alice", "s3cret"))
-	_, err := New(srv.URL).Stats(context.Background(), "")
+	_, err := New(srv.URL).Stats(t.Context(), "")
 	cerr := asError(t, err)
 	if cerr.StatusCode != http.StatusUnauthorized || cerr.Message != "unauthorized" {
 		t.Errorf("Error = %+v, want 401 unauthorized", cerr)
@@ -322,7 +321,7 @@ func TestErrorShape(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	err := New(srv.URL).Forget(context.Background(), "mem-1")
+	err := New(srv.URL).Forget(t.Context(), "mem-1")
 	cerr := asError(t, err)
 	if cerr.StatusCode != 500 || cerr.Message != "store locked" {
 		t.Errorf("Error = %+v, want {500 store locked}", cerr)
@@ -341,7 +340,7 @@ func TestErrorNonJSONBody(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	err := New(srv.URL).Forget(context.Background(), "mem-1")
+	err := New(srv.URL).Forget(t.Context(), "mem-1")
 	cerr := asError(t, err)
 	if cerr.StatusCode != http.StatusBadGateway || cerr.Message != "bad gateway" {
 		t.Errorf("Error = %+v, want {502 'bad gateway'}", cerr)
@@ -359,7 +358,7 @@ func TestRememberGated(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	res, err := New(srv.URL).Remember(context.Background(), "lol ok", nil, "")
+	res, err := New(srv.URL).Remember(t.Context(), "lol ok", nil, "")
 	if err != nil {
 		t.Fatalf("Remember gated: %v", err)
 	}
@@ -369,7 +368,7 @@ func TestRememberGated(t *testing.T) {
 }
 
 func TestUnreachable(t *testing.T) {
-	err := New("http://127.0.0.1:1").Ping(context.Background())
+	err := New("http://127.0.0.1:1").Ping(t.Context())
 	if err == nil {
 		t.Fatal("expected error for unreachable server")
 	}
@@ -379,8 +378,7 @@ func TestUnreachable(t *testing.T) {
 	if strings.Contains(err.Error(), "\n") {
 		t.Errorf("error must be single-line: %q", err.Error())
 	}
-	var cerr *Error
-	if errors.As(err, &cerr) {
+	if cerr, ok := errors.AsType[*Error](err); ok {
 		t.Errorf("network error must not be a *Error (no HTTP status), got %+v", cerr)
 	}
 }
@@ -396,7 +394,7 @@ func TestAuthHeaderSent(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	if _, err := New(srv.URL, WithAuth("alice", "s3cret")).Stats(context.Background(), ""); err != nil {
+	if _, err := New(srv.URL, WithAuth("alice", "s3cret")).Stats(t.Context(), ""); err != nil {
 		t.Fatalf("Stats: %v", err)
 	}
 	want := "Basic " + base64.StdEncoding.EncodeToString([]byte("alice:s3cret"))
@@ -405,7 +403,7 @@ func TestAuthHeaderSent(t *testing.T) {
 	}
 
 	gotAuth = ""
-	if _, err := New(srv.URL).Stats(context.Background(), ""); err != nil {
+	if _, err := New(srv.URL).Stats(t.Context(), ""); err != nil {
 		t.Fatalf("Stats: %v", err)
 	}
 	if gotAuth != "" {
@@ -429,7 +427,7 @@ func TestClientOptions(t *testing.T) {
 	srv := newTestServer(t, false)
 	rt := &countingRoundTripper{}
 	c := New(srv.URL, WithHTTPClient(&http.Client{Transport: rt}))
-	if err := c.Ping(context.Background()); err != nil {
+	if err := c.Ping(t.Context()); err != nil {
 		t.Fatalf("Ping with custom client: %v", err)
 	}
 	if rt.n != 1 {
@@ -442,7 +440,7 @@ func TestClientOptions(t *testing.T) {
 		fmt.Fprint(w, `{"status":"ok"}`)
 	}))
 	t.Cleanup(slow.Close)
-	err := New(slow.URL, WithTimeout(50*time.Millisecond)).Ping(context.Background())
+	err := New(slow.URL, WithTimeout(50*time.Millisecond)).Ping(t.Context())
 	if err == nil {
 		t.Fatal("Ping with 50ms timeout against a 300ms server should fail")
 	}
@@ -461,7 +459,7 @@ func TestServerErrorAcrossMethods(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 	c := New(srv.URL)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	wantErr := func(name string, err error) {
 		t.Helper()

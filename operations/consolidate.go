@@ -1,7 +1,8 @@
 package operations
 
 import (
-	"sort"
+	"cmp"
+	"slices"
 
 	"github.com/ProjAnvil/LadyM/config"
 	"github.com/ProjAnvil/LadyM/layers"
@@ -116,7 +117,7 @@ func Consolidate(store storage.Store, embedder storage.EmbeddingProvider, cfg *c
 		pending = append(pending, e)
 	}
 	episodes = pending
-	sort.SliceStable(episodes, func(a, b int) bool { return episodes[a].CreatedAt < episodes[b].CreatedAt })
+	slices.SortStableFunc(episodes, func(a, b *schema.Memory) int { return cmp.Compare(a.CreatedAt, b.CreatedAt) })
 	if len(episodes) > 500 {
 		episodes = episodes[:500]
 	}
@@ -150,7 +151,7 @@ func Consolidate(store storage.Store, embedder storage.EmbeddingProvider, cfg *c
 			}
 			similar = append(similar, similarFact{Memory: m, Sim: h.Similarity})
 		}
-		sort.SliceStable(similar, func(a, b int) bool { return similar[a].Sim > similar[b].Sim })
+		slices.SortStableFunc(similar, func(a, b similarFact) int { return cmp.Compare(b.Sim, a.Sim) })
 
 		candHash := schema.ContentHash(ep.Content)
 		var action Action

@@ -1,6 +1,7 @@
 package operations
 
 import (
+	"maps"
 	"math"
 	"strconv"
 	"strings"
@@ -164,9 +165,7 @@ func storeModel(store storage.Store, embedder storage.EmbeddingProvider, title, 
 		content = title + ": " + body
 	}
 	meta := map[string]any{}
-	for k, v := range extraMeta {
-		meta[k] = v
-	}
+	maps.Copy(meta, extraMeta)
 	m := schema.NewMemory(l5Layer, schema.TypeMentalModel)
 	m.Content = content
 	m.Summary = title

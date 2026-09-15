@@ -416,7 +416,7 @@ func TestIdentifierName(t *testing.T) {
 func TestExtractSymbolsDefaultsAndTruncation(t *testing.T) {
 	var sb strings.Builder
 	sb.WriteString("def big():\n")
-	for i := 0; i < 50; i++ {
+	for range 50 {
 		sb.WriteString("    x = 1\n")
 	}
 	// maxBodyLines <= 0 defaults to 40 → body truncated to 40 lines

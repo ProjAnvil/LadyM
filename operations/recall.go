@@ -1,7 +1,8 @@
 package operations
 
 import (
-	"sort"
+	"cmp"
+	"slices"
 	"strings"
 	"time"
 
@@ -55,7 +56,7 @@ func rank(candidates []candidate, cfg *config.Config, neighbourCounts map[string
 		act := ActivationScore(c.Memory, c.Sim, cfg.Activation, neighbourCounts, queryTypes, 0)
 		out = append(out, &schema.RecallResult{Memory: c.Memory, Score: act, Tier: 1, Via: []string{}})
 	}
-	sort.SliceStable(out, func(a, b int) bool { return out[a].Score > out[b].Score })
+	slices.SortStableFunc(out, func(a, b *schema.RecallResult) int { return cmp.Compare(b.Score, a.Score) })
 	return out
 }
 
@@ -163,7 +164,7 @@ func Recall(store storage.Store, embedder storage.EmbeddingProvider, query strin
 	for _, r := range byID {
 		merged = append(merged, r)
 	}
-	sort.SliceStable(merged, func(a, b int) bool { return merged[a].Score > merged[b].Score })
+	slices.SortStableFunc(merged, func(a, b *schema.RecallResult) int { return cmp.Compare(b.Score, a.Score) })
 	if len(merged) > k2 {
 		merged = merged[:k2]
 	}

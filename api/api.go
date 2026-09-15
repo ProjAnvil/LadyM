@@ -392,10 +392,10 @@ func decodeBody(r *http.Request, v any) error {
 // (config problems, index already in progress) are 400 — the MCP layer returns
 // them as plain error text, and HTTP keeps them in the 4xx class consistently.
 func engineError(w http.ResponseWriter, err error) {
-	var cfgErr *config.ConfigError
-	var inProg *code.IndexInProgressError
+	_, isCfgErr := errors.AsType[*config.ConfigError](err)
+	_, isInProg := errors.AsType[*code.IndexInProgressError](err)
 	switch {
-	case errors.As(err, &cfgErr), errors.As(err, &inProg):
+	case isCfgErr, isInProg:
 		writeError(w, http.StatusBadRequest, err.Error())
 	default:
 		writeError(w, http.StatusInternalServerError, err.Error())

@@ -1,6 +1,8 @@
 package engine
 
 import (
+	"maps"
+
 	"github.com/ProjAnvil/LadyM/layers"
 	"github.com/ProjAnvil/LadyM/operations"
 	"github.com/ProjAnvil/LadyM/schema"
@@ -58,9 +60,7 @@ func (s *Scope) Remember(content string, layer schema.Layer, type_ schema.Memory
 	}
 	if gate.Action == "drop" {
 		meta := map[string]any{}
-		for k, v := range metadata {
-			meta[k] = v
-		}
+		maps.Copy(meta, metadata)
 		meta["gated"] = "dropped"
 		meta["reason"] = gate.Reason
 		m := schema.NewMemory(layer, type_)

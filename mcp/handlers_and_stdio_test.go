@@ -442,7 +442,7 @@ func TestLoopOverStdio(t *testing.T) {
 	}
 
 	resps := map[string]rpcResponse{}
-	for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
+	for line := range strings.SplitSeq(strings.TrimSpace(output), "\n") {
 		if line == "" {
 			continue
 		}

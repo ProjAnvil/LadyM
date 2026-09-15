@@ -46,12 +46,10 @@ func TestConcurrentWorkspacesIsolated(t *testing.T) {
 
 	errs := make(chan error, nGo*rounds*4)
 	var wg sync.WaitGroup
-	for g := 0; g < nGo; g++ {
-		wg.Add(1)
-		go func(g int) {
-			defer wg.Done()
+	for g := range nGo {
+		wg.Go(func() {
 			ws := workspaces[g%nWS]
-			for r := 0; r < rounds; r++ {
+			for r := range rounds {
 				marker := fmt.Sprintf("quixplotron-%s-%d-%d", ws, g, r)
 				body := fmt.Sprintf(`{"content":"%s: the deploy pin is %d","workspace":%q}`, marker, g*100+r, ws)
 				if _, _, err := roundTrip(h, "/api/remember", body); err != nil {
@@ -73,7 +71,7 @@ func TestConcurrentWorkspacesIsolated(t *testing.T) {
 					errs <- err
 				}
 			}
-		}(g)
+		})
 	}
 	wg.Wait()
 	close(errs)

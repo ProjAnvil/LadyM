@@ -34,7 +34,7 @@ func goListDeps(t *testing.T, tags []string, pkg string) string {
 }
 
 func depsContain(deps, pkg string) bool {
-	for _, line := range strings.Split(deps, "\n") {
+	for line := range strings.SplitSeq(deps, "\n") {
 		if line == pkg {
 			return true
 		}

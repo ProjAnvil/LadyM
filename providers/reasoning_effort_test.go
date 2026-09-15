@@ -1,7 +1,6 @@
 package providers
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -39,7 +38,7 @@ func TestReasoningEffortSentOnOpenAIRequest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("makePartnerChatModel: %v", err)
 	}
-	if _, err := cm.Invoke(context.Background(), []lcmessages.Message{lcmessages.Human("hi")}); err != nil {
+	if _, err := cm.Invoke(t.Context(), []lcmessages.Message{lcmessages.Human("hi")}); err != nil {
 		t.Fatalf("Invoke: %v", err)
 	}
 	var payload map[string]any
@@ -59,7 +58,7 @@ func TestReasoningEffortOmittedWhenUnset(t *testing.T) {
 	if err != nil {
 		t.Fatalf("makePartnerChatModel: %v", err)
 	}
-	if _, err := cm.Invoke(context.Background(), []lcmessages.Message{lcmessages.Human("hi")}); err != nil {
+	if _, err := cm.Invoke(t.Context(), []lcmessages.Message{lcmessages.Human("hi")}); err != nil {
 		t.Fatalf("Invoke: %v", err)
 	}
 	if strings.Contains(string(body), "reasoning_effort") {

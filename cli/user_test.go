@@ -32,8 +32,8 @@ func TestReadPasswordTwice(t *testing.T) {
 	if _, err := readPasswordTwice(strings.NewReader("a\nb\n"), nil); err == nil {
 		t.Error("mismatched passwords should fail")
 	} else {
-		var cfgErr *config.ConfigError
-		if !errors.As(err, &cfgErr) || !strings.Contains(cfgErr.Msg, "do not match") {
+		cfgErr, ok := errors.AsType[*config.ConfigError](err)
+		if !ok || !strings.Contains(cfgErr.Msg, "do not match") {
 			t.Errorf("mismatch error = %v, want ConfigError 'do not match'", err)
 		}
 	}

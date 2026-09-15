@@ -1,6 +1,7 @@
 package code
 
 import (
+	"slices"
 	"strings"
 	"unicode"
 
@@ -113,7 +114,7 @@ func classify(node *gotreesitter.Node, spec *LanguageSpec, grammar *gotreesitter
 		}
 		return ""
 	}
-	if !contains(spec.DefinitionKinds, t) {
+	if !slices.Contains(spec.DefinitionKinds, t) {
 		return ""
 	}
 	if strings.Contains(t, "class") || strings.Contains(t, "struct") || strings.Contains(t, "interface") {
@@ -184,7 +185,7 @@ func docstring(node *gotreesitter.Node, src []byte, spec *LanguageSpec, grammar 
 					return s
 				}
 			}
-			if ft := first.Type(grammar); contains(spec.DocNodeKinds, ft) {
+			if ft := first.Type(grammar); slices.Contains(spec.DocNodeKinds, ft) {
 				if ft == "string" {
 					return stripQuotes(strings.TrimSpace(first.Text(src)))
 				}
@@ -192,7 +193,7 @@ func docstring(node *gotreesitter.Node, src []byte, spec *LanguageSpec, grammar 
 			}
 		}
 	}
-	if prev := node.PrevSibling(); prev != nil && contains(spec.DocNodeKinds, prev.Type(grammar)) {
+	if prev := node.PrevSibling(); prev != nil && slices.Contains(spec.DocNodeKinds, prev.Type(grammar)) {
 		return strings.TrimSpace(strings.TrimLeft(strings.TrimSpace(prev.Text(src)), "#/*"))
 	}
 	return ""
@@ -251,7 +252,7 @@ func extractCalls(node *gotreesitter.Node, src []byte, spec *LanguageSpec, gramm
 	var out []string
 	var walk func(n *gotreesitter.Node)
 	walk = func(n *gotreesitter.Node) {
-		if contains(spec.CallKinds, n.Type(grammar)) {
+		if slices.Contains(spec.CallKinds, n.Type(grammar)) {
 			fn := n.ChildByFieldName("function", grammar)
 			if fn == nil {
 				if children := n.Children(); len(children) > 0 {

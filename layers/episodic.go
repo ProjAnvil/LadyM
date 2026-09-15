@@ -1,7 +1,9 @@
 package layers
 
 import (
-	"sort"
+	"cmp"
+	"maps"
+	"slices"
 	"strings"
 
 	"github.com/ProjAnvil/LadyM/schema"
@@ -36,10 +38,7 @@ func (e *EpisodicMemory) Record(agent, action, observation, outcome string, tags
 	if metadata == nil {
 		metadata = map[string]any{}
 	}
-	meta := map[string]any{}
-	for k, v := range metadata {
-		meta[k] = v
-	}
+	meta := maps.Clone(metadata)
 	// setdefault semantics (Python): caller-supplied agent/action keys win.
 	if _, ok := meta["agent"]; !ok {
 		meta["agent"] = agent
@@ -82,7 +81,7 @@ func (e *EpisodicMemory) Recent(limit int) ([]*schema.Memory, error) {
 	if err != nil {
 		return nil, err
 	}
-	sort.SliceStable(mems, func(i, j int) bool { return mems[i].CreatedAt > mems[j].CreatedAt })
+	slices.SortStableFunc(mems, func(a, b *schema.Memory) int { return cmp.Compare(b.CreatedAt, a.CreatedAt) })
 	if limit > 0 && len(mems) > limit {
 		mems = mems[:limit]
 	}

@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"sort"
+	"slices"
 	"strings"
 	"testing"
 
@@ -56,7 +56,7 @@ func TestListMemoriesFiltersAndPagination(t *testing.T) {
 	h := newTestHandler(t, nil)
 	// 5 semantic facts in w1, 1 episodic event in w1, 1 fact in w2.
 	ids := []string{}
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		ids = append(ids, rememberWS(t, h, "w1", fmt.Sprintf("quixotic fact number %d", i)))
 	}
 	rec := do(t, h, "/api/record_event", "", "", `{"agent": "a", "action": "ev", "workspace": "w1"}`)
@@ -101,7 +101,7 @@ func TestListMemoriesFiltersAndPagination(t *testing.T) {
 	}
 	// Sorted by id: the page must be ids[1], ids[2].
 	want := append([]string{}, ids...)
-	sort.Strings(want)
+	slices.Sort(want)
 	if got[0] != want[1] || got[1] != want[2] {
 		t.Errorf("page = %v, want [%s %s]", got, want[1], want[2])
 	}
@@ -121,7 +121,7 @@ func TestListMemoriesFiltersAndPagination(t *testing.T) {
 
 func TestListMemoriesLimitBounds(t *testing.T) {
 	h := newTestHandler(t, nil)
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		rememberWS(t, h, "w1", fmt.Sprintf("bounded quixotic fact %d", i))
 	}
 

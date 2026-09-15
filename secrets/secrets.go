@@ -16,9 +16,10 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 
 	"github.com/ProjAnvil/LadyM/config"
@@ -243,11 +244,7 @@ func (s *Store) ListNames() ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	names := make([]string, 0, len(kv))
-	for n := range kv {
-		names = append(names, n)
-	}
-	sort.Strings(names)
+	names := slices.Sorted(maps.Keys(kv))
 	return names, nil
 }
 
@@ -318,7 +315,7 @@ func (s *Store) readAll() (map[string]string, error) {
 		return nil, err
 	}
 	kv := map[string]string{}
-	for _, line := range strings.Split(string(b), "\n") {
+	for line := range strings.SplitSeq(string(b), "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "#") || !strings.Contains(line, "=") {
 			continue
@@ -330,11 +327,7 @@ func (s *Store) readAll() (map[string]string, error) {
 }
 
 func renderKV(kv map[string]string) string {
-	names := make([]string, 0, len(kv))
-	for n := range kv {
-		names = append(names, n)
-	}
-	sort.Strings(names)
+	names := slices.Sorted(maps.Keys(kv))
 	var sb strings.Builder
 	for _, n := range names {
 		sb.WriteString(n)
