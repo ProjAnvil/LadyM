@@ -1,6 +1,8 @@
 package operations
 
 import (
+	"sort"
+
 	"github.com/ProjAnvil/LadyM/config"
 	"github.com/ProjAnvil/LadyM/providers"
 	"github.com/ProjAnvil/LadyM/schema"
@@ -28,6 +30,135 @@ type MaintainAgents struct {
 const backfillPrompt = `You extract structured operation slots from an episodic memory.
 Return JSON: {"resources": [resource names the agent operated on], "action": "verb"}.
 Use the canonical action vocabulary when possible; empty lists are fine.`
+
+const linkPrompt = `You decide whether two episodic memories describe semantically related work.
+Return JSON: {"link": bool, "relation": "short relation name (e.g. related_to)", "weight": 0.0-1.0}.
+Use link=false when the memories are unrelated despite surface similarity.`
+
+// bucketMemLimit caps how many memories per (layer, action_class) bucket take
+// part in pairwise linking, guarding against O(n^2) blowups (spec §8.3: keep
+// the most recent 100).
+const bucketMemLimit = 100
+
+// linkEpisodes is sub-step ③: gated semantic linking. Candidates are pairs of
+// non-retired episodes that share a (layer, action_class) bucket, pass the
+// cosine pre-filter, and fit the per-cycle LLM budget; only LLM-confirmed
+// pairs get a related_to edge with a deterministic projected id. The bool
+// result reports whether the gate blocked the sub-step entirely.
+func linkEpisodes(store storage.Store, embedder storage.EmbeddingProvider,
+	cfg *config.Config, ws string, agents *MaintainAgents) (int, bool, error) {
+
+	var link providers.LLMProvider
+	if agents != nil {
+		link = agents.Link
+	}
+	if !cfg.Maintain.LinkingEnabled || link == nil {
+		return 0, true, nil
+	}
+
+	eps, err := store.IterMemories(ws, string(schema.LayerEpisodic), "")
+	if err != nil {
+		return 0, false, err
+	}
+	if len(eps) < cfg.System2.MinEpisodesToRun {
+		return 0, true, nil
+	}
+
+	// Bucket by (layer, action_class) so pairs never cross layers or
+	// action classes (anti-drift, spec §8.3).
+	buckets := map[string][]*schema.Memory{}
+	var order []string // deterministic bucket iteration order
+	for _, m := range eps {
+		if IsRetired(m) {
+			continue
+		}
+		ac := m.MetaString("action_class")
+		if ac == "" {
+			continue
+		}
+		key := string(m.Layer) + "\x00" + ac
+		if _, seen := buckets[key]; !seen {
+			order = append(order, key)
+		}
+		buckets[key] = append(buckets[key], m)
+	}
+
+	// Embed every candidate content once (EmbedBatch cache).
+	contentVec := map[string][]float32{}
+	var texts []string
+	for _, key := range order {
+		for _, m := range buckets[key] {
+			if _, ok := contentVec[m.Content]; !ok {
+				contentVec[m.Content] = nil
+				texts = append(texts, m.Content)
+			}
+		}
+	}
+	if len(texts) > 0 {
+		vecs, err := embedder.EmbedBatch(texts)
+		if err != nil {
+			return 0, false, err
+		}
+		for i, t := range texts {
+			contentVec[t] = vecs[i]
+		}
+	}
+
+	budget := cfg.Maintain.LinkingBudget
+	linked := 0
+	for _, key := range order {
+		members := buckets[key]
+		// Most recent first; ties keep iteration order (stable).
+		sort.SliceStable(members, func(i, j int) bool {
+			return members[i].CreatedAt > members[j].CreatedAt
+		})
+		if len(members) > bucketMemLimit {
+			members = members[:bucketMemLimit]
+		}
+		for i := 0; i < len(members) && budget > 0; i++ {
+			for j := i + 1; j < len(members) && budget > 0; j++ {
+				a, b := members[i], members[j]
+				if storage.CosineSimilarity(contentVec[a.Content], contentVec[b.Content]) < cfg.Maintain.LinkingSimilarity {
+					continue
+				}
+				d, err := link.CompleteStructured([]providers.Message{
+					{Role: "system", Content: linkPrompt},
+					{Role: "user", Content: a.Content + "\n---\n" + b.Content},
+				}, providers.JSONSchema{
+					"type": "object",
+					"properties": map[string]any{
+						"link":     map[string]any{"type": "boolean"},
+						"relation": map[string]any{"type": "string"},
+						"weight":   map[string]any{"type": "number"},
+					},
+					"required": []string{"link"},
+				})
+				if err != nil {
+					return linked, false, err
+				}
+				budget--
+				if !asBoolDefault(d["link"], false) {
+					continue
+				}
+				relation := asStringDefault(d["relation"], "")
+				if relation == "" {
+					relation = "related_to"
+				}
+				weight, _ := asFloatOk(d["weight"])
+				e := schema.NewEdge(a.ID, relation, b.ID)
+				e.ID = schema.ProjectedEdgeID(a.ID, relation, b.ID)
+				if weight > 0 {
+					e.Weight = weight
+				}
+				if err := store.PutEdge(e); err != nil {
+					return linked, false, err
+				}
+				linked++
+			}
+		}
+	}
+	return linked, false, nil
+}
 
 // MaintainL4 runs the worker-maintenance step of a System 2 cycle (spec §8):
 //
@@ -61,7 +192,17 @@ func MaintainL4(store storage.Store, embedder storage.EmbeddingProvider,
 	}
 	report.Backfilled = backfilled
 
-	// ③④⑤ semantic linking / alias merge: Task 18/19.
+	// ③ Semantic linking.
+	linked, skipped, err := linkEpisodes(store, embedder, cfg, ws, agents)
+	if err != nil {
+		return nil, err
+	}
+	report.Linked = linked
+	if skipped && report.Skipped == "" {
+		report.Skipped = "linking"
+	}
+
+	// ④⑤ alias merge: Task 19.
 	return report, nil
 }
 
@@ -204,4 +345,35 @@ func asStringDefault(v any, def string) string {
 		return s
 	}
 	return def
+}
+
+func asBoolDefault(v any, def bool) bool {
+	switch t := v.(type) {
+	case bool:
+		return t
+	case string:
+		switch t {
+		case "true", "yes", "1":
+			return true
+		case "false", "no", "0":
+			return false
+		}
+	case float64:
+		return t != 0
+	}
+	return def
+}
+
+func asFloatOk(v any) (float64, bool) {
+	switch t := v.(type) {
+	case float64:
+		return t, true
+	case int:
+		return float64(t), true
+	case int64:
+		return float64(t), true
+	case string:
+		return parseFloatOrZero(t), t != ""
+	}
+	return 0, false
 }

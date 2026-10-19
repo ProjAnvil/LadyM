@@ -223,3 +223,192 @@ func TestMaintainL4BackfillBatchCap(t *testing.T) {
 		t.Errorf("episodes without action_class after one cycle = %d, want 10", missing)
 	}
 }
+
+// --- Task 18: semantic linking (spec §8.3) ---------------------------------------
+
+func linkTestEpisodes(t *testing.T, store storage.Store, emb *storage.HashingEmbedding, count int, content, actionClass string) []*schema.Memory {
+	t.Helper()
+	var out []*schema.Memory
+	for i := 0; i < count; i++ {
+		m := putParityMem(t, store, emb, schema.LayerEpisodic, schema.TypeEvent, content,
+			map[string]any{"action": actionClass, "action_class": actionClass})
+		out = append(out, m)
+	}
+	return out
+}
+
+func linkingFake(t *testing.T) (*providers.FakeLLMProvider, *int) {
+	t.Helper()
+	calls := 0
+	fake := &providers.FakeLLMProvider{StructuredFn: func(_ []providers.Message, _ providers.JSONSchema) (map[string]any, error) {
+		calls++
+		return map[string]any{"link": true, "weight": 0.8}, nil
+	}}
+	return fake, &calls
+}
+
+func TestMaintainL4LinkingDisabledByConfig(t *testing.T) {
+	store, emb, _ := maintainTestStore(t)
+	linkTestEpisodes(t, store, emb, 2, "deploy the auth service", "deploy")
+	cfg := config.Default()
+	cfg.Maintain.LinkingEnabled = false
+	cfg.System2.MinEpisodesToRun = 2
+	fake, calls := linkingFake(t)
+
+	rep, err := MaintainL4(store, emb, cfg, "test", &MaintainAgents{Link: fake})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep.Skipped != "linking" {
+		t.Errorf("rep.Skipped = %q, want linking", rep.Skipped)
+	}
+	if *calls != 0 {
+		t.Errorf("LLM calls = %d, want 0 (linking disabled)", *calls)
+	}
+	if rep.Linked != 0 {
+		t.Errorf("rep.Linked = %d, want 0", rep.Linked)
+	}
+}
+
+func TestMaintainL4LinkingSkippedWithoutLLM(t *testing.T) {
+	store, emb, _ := maintainTestStore(t)
+	linkTestEpisodes(t, store, emb, 2, "deploy the auth service", "deploy")
+	cfg := config.Default()
+	cfg.System2.MinEpisodesToRun = 2
+
+	rep, err := MaintainL4(store, emb, cfg, "test", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep.Skipped != "linking" {
+		t.Errorf("rep.Skipped = %q, want linking (no LLM agent)", rep.Skipped)
+	}
+	if rep.Linked != 0 {
+		t.Errorf("rep.Linked = %d, want 0", rep.Linked)
+	}
+}
+
+func TestMaintainL4LinkingEpisodeGate(t *testing.T) {
+	store, emb, _ := maintainTestStore(t)
+	linkTestEpisodes(t, store, emb, 2, "deploy the auth service", "deploy")
+	cfg := config.Default() // MinEpisodesToRun = 3 > 2 episodes
+	fake, calls := linkingFake(t)
+
+	rep, err := MaintainL4(store, emb, cfg, "test", &MaintainAgents{Link: fake})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep.Skipped != "linking" {
+		t.Errorf("rep.Skipped = %q, want linking (episode gate)", rep.Skipped)
+	}
+	if *calls != 0 {
+		t.Errorf("LLM calls = %d, want 0 (below MinEpisodesToRun)", *calls)
+	}
+}
+
+func TestMaintainL4LinkingBuckets(t *testing.T) {
+	store, emb, _ := maintainTestStore(t)
+	content := "deploy the auth service"
+	// Same (layer, action_class) bucket: candidate pair.
+	linkTestEpisodes(t, store, emb, 2, content, "deploy")
+	// Same content but a different action_class: different bucket, no pair.
+	putParityMem(t, store, emb, schema.LayerEpisodic, schema.TypeEvent, content,
+		map[string]any{"action": "migrate", "action_class": "migrate"})
+	// Same content and action_class but on L2: cross-layer, never a candidate.
+	putParityMem(t, store, emb, schema.LayerSemantic, schema.TypeFact, content,
+		map[string]any{"action_class": "deploy"})
+	cfg := config.Default()
+	cfg.System2.MinEpisodesToRun = 2
+	fake, calls := linkingFake(t)
+
+	rep, err := MaintainL4(store, emb, cfg, "test", &MaintainAgents{Link: fake})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep.Linked != 1 {
+		t.Errorf("rep.Linked = %d, want 1 (one same-bucket pair)", rep.Linked)
+	}
+	if *calls != 1 {
+		t.Errorf("LLM calls = %d, want 1", *calls)
+	}
+	eps, err := store.IterMemories("test", string(schema.LayerEpisodic), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var deploy []*schema.Memory
+	for _, m := range eps {
+		if m.MetaString("action_class") == "deploy" {
+			deploy = append(deploy, m)
+		}
+	}
+	if len(deploy) != 2 {
+		t.Fatalf("deploy episodes = %d, want 2", len(deploy))
+	}
+	edges, err := store.Neighbors(deploy[0].ID, "related_to")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(edges) != 1 {
+		t.Fatalf("related_to edges at deploy[0] = %v, want exactly 1", edges)
+	}
+	e := edges[0]
+	other := e.SrcID
+	if other == deploy[0].ID {
+		other = e.DstID
+	}
+	if other != deploy[1].ID {
+		t.Errorf("related_to edge connects %s..%s, want the two deploy episodes", e.SrcID, e.DstID)
+	}
+	if e.ID != schema.ProjectedEdgeID(e.SrcID, "related_to", e.DstID) {
+		t.Errorf("edge id = %q, want projected deterministic id", e.ID)
+	}
+	if e.Weight != 0.8 {
+		t.Errorf("edge weight = %v, want 0.8 from LLM", e.Weight)
+	}
+}
+
+func TestMaintainL4LinkingBudget(t *testing.T) {
+	store, emb, _ := maintainTestStore(t)
+	// 9 same-bucket episodes -> 36 candidate pairs; budget defaults to 20.
+	linkTestEpisodes(t, store, emb, 9, "deploy the auth service", "deploy")
+	cfg := config.Default()
+	cfg.System2.MinEpisodesToRun = 2
+	fake, calls := linkingFake(t)
+
+	rep, err := MaintainL4(store, emb, cfg, "test", &MaintainAgents{Link: fake})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if *calls != 20 {
+		t.Errorf("LLM calls = %d, want 20 (budget cap)", *calls)
+	}
+	if rep.Linked != 20 {
+		t.Errorf("rep.Linked = %d, want 20", rep.Linked)
+	}
+}
+
+func TestMaintainL4LinkingSimPrefilter(t *testing.T) {
+	store, emb, _ := maintainTestStore(t)
+	linkTestEpisodes(t, store, emb, 1, "alpha bravo charlie delta", "deploy")
+	linkTestEpisodes(t, store, emb, 1, "xray yankee zulu whiskey", "deploy")
+	// Fixture sanity: the two contents must actually fall below the threshold.
+	va, _ := emb.Embed("alpha bravo charlie delta")
+	vb, _ := emb.Embed("xray yankee zulu whiskey")
+	if sim := storage.CosineSimilarity(va, vb); sim >= config.Default().Maintain.LinkingSimilarity {
+		t.Fatalf("fixture similarity = %v, want below %.2f", sim, config.Default().Maintain.LinkingSimilarity)
+	}
+	cfg := config.Default()
+	cfg.System2.MinEpisodesToRun = 2
+	fake, calls := linkingFake(t)
+
+	rep, err := MaintainL4(store, emb, cfg, "test", &MaintainAgents{Link: fake})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if *calls != 0 {
+		t.Errorf("LLM calls = %d, want 0 (sim below threshold)", *calls)
+	}
+	if rep.Linked != 0 {
+		t.Errorf("rep.Linked = %d, want 0", rep.Linked)
+	}
+}
