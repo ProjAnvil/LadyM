@@ -103,7 +103,80 @@ func (s *Scope) Remember(content string, layer schema.Layer, type_ schema.Memory
 	}
 }
 
-// RecordEvent logs an L1 episodic event.
+// OperationEvent is a structured L1 write: explicit resource and action slots
+// layered on the legacy record_event fields (spec §6.1). ActionClass, when
+// empty, is derived from Action via the controlled vocabulary.
+type OperationEvent struct {
+	Agent, Action, ActionClass string
+	Resources                  []string
+	Observation, Outcome       string
+	Tags                       []string
+	Metadata                   map[string]any
+}
+
+// RecordOperation records an episodic event with structured slots: the action
+// is normalized onto the vocabulary (ActionClass overrides), each resource is
+// resolved to a workspace L2 resource entity, and an operates_on edge with a
+// deterministic projected id links the episode to every resource.
+func (s *Scope) RecordOperation(ev OperationEvent) (*schema.Memory, error) {
+	return s.recordOperation(ev, true)
+}
+
+// RecordEvent logs an L1 episodic event. Legacy shape: no resource slots, no
+// vocabulary stamping, no edges — byte-identical to the pre-operation write
+// path; internally it delegates to the same pipeline with slots disabled.
 func (s *Scope) RecordEvent(agent, action, observation, outcome string, tags []string, metadata map[string]any) (*schema.Memory, error) {
-	return s.Episodic.Record(agent, action, observation, outcome, tags, metadata)
+	return s.recordOperation(OperationEvent{
+		Agent:       agent,
+		Action:      action,
+		Observation: observation,
+		Outcome:     outcome,
+		Tags:        tags,
+		Metadata:    metadata,
+	}, false)
+}
+
+// recordOperation is the shared write path. slots controls whether the
+// action_class/action_raw metadata keys are stamped (new API) or the output
+// stays byte-identical to the legacy RecordEvent (old API).
+func (s *Scope) recordOperation(ev OperationEvent, slots bool) (*schema.Memory, error) {
+	meta := ev.Metadata
+	if slots {
+		meta = maps.Clone(meta)
+		if meta == nil {
+			meta = map[string]any{}
+		}
+		actionClass := ev.ActionClass
+		if actionClass == "" {
+			actionClass = operations.NormalizeAction(ev.Action, s.eng.Config)
+		}
+		if actionClass != "" {
+			meta["action_class"] = actionClass
+		}
+		if ev.Action != "" {
+			meta["action_raw"] = ev.Action
+		}
+	}
+
+	var resources []*schema.Memory
+	for _, name := range ev.Resources {
+		res, _, err := operations.ResolveResource(s.eng.Store, s.eng.Provider, s.eng.Config, s.workspace, name)
+		if err != nil {
+			return nil, err
+		}
+		resources = append(resources, res)
+	}
+
+	ep, err := s.Episodic.Record(ev.Agent, ev.Action, ev.Observation, ev.Outcome, ev.Tags, meta)
+	if err != nil {
+		return nil, err
+	}
+	for _, res := range resources {
+		e := schema.NewEdge(ep.ID, "operates_on", res.ID)
+		e.ID = schema.ProjectedEdgeID(ep.ID, "operates_on", res.ID)
+		if err := s.eng.Store.PutEdge(e); err != nil {
+			return nil, err
+		}
+	}
+	return ep, nil
 }

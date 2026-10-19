@@ -296,6 +296,12 @@ func (e *Engine) RecordEvent(agent, action, observation, outcome string, tags []
 	return e.Scope("").RecordEvent(agent, action, observation, outcome, tags, metadata)
 }
 
+// RecordOperation records an L1 operation with resource/action slots in the
+// engine's default workspace; use Scope for a per-call workspace.
+func (e *Engine) RecordOperation(ev OperationEvent) (*schema.Memory, error) {
+	return e.Scope("").RecordOperation(ev)
+}
+
 // LinkOption customises an associative edge created by Link.
 type LinkOption func(*linkOpts)
 
