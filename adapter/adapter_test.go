@@ -168,3 +168,32 @@ func TestModelRoutingGet(t *testing.T) {
 		t.Fatalf("empty routing Get = %v, want nil", got)
 	}
 }
+
+// The three MaintainL4 ops mirror providers.NAMED_OPS and must be injectable
+// through ModelRouting like every other op.
+func TestModelRoutingL4MaintenanceOps(t *testing.T) {
+	backfill := &providers.FakeLLMProvider{}
+	link := &providers.FakeLLMProvider{}
+	aliasMerge := &providers.FakeLLMProvider{}
+	r := &ModelRouting{
+		L4Backfill:   backfill,
+		L4Link:       link,
+		L4AliasMerge: aliasMerge,
+	}
+	cases := []struct {
+		op   string
+		want providers.LLMProvider
+	}{
+		{"l4_backfill", backfill},
+		{"l4_link", link},
+		{"l4_alias_merge", aliasMerge},
+	}
+	for _, tc := range cases {
+		if got := r.Get(tc.op); got != tc.want {
+			t.Errorf("Get(%q) = %v, want %v", tc.op, got, tc.want)
+		}
+	}
+	if got := (&ModelRouting{}).Get("l4_backfill"); got != nil {
+		t.Errorf("empty routing Get(l4_backfill) = %v, want nil", got)
+	}
+}

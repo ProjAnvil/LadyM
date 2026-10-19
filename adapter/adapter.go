@@ -86,6 +86,9 @@ type ModelRouting struct {
 	AttentionGate   providers.LLMProvider
 	L5MentalModel   providers.LLMProvider
 	L6ForwardIntent providers.LLMProvider
+	L4Backfill      providers.LLMProvider
+	L4Link          providers.LLMProvider
+	L4AliasMerge    providers.LLMProvider
 }
 
 // Get returns the injected LLM provider for op, or nil.
@@ -104,6 +107,12 @@ func (r *ModelRouting) Get(op string) providers.LLMProvider {
 		return r.L5MentalModel
 	case "l6_forward_intent":
 		return r.L6ForwardIntent
+	case "l4_backfill":
+		return r.L4Backfill
+	case "l4_link":
+		return r.L4Link
+	case "l4_alias_merge":
+		return r.L4AliasMerge
 	default:
 		return nil
 	}

@@ -1142,7 +1142,12 @@ func (r *cycleRunner) CountRecentEpisodes(workspace string) (int, error) {
 }
 func (r *cycleRunner) MinEpisodesToRun() int { return 3 }
 
-func (r *cycleRunner) SweepDanglingEdges() (int, error) { return 0, nil }
+func (r *cycleRunner) MaintainL4(workspace string) (*MaintainReport, error) {
+	if r.fail == "maintain" {
+		return nil, errBoom
+	}
+	return &MaintainReport{}, nil
+}
 
 func TestRunSystem2CycleFull(t *testing.T) {
 	rep, err := RunSystem2Cycle(&cycleRunner{episodes: 5}, "test")
@@ -1150,7 +1155,7 @@ func TestRunSystem2CycleFull(t *testing.T) {
 		t.Fatal(err)
 	}
 	if rep.SkippedLLMSteps || rep.Consolidate == nil || rep.Proceduralize == nil ||
-		rep.L5 == nil || rep.L6 == nil || rep.Decay == nil {
+		rep.L5 == nil || rep.L6 == nil || rep.Decay == nil || rep.Maintain == nil {
 		t.Errorf("report = %+v, want all steps populated", rep)
 	}
 }
@@ -1166,7 +1171,7 @@ func TestRunSystem2CycleSkipsLLMSteps(t *testing.T) {
 }
 
 func TestRunSystem2CycleErrors(t *testing.T) {
-	for _, fail := range []string{"consolidate", "proceduralize", "count", "l5", "l6", "decay"} {
+	for _, fail := range []string{"consolidate", "proceduralize", "count", "l5", "l6", "decay", "maintain"} {
 		t.Run(fail, func(t *testing.T) {
 			_, err := RunSystem2Cycle(&cycleRunner{episodes: 5, fail: fail}, "test")
 			if !errors.Is(err, errBoom) {

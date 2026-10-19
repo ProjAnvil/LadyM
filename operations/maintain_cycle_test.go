@@ -1,26 +1,33 @@
 package operations
 
-// RunSystem2Cycle must sweep dangling edges as the maintenance step after
-// Decay and surface the count in report.Maintain.
+// RunSystem2Cycle ends with the full MaintainL4 step (GC + backfill +
+// linking + alias merge) after Decay, and reports a *MaintainReport. The
+// cycle order is Consolidate -> Proceduralize -> L5/L6 (gated) -> Decay ->
+// Maintain.
 
 import (
 	"database/sql"
 	"path/filepath"
 	"testing"
 
+	"github.com/ProjAnvil/LadyM/config"
 	"github.com/ProjAnvil/LadyM/schema"
 	"github.com/ProjAnvil/LadyM/storage"
 	_ "modernc.org/sqlite"
 )
 
-// sweepRunner is the minimal cycleRunner with SweepDanglingEdges delegated
-// to a real store (the pattern Engine uses).
-type sweepRunner struct {
+// maintainRunner is the minimal cycleRunner with MaintainL4 delegated to a
+// real store (the pattern Engine uses).
+type maintainRunner struct {
 	cycleRunner
 	store storage.Store
+	emb   *storage.HashingEmbedding
+	cfg   *config.Config
 }
 
-func (r *sweepRunner) SweepDanglingEdges() (int, error) { return r.store.SweepDanglingEdges() }
+func (r *maintainRunner) MaintainL4(workspace string) (*MaintainReport, error) {
+	return MaintainL4(r.store, r.emb, r.cfg, workspace, nil)
+}
 
 func TestRunSystem2CycleSweepsDanglingEdges(t *testing.T) {
 	emb := storage.NewHashingEmbedding(256)
@@ -64,7 +71,7 @@ func TestRunSystem2CycleSweepsDanglingEdges(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	rep, err := RunSystem2Cycle(&sweepRunner{cycleRunner{episodes: 5}, store}, "test")
+	rep, err := RunSystem2Cycle(&maintainRunner{cycleRunner{episodes: 5}, store, emb, config.Default()}, "test")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,11 +83,113 @@ func TestRunSystem2CycleSweepsDanglingEdges(t *testing.T) {
 	if len(edges) != 0 {
 		t.Errorf("Neighbors(b) after cycle = %v, want empty (dangling edge swept)", edges)
 	}
-	m, ok := rep.Maintain.(map[string]any)
+	m, ok := rep.Maintain.(*MaintainReport)
 	if !ok {
-		t.Fatalf("report.Maintain = %#v, want map", rep.Maintain)
+		t.Fatalf("report.Maintain = %#v, want *MaintainReport", rep.Maintain)
 	}
-	if m["swept"] != 1 {
-		t.Errorf("report.Maintain[swept] = %#v, want 1", m["swept"])
+	if m.Swept != 1 {
+		t.Errorf("report.Maintain.Swept = %d, want 1", m.Swept)
+	}
+}
+
+// orderRunner records the call sequence of one cycle.
+type orderRunner struct {
+	order    []string
+	episodes int
+	fail     string
+}
+
+func (r *orderRunner) Consolidate(workspace string, since float64) (*ConsolidationReport, error) {
+	r.order = append(r.order, "consolidate")
+	if r.fail == "consolidate" {
+		return nil, errBoom
+	}
+	return newConsolidationReport(), nil
+}
+func (r *orderRunner) Proceduralize(workspace string, minClusterSize int) (*ProceduralizeReport, error) {
+	r.order = append(r.order, "proceduralize")
+	if r.fail == "proceduralize" {
+		return nil, errBoom
+	}
+	return newProceduralizeReport(), nil
+}
+func (r *orderRunner) ExtractMentalModels(workspace string) (*L5ExtractionReport, error) {
+	r.order = append(r.order, "l5")
+	if r.fail == "l5" {
+		return nil, errBoom
+	}
+	return &L5ExtractionReport{}, nil
+}
+func (r *orderRunner) PredictForwardIntents(workspace string) (*L6PredictionReport, error) {
+	r.order = append(r.order, "l6")
+	if r.fail == "l6" {
+		return nil, errBoom
+	}
+	return &L6PredictionReport{}, nil
+}
+func (r *orderRunner) Decay(workspace string, dryRun bool, maxAgeS, activationFloor float64) (*DecayReport, error) {
+	r.order = append(r.order, "decay")
+	if r.fail == "decay" {
+		return nil, errBoom
+	}
+	return &DecayReport{}, nil
+}
+func (r *orderRunner) CountRecentEpisodes(workspace string) (int, error) {
+	return r.episodes, nil
+}
+func (r *orderRunner) MinEpisodesToRun() int { return 3 }
+func (r *orderRunner) MaintainL4(workspace string) (*MaintainReport, error) {
+	r.order = append(r.order, "maintain")
+	if r.fail == "maintain" {
+		return nil, errBoom
+	}
+	return &MaintainReport{}, nil
+}
+
+func TestRunSystem2CycleOrder(t *testing.T) {
+	r := &orderRunner{episodes: 5}
+	rep, err := RunSystem2Cycle(r, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"consolidate", "proceduralize", "l5", "l6", "decay", "maintain"}
+	if len(r.order) != len(want) {
+		t.Fatalf("cycle order = %v, want %v", r.order, want)
+	}
+	for i := range want {
+		if r.order[i] != want[i] {
+			t.Errorf("cycle order = %v, want %v", r.order, want)
+			break
+		}
+	}
+	if rep.Maintain == nil {
+		t.Error("report.Maintain = nil, want the MaintainL4 report")
+	}
+}
+
+func TestRunSystem2CycleOrderSkippedLLM(t *testing.T) {
+	r := &orderRunner{episodes: 1}
+	rep, err := RunSystem2Cycle(r, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"consolidate", "proceduralize", "decay", "maintain"}
+	if len(r.order) != len(want) {
+		t.Fatalf("cycle order = %v, want %v (LLM steps gated off)", r.order, want)
+	}
+	for i := range want {
+		if r.order[i] != want[i] {
+			t.Errorf("cycle order = %v, want %v", r.order, want)
+			break
+		}
+	}
+	if !rep.SkippedLLMSteps {
+		t.Error("SkippedLLMSteps = false, want true")
+	}
+}
+
+func TestRunSystem2CycleMaintainErrorPropagates(t *testing.T) {
+	if _, err := RunSystem2Cycle(&orderRunner{episodes: 5, fail: "maintain"}, "test"); err == nil {
+		t.Error("maintain failure should propagate")
 	}
 }

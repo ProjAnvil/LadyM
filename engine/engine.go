@@ -441,6 +441,31 @@ func (e *Engine) MinEpisodesToRun() int { return e.Config.System2.MinEpisodesToR
 // maintenance step).
 func (e *Engine) SweepDanglingEdges() (int, error) { return e.Store.SweepDanglingEdges() }
 
+// MaintainL4 runs the worker-maintenance step of a System 2 cycle: the
+// store's dangling-edge GC plus the (gated) backfill / semantic-linking /
+// alias-merge sub-steps. The three LLM agents are resolved per op; a missing
+// agent means that sub-step runs in heuristic/offline mode.
+func (e *Engine) MaintainL4(workspace string) (*operations.MaintainReport, error) {
+	agents := operations.MaintainAgents{}
+	backfill, err := e.getAgent("l4_backfill")
+	if err != nil {
+		return nil, err
+	}
+	agents.Backfill = backfill
+	link, err := e.getAgent("l4_link")
+	if err != nil {
+		return nil, err
+	}
+	agents.Link = link
+	aliasMerge, err := e.getAgent("l4_alias_merge")
+	if err != nil {
+		return nil, err
+	}
+	agents.AliasMerge = aliasMerge
+	ws := cmp.Or(workspace, e.Config.Workspace)
+	return operations.MaintainL4(e.Store, e.Provider, e.Config, ws, &agents)
+}
+
 // StartSystem2 launches a daemon goroutine running System2 cycles. Closing the
 // returned channel asks the worker to stop after its current cycle.
 func (e *Engine) StartSystem2(intervalS int, workspace string) chan struct{} {
