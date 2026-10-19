@@ -20,7 +20,9 @@ import (
 
 // deleteMemoryNoCascade removes a memory row without the FK cascade, the way
 // a legacy pre-FK database behaves. It simulates the state the dangling-edge
-// correctness fixes defend against.
+// correctness fixes defend against. The FK is always restored (deferred), and
+// the SQLite PRAGMA toggle runs outside any transaction (single Exec =
+// autocommit), as connection-scoped PRAGmas require.
 func deleteMemoryNoCascade(t *testing.T, s Store, id string) {
 	t.Helper()
 	switch st := s.(type) {
@@ -28,11 +30,12 @@ func deleteMemoryNoCascade(t *testing.T, s Store, id string) {
 		if _, err := st.db.Exec("PRAGMA foreign_keys = OFF"); err != nil {
 			t.Fatal(err)
 		}
-		_, err := st.db.Exec("DELETE FROM memories WHERE id = ?", id)
-		if _, err2 := st.db.Exec("PRAGMA foreign_keys = ON"); err2 != nil {
-			t.Fatal(err2)
-		}
-		if err != nil {
+		defer func() {
+			if _, err := st.db.Exec("PRAGMA foreign_keys = ON"); err != nil {
+				t.Errorf("restore PRAGMA foreign_keys = ON: %v", err)
+			}
+		}()
+		if _, err := st.db.Exec("DELETE FROM memories WHERE id = ?", id); err != nil {
 			t.Fatal(err)
 		}
 	case *PostgresStore:
@@ -40,11 +43,12 @@ func deleteMemoryNoCascade(t *testing.T, s Store, id string) {
 		if _, err := st.pool.Exec(ctx, "ALTER TABLE memories DISABLE TRIGGER ALL"); err != nil {
 			t.Fatal(err)
 		}
-		_, err := st.pool.Exec(ctx, "DELETE FROM memories WHERE id = $1", id)
-		if _, err2 := st.pool.Exec(ctx, "ALTER TABLE memories ENABLE TRIGGER ALL"); err2 != nil {
-			t.Fatal(err2)
-		}
-		if err != nil {
+		defer func() {
+			if _, err := st.pool.Exec(ctx, "ALTER TABLE memories ENABLE TRIGGER ALL"); err != nil {
+				t.Errorf("re-enable triggers on memories: %v", err)
+			}
+		}()
+		if _, err := st.pool.Exec(ctx, "DELETE FROM memories WHERE id = $1", id); err != nil {
 			t.Fatal(err)
 		}
 	default:
@@ -88,40 +92,6 @@ func TestNeighborCountsExcludesDanglingEdges(t *testing.T) {
 		}
 		if counts[b.ID] != 1 || counts[c.ID] != 1 {
 			t.Errorf("NeighborCounts after valid edge = %v, want b=1 c=1", counts)
-		}
-	})
-}
-
-// TestDeleteMemoryCascadesEdges is the regression lock for the dangling-edge
-// defence: on a schema-complete database the FK cascade already removes the
-// edges of a deleted memory through the public API (spec §9).
-func TestDeleteMemoryCascadesEdges(t *testing.T) {
-	runStoreBackends(t, func(t *testing.T, s Store) {
-		a := schema.NewMemory(schema.LayerSemantic, schema.TypeFact)
-		b := schema.NewMemory(schema.LayerSemantic, schema.TypeFact)
-		suitePutMemory(t, s, a, nil)
-		suitePutMemory(t, s, b, nil)
-		if err := s.PutEdge(schema.NewEdge(a.ID, "related_to", b.ID)); err != nil {
-			t.Fatal(err)
-		}
-
-		if err := s.DeleteMemory(a.ID); err != nil {
-			t.Fatal(err)
-		}
-
-		edges, err := s.Neighbors(b.ID, "")
-		if err != nil {
-			t.Fatal(err)
-		}
-		if len(edges) != 0 {
-			t.Errorf("Neighbors(b) after DeleteMemory(a) = %v, want empty (FK cascade)", edges)
-		}
-		counts, err := s.NeighborCounts()
-		if err != nil {
-			t.Fatal(err)
-		}
-		if len(counts) != 0 {
-			t.Errorf("NeighborCounts after DeleteMemory(a) = %v, want empty (FK cascade)", counts)
 		}
 	})
 }

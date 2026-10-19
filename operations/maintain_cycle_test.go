@@ -38,16 +38,29 @@ func TestRunSystem2CycleSweepsDanglingEdges(t *testing.T) {
 	}
 
 	// Drop A through a side connection with the FK off, reproducing a
-	// legacy pre-FK database (the public API cascades edges away).
+	// legacy pre-FK database (the public API cascades edges away). One
+	// pinned *sql.Conn keeps the connection-scoped PRAGMA and the DELETE on
+	// the same session; the PRAGMA is restored (deferred) and toggled
+	// outside any transaction (single Exec = autocommit).
 	side, err := sql.Open("sqlite", path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { side.Close() })
-	if _, err := side.Exec("PRAGMA foreign_keys = OFF"); err != nil {
+	conn, err := side.Conn(t.Context())
+	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := side.Exec("DELETE FROM memories WHERE id = ?", a.ID); err != nil {
+	defer conn.Close()
+	if _, err := conn.ExecContext(t.Context(), "PRAGMA foreign_keys = OFF"); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if _, err := conn.ExecContext(t.Context(), "PRAGMA foreign_keys = ON"); err != nil {
+			t.Errorf("restore PRAGMA foreign_keys = ON: %v", err)
+		}
+	}()
+	if _, err := conn.ExecContext(t.Context(), "DELETE FROM memories WHERE id = ?", a.ID); err != nil {
 		t.Fatal(err)
 	}
 

@@ -59,3 +59,38 @@ func TestSweepDanglingEdges(t *testing.T) {
 		}
 	})
 }
+
+// TestDeleteMemoryCascadesEdges is the regression lock for the dangling-edge
+// defence: on a schema-complete database the FK cascade already removes the
+// edges of a deleted memory through the public API, so dangling edges only
+// arise in legacy pre-FK databases or from external writes (spec §9).
+func TestDeleteMemoryCascadesEdges(t *testing.T) {
+	runStoreBackends(t, func(t *testing.T, s Store) {
+		a := schema.NewMemory(schema.LayerSemantic, schema.TypeFact)
+		b := schema.NewMemory(schema.LayerSemantic, schema.TypeFact)
+		suitePutMemory(t, s, a, nil)
+		suitePutMemory(t, s, b, nil)
+		if err := s.PutEdge(schema.NewEdge(a.ID, "related_to", b.ID)); err != nil {
+			t.Fatal(err)
+		}
+
+		if err := s.DeleteMemory(a.ID); err != nil {
+			t.Fatal(err)
+		}
+
+		edges, err := s.Neighbors(b.ID, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(edges) != 0 {
+			t.Errorf("Neighbors(b) after DeleteMemory(a) = %v, want empty (FK cascade)", edges)
+		}
+		counts, err := s.NeighborCounts()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(counts) != 0 {
+			t.Errorf("NeighborCounts after DeleteMemory(a) = %v, want empty (FK cascade)", counts)
+		}
+	})
+}
