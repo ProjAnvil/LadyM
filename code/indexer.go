@@ -27,6 +27,7 @@ type IndexReport struct {
 	FilesSkippedUnsupported int
 	SymbolsWritten          int
 	RefsWritten             int
+	ProjectedEdges          int
 	ElapsedMs               float64
 	Errors                  []string
 }
@@ -87,6 +88,10 @@ func IndexCodebase(root string, store storage.Store, embedder storage.EmbeddingP
 	report := &IndexReport{}
 	icfg := cfg.CodeIndex
 
+	// refs written this pass, projected onto L4 after the loop (dst symbols
+	// may live in files processed later in the same pass)
+	var batchRefs []RawRef
+
 	paths, err := walkFiles(absRoot, icfg.ExtraIgnoreGlobs)
 	if err != nil {
 		return nil, err
@@ -125,6 +130,14 @@ func IndexCodebase(root string, store storage.Store, embedder storage.EmbeddingP
 			}
 		}
 
+		// body_hash changed (or forced): purge this file's previous code
+		// artifacts before writing the new symbols, so symbols that
+		// disappeared from the file leave no stale memories, projection
+		// rows, or refs behind (spec §6.4).
+		if err := store.DeleteCodeArtifactsByFile(ws, rel); err != nil {
+			return nil, err
+		}
+
 		moduleName := moduleName(rel, lang)
 		spec := GetSpec(lang)
 		syms, err := ExtractSymbols(data, lang, moduleName, rel, icfg.MaxBodyLinesPerSymbol)
@@ -149,6 +162,7 @@ func IndexCodebase(root string, store storage.Store, embedder storage.EmbeddingP
 		codeRefs := make([]*schema.CodeRef, 0, len(refs))
 		for _, r := range refs {
 			codeRefs = append(codeRefs, &schema.CodeRef{SrcSymbol: r.SrcSymbol, DstSymbol: r.DstSymbol, RefKind: r.RefKind})
+			batchRefs = append(batchRefs, r)
 		}
 		if err := store.PutCodeRefs(codeRefs); err != nil {
 			return nil, err
@@ -162,8 +176,50 @@ func IndexCodebase(root string, store storage.Store, embedder storage.EmbeddingP
 		report.RefsWritten += len(refs)
 	}
 
+	projectCodeRefs(store, ws, batchRefs, report)
+
 	report.ElapsedMs = float64(time.Since(start).Nanoseconds()) / 1e6
 	return report, nil
+}
+
+// projectCodeRefs turns a pass's code_refs into L4 edges between the
+// corresponding code_symbol memories (spec §6.2): both endpoints must exist,
+// the relation is the ref kind (calls/imports), and the edge id is the
+// deterministic ProjectedEdgeID so re-running a projection upserts instead of
+// duplicating. Failures are recorded on the report and never abort the index
+// pass — the projection is rerunnable.
+func projectCodeRefs(store storage.Store, ws string, refs []RawRef, report *IndexReport) {
+	if len(refs) == 0 {
+		return
+	}
+	qnameToID := map[string]string{}
+	symbolMems, err := store.IterMemories(ws, string(schema.LayerSemantic), string(schema.TypeCodeSymbol))
+	if err != nil {
+		report.Errors = append(report.Errors, "code_refs projection: "+err.Error())
+		return
+	}
+	for _, m := range symbolMems {
+		if q := m.MetaString("qualified_name"); q != "" {
+			qnameToID[q] = m.ID
+		}
+	}
+	for _, r := range refs {
+		if r.RefKind != "calls" && r.RefKind != "imports" {
+			continue
+		}
+		srcID, dstID := qnameToID[r.SrcSymbol], qnameToID[r.DstSymbol]
+		if srcID == "" || dstID == "" {
+			continue // missing endpoint: nothing to project onto
+		}
+		e := schema.NewEdge(srcID, r.RefKind, dstID)
+		e.ID = schema.ProjectedEdgeID(srcID, r.RefKind, dstID)
+		if err := store.PutEdge(e); err != nil {
+			report.Errors = append(report.Errors,
+				fmt.Sprintf("code_refs projection %s→%s: %v", r.SrcSymbol, r.DstSymbol, err))
+			continue
+		}
+		report.ProjectedEdges++
+	}
 }
 
 func walkFiles(root string, ignoreGlobs []string) ([]string, error) {
