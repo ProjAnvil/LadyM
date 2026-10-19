@@ -1,3 +1,5 @@
+//go:build !enterprise
+
 package operations
 
 // MaintainL4 unit tests (spec §8.1/§8.2): dangling-edge GC, heuristic slot

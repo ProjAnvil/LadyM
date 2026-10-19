@@ -1,3 +1,5 @@
+//go:build !enterprise
+
 package operations
 
 // RunSystem2Cycle ends with the full MaintainL4 step (GC + backfill +
