@@ -614,6 +614,21 @@ func (s *SQLiteStore) InvalidateEdge(edgeID string, t float64) error {
 	return err
 }
 
+// SweepDanglingEdges deletes valid edges whose endpoint memories no longer
+// exist (legacy pre-FK databases keep them around) and returns the count.
+// Edges are not part of the vector index, so no index maintenance is needed.
+func (s *SQLiteStore) SweepDanglingEdges() (int, error) {
+	res, err := s.db.Exec(
+		`DELETE FROM edges WHERE valid_to IS NULL
+		 AND (src_id NOT IN (SELECT id FROM memories)
+		  OR dst_id NOT IN (SELECT id FROM memories))`)
+	if err != nil {
+		return 0, err
+	}
+	n, err := res.RowsAffected()
+	return int(n), err
+}
+
 // ---- code symbol projections ----
 
 // PutCodeSymbol inserts or updates a code symbol projection.

@@ -629,6 +629,19 @@ func (s *PostgresStore) InvalidateEdge(edgeID string, t float64) error {
 	return err
 }
 
+// SweepDanglingEdges deletes valid edges whose endpoint memories no longer
+// exist (legacy pre-FK databases keep them around) and returns the count.
+func (s *PostgresStore) SweepDanglingEdges() (int, error) {
+	tag, err := s.pool.Exec(context.Background(),
+		`DELETE FROM edges WHERE valid_to IS NULL
+		 AND (src_id NOT IN (SELECT id FROM memories)
+		  OR dst_id NOT IN (SELECT id FROM memories))`)
+	if err != nil {
+		return 0, err
+	}
+	return int(tag.RowsAffected()), nil
+}
+
 // ---- code symbol projections ----
 
 // PutCodeSymbol inserts or updates a code symbol projection.

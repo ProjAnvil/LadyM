@@ -42,6 +42,9 @@ type Store interface {
 	CountEdges() (int, error)
 	NeighborCounts() (map[string]int, error)
 	InvalidateEdge(edgeID string, t float64) error // UPDATE edges SET valid_to=t WHERE id=edgeID
+	// SweepDanglingEdges deletes valid edges whose endpoint memories no
+	// longer exist (legacy pre-FK databases) and returns how many went.
+	SweepDanglingEdges() (int, error)
 
 	// code projections
 	PutCodeSymbol(sym *schema.CodeSymbol) error
