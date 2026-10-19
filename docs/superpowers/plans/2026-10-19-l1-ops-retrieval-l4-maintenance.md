@@ -188,11 +188,12 @@
 **Steps:**
 
 - [ ] **RED:** 测试:
-  1. `Scope.RecordOperation(OperationEvent{Agent:"a", Action:"migrate schema", Resources:[]string{"ladym.db"}, Outcome:"success"})` → episode 存在,`metadata.action_class=="migrate"`、`action_raw=="migrate schema"`;
-  2. `operates_on` 边存在且 ID==`schema.ProjectedEdgeID(epID,"operates_on",resID)`;
-  3. 资源实体可被第二次 RecordOperation 复用(同 ID);
-  4. 空 Resources → 无 operates_on 边;
-  5. `RecordEvent` 旧行为:content 格式 `agent=a | action=... | observation=... | outcome=...` 与现状一致(对照既有 engine 测试断言)。
+  1. `Scope.RecordOperation(OperationEvent{Agent:"a", Action:"migrate", Resources:[]string{"ladym.db"}, Outcome:"success"})` → episode 存在,`metadata.action_class=="migrate"`(spec §5.5:lower+trim 后词表**精确匹配**);
+  2. 多词动作 `Action:"migrate schema"` → `action_class==""`、`action_raw=="migrate schema"`(锁死精确匹配语义,未命中不猜);
+  3. `operates_on` 边存在且 ID==`schema.ProjectedEdgeID(epID,"operates_on",resID)`;
+  4. 资源实体可被第二次 RecordOperation 复用(同 ID);
+  5. 空 Resources → 无 operates_on 边;
+  6. `RecordEvent` 旧行为:content 格式 `agent=a | action=... | observation=... | outcome=...` 与现状一致(对照既有 engine 测试断言)。
 - [ ] 跑红。
 - [ ] **GREEN:**
   1. `engine/scope.go` 加:
