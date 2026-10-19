@@ -22,21 +22,24 @@ const Version = "0.5.2"
 
 // Re-export the public types for a one-import SDK surface.
 type (
-	Config            = config.Config
-	ActivationWeights = config.ActivationWeights
-	CodeIndexConfig   = config.CodeIndexConfig
-	ConsolidateConfig = config.ConsolidateConfig
-	RecallConfig      = config.RecallConfig
-	ModelRouting      = adapter.ModelRouting
-	Engine            = engine.Engine
-	Layer             = schema.Layer
-	MemoryType        = schema.MemoryType
-	Memory            = schema.Memory
-	Edge              = schema.Edge
-	CodeSymbol        = schema.CodeSymbol
-	RecallResponse    = schema.RecallResponse
-	RecallResult      = schema.RecallResult
-	Stats             = schema.Stats
+	Config             = config.Config
+	ActivationWeights  = config.ActivationWeights
+	CodeIndexConfig    = config.CodeIndexConfig
+	ConsolidateConfig  = config.ConsolidateConfig
+	RecallConfig       = config.RecallConfig
+	ModelRouting       = adapter.ModelRouting
+	Engine             = engine.Engine
+	Layer              = schema.Layer
+	MemoryType         = schema.MemoryType
+	Memory             = schema.Memory
+	Edge               = schema.Edge
+	CodeSymbol         = schema.CodeSymbol
+	RecallResponse     = schema.RecallResponse
+	RecallResult       = schema.RecallResult
+	OperationEvent     = engine.OperationEvent
+	OperationsQuery    = engine.OperationsQuery
+	OperationsResponse = engine.OperationsResponse
+	Stats              = schema.Stats
 )
 
 // Layer constants.
@@ -146,4 +149,30 @@ func IndexCode(root, dbPath, workspace string, force bool) (*code.IndexReport, e
 		return err
 	})
 	return report, err
+}
+
+// RecordOperation is a one-shot structured L1 write: the action is normalized
+// onto the vocabulary, each resource is resolved to a workspace entity, and an
+// operates_on edge links the episode to every resource.
+func RecordOperation(ev OperationEvent, dbPath, workspace string) (*schema.Memory, error) {
+	var mem *schema.Memory
+	err := OpenEngine(nil, dbPath, workspace, func(eng *engine.Engine) error {
+		var err error
+		mem, err = eng.RecordOperation(ev)
+		return err
+	})
+	return mem, err
+}
+
+// RecallOperations is a one-shot recall_ops pivot query: which operations
+// touched a resource, narrowed by action / time window / outcome. A resource
+// miss degrades to plain recall with Fallback=true.
+func RecallOperations(q OperationsQuery, dbPath, workspace string) (*engine.OperationsResponse, error) {
+	var resp *engine.OperationsResponse
+	err := OpenEngine(nil, dbPath, workspace, func(eng *engine.Engine) error {
+		var err error
+		resp, err = eng.RecallOperations(q)
+		return err
+	})
+	return resp, err
 }

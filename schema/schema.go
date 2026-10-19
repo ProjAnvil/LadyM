@@ -8,6 +8,7 @@ package schema
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"strconv"
 	"time"
@@ -66,6 +67,7 @@ const (
 	TypeSnippet       MemoryType = "snippet"        // verified reusable code
 	TypeMentalModel   MemoryType = "mental_model"   // L5 mental model
 	TypeForwardIntent MemoryType = "forward_intent" // L6 forward intent
+	TypeResource      MemoryType = "resource"       // L2 resource entity (operated-on target)
 )
 
 // Memory is a single memory item; it maps to one row in the memories table.
@@ -202,6 +204,13 @@ func NewEdge(srcID, relation, dstID string) *Edge {
 		ValidFrom: Now(),
 		Metadata:  map[string]any{},
 	}
+}
+
+// ProjectedEdgeID returns the deterministic id for machine-projected
+// edges so re-running a projection upserts instead of duplicating.
+func ProjectedEdgeID(src, relation, dst string) string {
+	h := sha256.Sum256([]byte(src + "|" + relation + "|" + dst))
+	return "proj:" + hex.EncodeToString(h[:])[:16]
 }
 
 // CodeSymbol is a structured projection of a code-bearing Memory.

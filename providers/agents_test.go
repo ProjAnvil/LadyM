@@ -41,6 +41,31 @@ func TestAgentRegistryUnknownOp(t *testing.T) {
 	}
 }
 
+// MaintainL4's three LLM sub-steps are first-class ops: registered in
+// NAMED_OPS, resolvable through the registry, and overridable via [agents].
+func TestL4MaintenanceOpsRegistered(t *testing.T) {
+	cfg := config.Default()
+	cfg.LLMProvider = "http"
+	cfg.AgentsOverrides["l4_link"] = map[string]any{"model": "linker"}
+	reg := NewAgentRegistry(cfg)
+	for _, op := range []string{"l4_backfill", "l4_link", "l4_alias_merge"} {
+		ac, err := reg.Get(op)
+		if err != nil {
+			t.Fatalf("Get(%q): %v", op, err)
+		}
+		if ac.Provider != "http" {
+			t.Errorf("Get(%q).Provider = %q, want http (inherits [llm] globals)", op, ac.Provider)
+		}
+	}
+	ac, err := reg.Get("l4_link")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ac.Model != "linker" {
+		t.Errorf("l4_link model = %q, want linker ([agents] override)", ac.Model)
+	}
+}
+
 func TestAgentRegistryEmptyProviderMeansNone(t *testing.T) {
 	cfg := config.Default()
 	cfg.LLMProvider = ""

@@ -81,6 +81,15 @@ func TestSystem2CycleSkipsL5L6WithoutLLM(t *testing.T) {
 	if n := countLayer(t, eng, schema.LayerL6Predictive); n != 0 {
 		t.Errorf("L6_predictive memories = %d, want 0 (worker must skip L6 without an LLM)", n)
 	}
+	// The maintenance step runs (GC + heuristic backfill) and reports a full
+	// MaintainReport even with no LLM configured.
+	maint, ok := rep.Maintain.(*operations.MaintainReport)
+	if !ok || maint == nil {
+		t.Fatalf("report.Maintain = %#v, want *operations.MaintainReport", rep.Maintain)
+	}
+	if maint.Skipped != "linking" {
+		t.Errorf("report.Maintain.Skipped = %q, want linking (no LLM agent)", maint.Skipped)
+	}
 }
 
 // Positive control: with an LLM bound to the l5/l6 ops the same cycle keeps

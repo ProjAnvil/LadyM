@@ -587,8 +587,12 @@ func (s *SQLiteStore) CountEdges() (int, error) {
 // NeighborCounts returns {memory_id: neighbour_count} for spreading activation.
 func (s *SQLiteStore) NeighborCounts() (map[string]int, error) {
 	rows, err := s.db.Query(
-		"SELECT src_id AS id FROM edges WHERE valid_to IS NULL UNION ALL " +
-			"SELECT dst_id AS id FROM edges WHERE valid_to IS NULL")
+		"SELECT src_id AS id FROM edges e WHERE e.valid_to IS NULL " +
+			"AND EXISTS (SELECT 1 FROM memories m WHERE m.id = e.src_id) " +
+			"AND EXISTS (SELECT 1 FROM memories m WHERE m.id = e.dst_id) UNION ALL " +
+			"SELECT dst_id AS id FROM edges e WHERE e.valid_to IS NULL " +
+			"AND EXISTS (SELECT 1 FROM memories m WHERE m.id = e.src_id) " +
+			"AND EXISTS (SELECT 1 FROM memories m WHERE m.id = e.dst_id)")
 	if err != nil {
 		return nil, err
 	}
@@ -608,6 +612,21 @@ func (s *SQLiteStore) NeighborCounts() (map[string]int, error) {
 func (s *SQLiteStore) InvalidateEdge(edgeID string, t float64) error {
 	_, err := s.db.Exec("UPDATE edges SET valid_to = ? WHERE id = ?", t, edgeID)
 	return err
+}
+
+// SweepDanglingEdges deletes valid edges whose endpoint memories no longer
+// exist (legacy pre-FK databases keep them around) and returns the count.
+// Edges are not part of the vector index, so no index maintenance is needed.
+func (s *SQLiteStore) SweepDanglingEdges() (int, error) {
+	res, err := s.db.Exec(
+		`DELETE FROM edges WHERE valid_to IS NULL
+		 AND (src_id NOT IN (SELECT id FROM memories)
+		  OR dst_id NOT IN (SELECT id FROM memories))`)
+	if err != nil {
+		return 0, err
+	}
+	n, err := res.RowsAffected()
+	return int(n), err
 }
 
 // ---- code symbol projections ----
@@ -729,6 +748,58 @@ func (s *SQLiteStore) DeleteSymbolMemories(qualifiedName, workspace string) erro
 		"DELETE FROM memories WHERE type = ? AND workspace = ? AND id IN (SELECT memory_id FROM code_symbols WHERE qualified_name = ?)",
 		string(schema.TypeCodeSymbol), workspace, qualifiedName)
 	return err
+}
+
+// DeleteCodeArtifactsByFile removes every code artifact of one file
+// (re-index cleanup, spec §6.4): code_refs touching the file's symbols in
+// either direction, the code_symbols projection rows, and the code_symbol
+// memories, then syncs the in-process vector index for exactly the deleted
+// memories. The refs delete must run before the code_symbols delete it
+// subqueries.
+func (s *SQLiteStore) DeleteCodeArtifactsByFile(workspace, filePath string) error {
+	if _, err := s.db.Exec(
+		`DELETE FROM code_refs
+		  WHERE src_symbol IN (SELECT qualified_name FROM code_symbols WHERE file_path = ?)
+		     OR dst_symbol IN (SELECT qualified_name FROM code_symbols WHERE file_path = ?)`,
+		filePath, filePath); err != nil {
+		return err
+	}
+	// Collect the memory ids the memories delete below will remove. Querying
+	// them from memories (not code_symbols) keeps the id list scoped to this
+	// workspace, so the vector index never evicts another workspace's
+	// surviving copy of the same file.
+	rows, err := s.db.Query(
+		"SELECT id FROM memories WHERE type = ? AND source = ? AND workspace = ?",
+		string(schema.TypeCodeSymbol), filePath, workspace)
+	if err != nil {
+		return err
+	}
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return err
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+	if _, err := s.db.Exec("DELETE FROM code_symbols WHERE file_path = ?", filePath); err != nil {
+		return err
+	}
+	if _, err := s.db.Exec(
+		"DELETE FROM memories WHERE type = ? AND source = ? AND workspace = ?",
+		string(schema.TypeCodeSymbol), filePath, workspace); err != nil {
+		return err
+	}
+	for _, id := range ids {
+		s.vectorIndex.Delete(id)
+	}
+	return nil
 }
 
 // ---- index_state ----

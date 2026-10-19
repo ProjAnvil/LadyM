@@ -23,6 +23,32 @@ identical everywhere.
 
 ---
 
+## What's New in 0.7.0
+
+- **Operation-history retrieval (`recall_ops`)** — agents can ask "how did I last
+  operate on X?" with a resource × action pivot query: vector search is confined to
+  resource resolution, an L4 `operates_on` graph join does the exact filtering, and
+  ACT-R activation ranks the results. Exposed as the 10th MCP tool, a
+  `ladym recall-ops` CLI command, and Go SDK one-shot helpers. The read path stays
+  LLM-free; unresolvable resources degrade gracefully to plain `recall`.
+- **Structured `record_event` slots** — optional `resources` and `action_class`
+  arguments resolve against a resource registry (L2 `type=resource` with
+  lazily-grown aliases) and link `operates_on` edges deterministically at write
+  time. Actions normalise against a controlled vocabulary (31 words + aliases,
+  extensible via `[resource]` config).
+- **Self-maintaining L4 graph** — deterministic projections on write
+  (`operates_on`, `produced_from`, `calls`/`imports` from `code_refs`, all
+  idempotent via `ProjectedEdgeID` upserts), plus a new `MaintainL4` System 2
+  step: dangling-edge GC every cycle, budgeted slot backfill, gated semantic
+  linking, and resource alias-merge (LLM-optional, three new `l4_*` agent ops).
+- **Re-index hygiene** — re-indexing a changed file purges its stale symbol
+  memories, `code_symbols`/`code_refs` rows and in-process vector entries first
+  (`DeleteCodeArtifactsByFile`), so removed symbols no longer linger.
+- **Docs matched to code** — ARCHITECTURE.md claims that ran ahead of the
+  implementation ("auto-link on write", "callers/callees via L4 expansion") are
+  now accurate, including an honest scoping note: code-ref projection is
+  same-file today.
+
 ## What's New in 0.6.0
 
 - **Concurrent HTTP data plane** — the global request mutex is gone: requests across
@@ -184,11 +210,35 @@ Add to your MCP client config:
 }
 ```
 
-The server speaks MCP over stdio and exposes nine tools — `recall`, `remember`,
-`record_event`, `search_code`, `index_code`, `consolidate`, `stats`, `link`,
+The server speaks MCP over stdio and exposes ten tools — `recall`, `recall_ops`,
+`remember`, `record_event`, `search_code`, `index_code`, `consolidate`, `stats`, `link`,
 `forget` — described in [mcp/server.go](mcp/server.go). `record_event` logs an L1
 episodic event that feeds the System 2 worker's consolidation (L1 → L2) and the
-gated L5 / L6 extractors (record ~3+ to arm those cycles).
+gated L5 / L6 extractors (record ~3+ to arm those cycles). It also accepts optional
+structured slots — `resources` (names/aliases) and `action_class` — which resolve
+against a resource registry (L2 `type=resource` with lazily-grown aliases) and link
+`operates_on` edges deterministically at write time.
+
+`recall_ops` answers operation-history pivot queries — "how did I last operate on X" —
+via resource resolution (vector) → L4 `operates_on` join (exact) → ACT-R ranking.
+Read path is LLM-free; unresolvable resources degrade to plain `recall`:
+
+```json
+{ "tool": "recall_ops",
+  "arguments": { "resource": "ladym.db", "action": "migrate", "outcome": "fail", "limit": 5 } }
+```
+
+Same query from the CLI:
+
+```bash
+ladym recall-ops --resource "ladym.db" --action migrate --outcome fail
+```
+
+Actions normalise against a controlled vocabulary (31 words + aliases, exact match;
+extend via the `[resource]` config section). The `[maintain]` section tunes the System 2
+worker's L4 maintenance: dangling-edge GC runs every cycle; slot backfill, gated
+semantic linking and resource alias-merge (`l4_backfill` / `l4_link` / `l4_alias_merge`
+ops, LLM-optional) are budgeted and disabled together with `[maintain] enabled=false`.
 
 ### Claude Code Skill
 

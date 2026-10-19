@@ -7,6 +7,7 @@ type System2Report struct {
 	L5              any
 	L6              any
 	Decay           any
+	Maintain        any
 	SkippedLLMSteps bool
 }
 
@@ -20,6 +21,7 @@ type System2Runner interface {
 	Decay(workspace string, dryRun bool, maxAgeS, activationFloor float64) (*DecayReport, error)
 	CountRecentEpisodes(workspace string) (int, error)
 	MinEpisodesToRun() int
+	MaintainL4(workspace string) (*MaintainReport, error)
 }
 
 // RunSystem2Cycle runs one System 2 cycle through the runner.
@@ -58,5 +60,12 @@ func RunSystem2Cycle(runner System2Runner, workspace string) (*System2Report, er
 		return nil, err
 	}
 	report.Decay = decay
+	// MaintainL4 runs last so dangling edges produced earlier in the same
+	// cycle are collected in the same pass (spec §8).
+	maint, err := runner.MaintainL4(workspace)
+	if err != nil {
+		return nil, err
+	}
+	report.Maintain = maint
 	return report, nil
 }

@@ -140,6 +140,26 @@ type AttentionConfig struct {
 	NoiseWords   []string
 }
 
+// ResourceConfig holds resource-entity resolution and action vocabulary knobs
+// (spec §5.1/§5.5/§10).
+type ResourceConfig struct {
+	ResolveThreshold float64           // write side: vector match vs create-new
+	ReadThreshold    float64           // read side: pivot resolution
+	Actions          []string          // extra canonical action words, appended to builtins
+	ActionAliases    map[string]string // extra alias→canonical mappings, appended to builtins
+}
+
+// MaintainConfig holds worker-maintenance knobs for the System 2 cycle's
+// MaintainL4 step (spec §8/§10).
+type MaintainConfig struct {
+	Enabled              bool    // whether the maintenance sub-steps run in a cycle (GC always runs)
+	BackfillBatch        int     // max episodes backfilled per cycle
+	LinkingEnabled       bool    // gate for the LLM semantic-linking sub-step
+	LinkingBudget        int     // max candidate pairs sent to the LLM per cycle
+	LinkingSimilarity    float64 // cosine pre-filter for linking candidates
+	AliasMergeSimilarity float64 // cosine threshold for resource alias-merge candidates
+}
+
 // ---------------------------------------------------------------------------
 // Config
 // ---------------------------------------------------------------------------
@@ -204,6 +224,8 @@ type Config struct {
 	CodeIndex       CodeIndexConfig
 	System2         System2Config
 	Attention       AttentionConfig
+	Resource        ResourceConfig
+	Maintain        MaintainConfig
 }
 
 // defaultDBPath returns env LADYM_DB or cwd/ladym.db (workspace-local so each
@@ -290,6 +312,17 @@ func Default() *Config {
 			L5MergeEveryNCycles: 5, L6MaxEpisodes: 50, L6HorizonS: 3 * 24 * 3600.0,
 		},
 		Attention: AttentionConfig{DedupWindowS: 3600.0, NoiseWords: []string{}},
+		Resource: ResourceConfig{
+			ResolveThreshold: 0.85,
+			ReadThreshold:    0.75,
+			Actions:          []string{},
+			ActionAliases:    map[string]string{},
+		},
+		Maintain: MaintainConfig{
+			Enabled: true, BackfillBatch: 50,
+			LinkingEnabled: true, LinkingBudget: 20,
+			LinkingSimilarity: 0.60, AliasMergeSimilarity: 0.92,
+		},
 	}
 }
 
@@ -676,6 +709,44 @@ func applyToml(cfg *Config, data map[string]any) {
 					}
 				}
 			}
+		case "resource":
+			if t, ok := v.(map[string]any); ok {
+				for nk, nv := range t {
+					switch nk {
+					case "resolve_threshold":
+						cfg.Resource.ResolveThreshold = asFloat(nv)
+					case "read_threshold":
+						cfg.Resource.ReadThreshold = asFloat(nv)
+					case "actions":
+						cfg.Resource.Actions = asStringSlice(nv)
+					case "action_aliases":
+						cfg.Resource.ActionAliases = asStringMap(nv)
+					default:
+						fmt.Fprintf(os.Stderr, "WARNING: ignoring unknown resource.%s\n", nk)
+					}
+				}
+			}
+		case "maintain":
+			if t, ok := v.(map[string]any); ok {
+				for nk, nv := range t {
+					switch nk {
+					case "enabled":
+						cfg.Maintain.Enabled = asBool(nv)
+					case "backfill_batch":
+						cfg.Maintain.BackfillBatch = asInt(nv)
+					case "linking_enabled":
+						cfg.Maintain.LinkingEnabled = asBool(nv)
+					case "linking_budget":
+						cfg.Maintain.LinkingBudget = asInt(nv)
+					case "linking_similarity":
+						cfg.Maintain.LinkingSimilarity = asFloat(nv)
+					case "alias_merge_similarity":
+						cfg.Maintain.AliasMergeSimilarity = asFloat(nv)
+					default:
+						fmt.Fprintf(os.Stderr, "WARNING: ignoring unknown maintain.%s\n", nk)
+					}
+				}
+			}
 		default:
 			applyFlat(cfg, k, v)
 		}
@@ -700,6 +771,21 @@ func asStringSlice(v any) []string {
 		return out
 	case string:
 		return []string{t}
+	default:
+		return nil
+	}
+}
+
+func asStringMap(v any) map[string]string {
+	switch t := v.(type) {
+	case map[string]string:
+		return t
+	case map[string]any:
+		out := make(map[string]string, len(t))
+		for k, x := range t {
+			out[k] = asString(x)
+		}
+		return out
 	default:
 		return nil
 	}

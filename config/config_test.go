@@ -108,3 +108,108 @@ func TestForTesting(t *testing.T) {
 		t.Errorf("PreferSQLiteVec should be false for testing")
 	}
 }
+
+func TestMaintainConfigDefaults(t *testing.T) {
+	m := Default().Maintain
+	if !m.Enabled {
+		t.Error("Maintain.Enabled default should be true")
+	}
+	if m.BackfillBatch != 50 {
+		t.Errorf("Maintain.BackfillBatch = %d, want 50", m.BackfillBatch)
+	}
+	if !m.LinkingEnabled {
+		t.Error("Maintain.LinkingEnabled default should be true")
+	}
+	if m.LinkingBudget != 20 {
+		t.Errorf("Maintain.LinkingBudget = %d, want 20", m.LinkingBudget)
+	}
+	if m.LinkingSimilarity != 0.60 {
+		t.Errorf("Maintain.LinkingSimilarity = %v, want 0.60", m.LinkingSimilarity)
+	}
+	if m.AliasMergeSimilarity != 0.92 {
+		t.Errorf("Maintain.AliasMergeSimilarity = %v, want 0.92", m.AliasMergeSimilarity)
+	}
+}
+
+func TestMaintainConfigToml(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "ladym.toml")
+	content := "[maintain]\n" +
+		"enabled = false\n" +
+		"backfill_batch = 10\n" +
+		"linking_enabled = false\n" +
+		"linking_budget = 5\n" +
+		"linking_similarity = 0.7\n" +
+		"alias_merge_similarity = 0.95\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := FromFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := cfg.Maintain
+	if m.Enabled {
+		t.Error("Maintain.Enabled = true, want false")
+	}
+	if m.BackfillBatch != 10 {
+		t.Errorf("Maintain.BackfillBatch = %d, want 10", m.BackfillBatch)
+	}
+	if m.LinkingEnabled {
+		t.Error("Maintain.LinkingEnabled = true, want false")
+	}
+	if m.LinkingBudget != 5 {
+		t.Errorf("Maintain.LinkingBudget = %d, want 5", m.LinkingBudget)
+	}
+	if m.LinkingSimilarity != 0.7 {
+		t.Errorf("Maintain.LinkingSimilarity = %v, want 0.7", m.LinkingSimilarity)
+	}
+	if m.AliasMergeSimilarity != 0.95 {
+		t.Errorf("Maintain.AliasMergeSimilarity = %v, want 0.95", m.AliasMergeSimilarity)
+	}
+}
+
+func TestResourceConfigDefaults(t *testing.T) {
+	cfg := Default()
+	if cfg.Resource.ResolveThreshold != 0.85 {
+		t.Errorf("Resource.ResolveThreshold = %v, want 0.85", cfg.Resource.ResolveThreshold)
+	}
+	if cfg.Resource.ReadThreshold != 0.75 {
+		t.Errorf("Resource.ReadThreshold = %v, want 0.75", cfg.Resource.ReadThreshold)
+	}
+	if cfg.Resource.Actions == nil {
+		t.Error("Resource.Actions should be non-nil empty slice by default")
+	}
+	if cfg.Resource.ActionAliases == nil {
+		t.Error("Resource.ActionAliases should be non-nil empty map by default")
+	}
+}
+
+func TestResourceConfigToml(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "ladym.toml")
+	content := "[resource]\n" +
+		"resolve_threshold = 0.9\n" +
+		"read_threshold = 0.8\n" +
+		"actions = [\"frobnicate\"]\n" +
+		"action_aliases = { zap = \"execute\" }\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := FromFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Resource.ResolveThreshold != 0.9 {
+		t.Errorf("ResolveThreshold = %v, want 0.9", cfg.Resource.ResolveThreshold)
+	}
+	if cfg.Resource.ReadThreshold != 0.8 {
+		t.Errorf("ReadThreshold = %v, want 0.8", cfg.Resource.ReadThreshold)
+	}
+	if len(cfg.Resource.Actions) != 1 || cfg.Resource.Actions[0] != "frobnicate" {
+		t.Errorf("Actions = %v, want [frobnicate]", cfg.Resource.Actions)
+	}
+	if cfg.Resource.ActionAliases["zap"] != "execute" {
+		t.Errorf("ActionAliases = %v, want zap->execute", cfg.Resource.ActionAliases)
+	}
+}

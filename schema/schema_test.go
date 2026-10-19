@@ -231,3 +231,34 @@ func TestNowIsRecent(t *testing.T) {
 		t.Errorf("Now() = %f, want positive", got)
 	}
 }
+
+func TestTypeResource(t *testing.T) {
+	if TypeResource != "resource" {
+		t.Errorf("TypeResource = %q, want %q", TypeResource, "resource")
+	}
+}
+
+func TestProjectedEdgeID(t *testing.T) {
+	a := ProjectedEdgeID("a", "operates_on", "b")
+	// Deterministic: two calls with identical args yield the same id.
+	if again := ProjectedEdgeID("a", "operates_on", "b"); again != a {
+		t.Errorf("ProjectedEdgeID not deterministic: %s vs %s", a, again)
+	}
+	// Prefix and length: "proj:" + 16 hex chars.
+	if len(a) != len("proj:")+16 {
+		t.Errorf("ProjectedEdgeID len = %d, want %d", len(a), len("proj:")+16)
+	}
+	if a[:5] != "proj:" {
+		t.Errorf("ProjectedEdgeID prefix = %q, want %q", a[:5], "proj:")
+	}
+	// Changing any single argument must change the id.
+	if b := ProjectedEdgeID("a2", "operates_on", "b"); b == a {
+		t.Errorf("ProjectedEdgeID same for different src: %s", a)
+	}
+	if c := ProjectedEdgeID("a", "related_to", "b"); c == a {
+		t.Errorf("ProjectedEdgeID same for different relation: %s", a)
+	}
+	if d := ProjectedEdgeID("a", "operates_on", "b2"); d == a {
+		t.Errorf("ProjectedEdgeID same for different dst: %s", a)
+	}
+}

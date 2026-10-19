@@ -296,6 +296,18 @@ func (e *Engine) RecordEvent(agent, action, observation, outcome string, tags []
 	return e.Scope("").RecordEvent(agent, action, observation, outcome, tags, metadata)
 }
 
+// RecordOperation records an L1 operation with resource/action slots in the
+// engine's default workspace; use Scope for a per-call workspace.
+func (e *Engine) RecordOperation(ev OperationEvent) (*schema.Memory, error) {
+	return e.Scope("").RecordOperation(ev)
+}
+
+// RecallOperations runs the recall_ops pivot query in the engine's default
+// workspace; use Scope for a per-call workspace.
+func (e *Engine) RecallOperations(q OperationsQuery) (*OperationsResponse, error) {
+	return e.Scope("").RecallOperations(q)
+}
+
 // LinkOption customises an associative edge created by Link.
 type LinkOption func(*linkOpts)
 
@@ -424,6 +436,35 @@ func (e *Engine) CountRecentEpisodes(workspace string) (int, error) {
 
 // MinEpisodesToRun returns the System 2 episode threshold.
 func (e *Engine) MinEpisodesToRun() int { return e.Config.System2.MinEpisodesToRun }
+
+// SweepDanglingEdges delegates to the store's dangling-edge GC (System2
+// maintenance step).
+func (e *Engine) SweepDanglingEdges() (int, error) { return e.Store.SweepDanglingEdges() }
+
+// MaintainL4 runs the worker-maintenance step of a System 2 cycle: the
+// store's dangling-edge GC plus the (gated) backfill / semantic-linking /
+// alias-merge sub-steps. The three LLM agents are resolved per op; a missing
+// agent means that sub-step runs in heuristic/offline mode.
+func (e *Engine) MaintainL4(workspace string) (*operations.MaintainReport, error) {
+	agents := operations.MaintainAgents{}
+	backfill, err := e.getAgent("l4_backfill")
+	if err != nil {
+		return nil, err
+	}
+	agents.Backfill = backfill
+	link, err := e.getAgent("l4_link")
+	if err != nil {
+		return nil, err
+	}
+	agents.Link = link
+	aliasMerge, err := e.getAgent("l4_alias_merge")
+	if err != nil {
+		return nil, err
+	}
+	agents.AliasMerge = aliasMerge
+	ws := cmp.Or(workspace, e.Config.Workspace)
+	return operations.MaintainL4(e.Store, e.Provider, e.Config, ws, &agents)
+}
 
 // StartSystem2 launches a daemon goroutine running System2 cycles. Closing the
 // returned channel asks the worker to stop after its current cycle.

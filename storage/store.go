@@ -42,6 +42,9 @@ type Store interface {
 	CountEdges() (int, error)
 	NeighborCounts() (map[string]int, error)
 	InvalidateEdge(edgeID string, t float64) error // UPDATE edges SET valid_to=t WHERE id=edgeID
+	// SweepDanglingEdges deletes valid edges whose endpoint memories no
+	// longer exist (legacy pre-FK databases) and returns how many went.
+	SweepDanglingEdges() (int, error)
 
 	// code projections
 	PutCodeSymbol(sym *schema.CodeSymbol) error
@@ -85,4 +88,9 @@ type Store interface {
 	// The two deletes the code/indexer.go write path needs.
 	DeleteMemoriesByTypeSource(typ, source, workspace string) error // DELETE FROM memories WHERE type=? AND source=? AND workspace=?
 	DeleteSymbolMemories(qualifiedName, workspace string) error     // DELETE FROM memories WHERE type='code_symbol' AND workspace=? AND id IN (SELECT memory_id FROM code_symbols WHERE qualified_name=?)
+	// DeleteCodeArtifactsByFile removes every code artifact of one file
+	// (re-index cleanup, spec §6.4): code_refs touching the file's symbols in
+	// either direction, the code_symbols projection rows, and the code_symbol
+	// memories. SQLite also syncs its in-process vector index.
+	DeleteCodeArtifactsByFile(workspace, filePath string) error
 }

@@ -99,7 +99,10 @@ func TestPostgresEdgeScanErrors(t *testing.T) {
 }
 
 // TestPostgresNeighborCountsNullEndpoint: a NULL src_id (FKs pass on NULL)
-// fails the UNION ALL scan.
+// is filtered out by the EXISTS guards in both UNION branches before the
+// scan ever sees it, so NeighborCounts succeeds and the edge contributes to
+// no endpoint's count. The rows.Scan error branch is defensive-only: a NULL
+// endpoint can never satisfy `m.id = e.src_id`, so it cannot reach the scan.
 func TestPostgresNeighborCountsNullEndpoint(t *testing.T) {
 	s := newPGStoreOrSkip(t, suiteDim)
 	if err := s.PutMemory(pgMem("b"), nil); err != nil {
@@ -108,8 +111,12 @@ func TestPostgresNeighborCountsNullEndpoint(t *testing.T) {
 	execPG(t, s, "ALTER TABLE edges ALTER COLUMN src_id DROP NOT NULL")
 	execPG(t, s, `INSERT INTO edges (id, src_id, relation, dst_id, weight, valid_from)
 		VALUES ('e1', NULL, 'rel', 'b', 1, 0)`)
-	if _, err := s.NeighborCounts(); err == nil {
-		t.Error("NeighborCounts: expected scan error for NULL src_id")
+	counts, err := s.NeighborCounts()
+	if err != nil {
+		t.Fatalf("NeighborCounts with NULL endpoint = %v, want nil (EXISTS guards filter the row)", err)
+	}
+	if len(counts) != 0 {
+		t.Errorf("counts = %v, want empty (NULL-endpoint edge must not count)", counts)
 	}
 }
 

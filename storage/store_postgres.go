@@ -602,8 +602,12 @@ func (s *PostgresStore) CountEdges() (int, error) {
 // NeighborCounts returns {memory_id: neighbour_count} for spreading activation.
 func (s *PostgresStore) NeighborCounts() (map[string]int, error) {
 	rows, err := s.pool.Query(context.Background(),
-		"SELECT src_id AS id FROM edges WHERE valid_to IS NULL UNION ALL "+
-			"SELECT dst_id AS id FROM edges WHERE valid_to IS NULL")
+		"SELECT src_id AS id FROM edges e WHERE e.valid_to IS NULL "+
+			"AND EXISTS (SELECT 1 FROM memories m WHERE m.id = e.src_id) "+
+			"AND EXISTS (SELECT 1 FROM memories m WHERE m.id = e.dst_id) UNION ALL "+
+			"SELECT dst_id AS id FROM edges e WHERE e.valid_to IS NULL "+
+			"AND EXISTS (SELECT 1 FROM memories m WHERE m.id = e.src_id) "+
+			"AND EXISTS (SELECT 1 FROM memories m WHERE m.id = e.dst_id)")
 	if err != nil {
 		return nil, err
 	}
@@ -623,6 +627,19 @@ func (s *PostgresStore) NeighborCounts() (map[string]int, error) {
 func (s *PostgresStore) InvalidateEdge(edgeID string, t float64) error {
 	_, err := s.pool.Exec(context.Background(), "UPDATE edges SET valid_to = $1 WHERE id = $2", t, edgeID)
 	return err
+}
+
+// SweepDanglingEdges deletes valid edges whose endpoint memories no longer
+// exist (legacy pre-FK databases keep them around) and returns the count.
+func (s *PostgresStore) SweepDanglingEdges() (int, error) {
+	tag, err := s.pool.Exec(context.Background(),
+		`DELETE FROM edges WHERE valid_to IS NULL
+		 AND (src_id NOT IN (SELECT id FROM memories)
+		  OR dst_id NOT IN (SELECT id FROM memories))`)
+	if err != nil {
+		return 0, err
+	}
+	return int(tag.RowsAffected()), nil
 }
 
 // ---- code symbol projections ----
@@ -745,6 +762,30 @@ func (s *PostgresStore) DeleteSymbolMemories(qualifiedName, workspace string) er
 	_, err := s.pool.Exec(context.Background(),
 		"DELETE FROM memories WHERE type = $1 AND workspace = $2 AND id IN (SELECT memory_id FROM code_symbols WHERE qualified_name = $3)",
 		string(schema.TypeCodeSymbol), workspace, qualifiedName)
+	return err
+}
+
+// DeleteCodeArtifactsByFile removes every code artifact of one file
+// (re-index cleanup, spec §6.4): code_refs touching the file's symbols in
+// either direction, the code_symbols projection rows, and the code_symbol
+// memories. The refs delete must run before the code_symbols delete it
+// subqueries. No vector index sync is needed: VectorSearch reads the table.
+func (s *PostgresStore) DeleteCodeArtifactsByFile(workspace, filePath string) error {
+	ctx := context.Background()
+	if _, err := s.pool.Exec(ctx,
+		`DELETE FROM code_refs
+		  WHERE src_symbol IN (SELECT qualified_name FROM code_symbols WHERE file_path = $1)
+		     OR dst_symbol IN (SELECT qualified_name FROM code_symbols WHERE file_path = $1)`,
+		filePath); err != nil {
+		return err
+	}
+	if _, err := s.pool.Exec(ctx,
+		"DELETE FROM code_symbols WHERE file_path = $1", filePath); err != nil {
+		return err
+	}
+	_, err := s.pool.Exec(ctx,
+		"DELETE FROM memories WHERE type = $1 AND source = $2 AND workspace = $3",
+		string(schema.TypeCodeSymbol), filePath, workspace)
 	return err
 }
 
