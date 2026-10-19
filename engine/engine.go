@@ -302,6 +302,12 @@ func (e *Engine) RecordOperation(ev OperationEvent) (*schema.Memory, error) {
 	return e.Scope("").RecordOperation(ev)
 }
 
+// RecallOperations runs the recall_ops pivot query in the engine's default
+// workspace; use Scope for a per-call workspace.
+func (e *Engine) RecallOperations(q OperationsQuery) (*OperationsResponse, error) {
+	return e.Scope("").RecallOperations(q)
+}
+
 // LinkOption customises an associative edge created by Link.
 type LinkOption func(*linkOpts)
 
