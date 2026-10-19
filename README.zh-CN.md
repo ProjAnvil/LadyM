@@ -174,10 +174,31 @@ go test ./...                 # 完整测试套件，完全离线
 }
 ```
 
-服务器通过 stdio 讲 MCP 协议，暴露九个工具——`recall`、`remember`、`record_event`、
-`search_code`、`index_code`、`consolidate`、`stats`、`link`、`forget`——详见
+服务器通过 stdio 讲 MCP 协议，暴露十个工具——`recall`、`recall_ops`、`remember`、
+`record_event`、`search_code`、`index_code`、`consolidate`、`stats`、`link`、`forget`——详见
 [mcp/server.go](mcp/server.go)。`record_event` 记录一条 L1 情景事件，喂给 System 2 worker
 做合并（L1 → L2）以及受门控的 L5/L6 抽取器（记录约 3 条以上即可触发这些周期）。
+它还接受可选结构化槽位——`resources`（资源名/别名）与 `action_class`——写入时
+对着资源注册表（L2 `type=resource`，别名惰性增长）解析，并确定性建 `operates_on` 边。
+
+`recall_ops` 回答"某资源最近的操作是怎么做的"这类 pivot 查询：资源解析（向量）→
+L4 `operates_on` 连接（精确）→ ACT-R 排序。读路径零 LLM；资源未命中自动降级普通 `recall`：
+
+```json
+{ "tool": "recall_ops",
+  "arguments": { "resource": "ladym.db", "action": "migrate", "outcome": "fail", "limit": 5 } }
+```
+
+CLI 同形：
+
+```bash
+ladym recall-ops --resource "ladym.db" --action migrate --outcome fail
+```
+
+动作词表为受控词（31 词 + 别名，精确匹配；经 `[resource]` 配置段扩展）。
+`[maintain]` 配置段调 System 2 worker 的 L4 维护：悬挂边回收每周期恒跑；
+槽位回填、门控语义建链与资源别名合并（`l4_backfill`/`l4_link`/`l4_alias_merge`
+三个 op，可选 LLM）受预算约束，`[maintain] enabled=false` 一并关闭。
 
 ### Claude Code Skill
 
@@ -228,9 +249,9 @@ eng.Link(srcID, dstID, "depends_on") // Zettelkasten 边
 ### Python SDK（MCP wrapper）
 
 Python 应用通过 [`wrapper/py`](wrapper/py/) 使用 Go 引擎——一个轻量类型化客户端，
-它会拉起 `ladym serve` MCP server（stdio 上的 JSON-RPC 2.0），把九个工具
-（`recall`、`remember`、`record_event`、`search_code`、`index_code`、`consolidate`、
-`stats`、`link`、`forget`）暴露为 Python 方法。Python 侧不含任何记忆逻辑，
+它会拉起 `ladym serve` MCP server（stdio 上的 JSON-RPC 2.0），把十个工具
+（`recall`、`recall_ops`、`remember`、`record_event`、`search_code`、`index_code`、
+`consolidate`、`stats`、`link`、`forget`）暴露为 Python 方法。Python 侧不含任何记忆逻辑，
 Go 二进制是唯一事实源。
 
 ```python

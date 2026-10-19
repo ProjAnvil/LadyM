@@ -49,10 +49,10 @@ Borrowed from neuroscience's modal model + complementary learning systems + ACT-
 | Layer | Brain analogue | Stores | TTL / decay | Write trigger |
 |---|---|---|---|---|
 | **L0 Working** | Prefrontal cortex / working memory | In-flight scratch notes, compaction summaries | Process lifetime | Agent calls `remember()` |
-| **L1 Episodic** | Hippocampus | `(timestamp, agent, action, observation, outcome)` tuples | Base-level decay (ACT-R), ~weeks | Every notable event |
+| **L1 Episodic** | Hippocampus | `(timestamp, agent, action, observation, outcome)` tuples; optional **resource × action slots** (`metadata.action_class`/`action_raw` + `operates_on` edges) for operation-history retrieval | Base-level decay (ACT-R), ~weeks | Every notable event |
 | **L2 Semantic** | Neocortex | Consolidated facts *and* **code analysis** (file summaries, symbol docs, API descriptions) | Long; replaced not deleted (temporal edges) | `consolidate()` batch + `index_code()` |
 | **L3 Procedural** | Basal ganglia / motor cortex | Numbered playbooks: `preconditions → steps → expected_outcome`; verified code snippets | Long; versioned | `proceduralize()` when episodes recur |
-| **L4 Associative** | Associative cortex | Edges `(src, relation, dst, valid_from, valid_to)` between any memory items | Edge-level temporal validity | Auto-link on write + explicit `link()` |
+| **L4 Associative** | Associative cortex | Edges `(src, relation, dst, valid_from, valid_to)` between any memory items | Edge-level temporal validity | Deterministic projection on write (`operates_on`, `produced_from`, `calls`/`imports` via `ProjectedEdgeID`) + worker `MaintainL4` (dangling-edge GC, slot backfill, gated semantic linking, alias merge) + explicit `link()` |
 
 On top of the L0–L4 store, a **System 2 worker** (`ladym worker`) asynchronously extracts
 **L5 mental models** (cognitive frameworks abstracted from recurring episodes) and **L6
@@ -102,6 +102,31 @@ The `reflect()` gate uses a tiny heuristic by default (coverage of query terms +
 high-activation hits). Per the hard read-path constraint, it is **heuristic-only**; no
 LLM judge is ever invoked in the read path.
 
+### 3b. Operation-history retrieval (recall_ops)
+
+Agents often ask "how did I last operate on X" — a pivot query keyed by resource × action,
+not free-text similarity. `recall_ops` answers it with a three-stage pipeline that keeps
+vectors confined to resource resolution:
+
+```
+recall_ops(resource, action?, since?, until?, outcome?, limit):
+    # Stage 1 — resource resolution (fuzzy; the only vector step)
+    entity = exact alias match → vector NN over L2 type=resource
+             (read-side threshold 0.75, below the write-side 0.85)
+    miss   → degrade to plain recall(resource + " " + action), fallback=true
+    # Stage 2 — graph join (exact, cheap)
+    episodes/facts = L4 neighbors of entity via operates_on edges
+                     filtered by action_class / time window / outcome
+    # Stage 3 — ACT-R activation ranking (cheap; sim surrogate 0.5/hop)
+```
+
+Resource entities are plain L2 memories (`type=resource`) with a lazily-grown alias list;
+`record_event` accepts optional `resources` + `action_class` slots and links `operates_on`
+edges deterministically at write time (`ProjectedEdgeID` upserts keep re-projection
+idempotent). The action slot normalises against a controlled vocabulary (31 words +
+aliases, extendable via `[resource]` config) — exact match only, misses are left as
+`action_raw` for the worker to backfill. Read path stays LLM-free.
+
 ## 4. Activation function (ACT-R inspired)
 
 Every memory item carries a scalar activation that biases retrieval:
@@ -131,9 +156,13 @@ memories(id, layer, type, content, summary, tags[JSON], metadata[JSON],
          source, workspace, created_at, updated_at, last_access_at,
          access_count, activation, content_hash, embedding[BLOB])
 edges(id, src_id, relation, dst_id, weight, valid_from, valid_to, metadata[JSON])
+         # relations: operates_on (episode/fact → resource), produced_from
+         # (fact → source episode), supersedes (old → new), abstracts (L5),
+         # calls / imports (code symbol → symbol, projected from code_refs),
+         # related_to (worker semantic linking / explicit link)
 code_symbols(memory_id PK→memories, file_path, symbol_kind, qualified_name,
              signature, docstring, line_start, line_end, language)
-code_refs(src_symbol, dst_symbol, ref_kind)              # calls / imports / defines
+code_refs(src_symbol, dst_symbol, ref_kind)              # calls / imports (same-file)
 index_state(file_path, body_hash, indexed_at)            # incremental re-index
 meta(key, value)
 ```
@@ -174,8 +203,12 @@ walk repo (respect .gitignore)
           └── file-level summary → memories(L2, type=code_file)
 ```
 
-`recall("auth login flow")` then returns the relevant symbols *and* their callers/callees via
-the L4 graph expansion — no `grep` or `read` needed in the agent's turn.
+`recall("auth login flow")` then returns the relevant symbols *and* their same-file
+callers/callees via the L4 graph expansion (`code_refs` are projected into `calls`/`imports`
+edges at index time; cross-file ref extraction is future work) — no `grep` or `read`
+needed in the agent's turn. Re-indexing a changed file first purges that file's stale
+symbol memories, `code_symbols` rows and `code_refs` (`DeleteCodeArtifactsByFile`), so
+removed symbols do not linger.
 
 Parsing uses [gotreesitter](https://github.com/odvcencio/gotreesitter), a pure-Go tree-sitter
 runtime that loads the same parse tables as upstream tree-sitter — full symbol extraction
@@ -190,10 +223,12 @@ of thrashing the same database.
 
 All front-ends call the same `engine` package so behaviour is identical:
 
-- **MCP server** (`ladym serve`, JSON-RPC 2.0 over stdio) — nine tools: `recall`,
-  `remember`, `record_event`, `search_code`, `index_code`, `consolidate`, `stats`, `link`,
+- **MCP server** (`ladym serve`, JSON-RPC 2.0 over stdio) — ten tools: `recall`,
+  `recall_ops`, `remember`, `record_event` (optional `resources`/`action_class` slots),
+  `search_code`, `index_code`, `consolidate`, `stats`, `link`,
   `forget`. Drop into any MCP-aware agent (Claude Code, Cursor, Kimi Code, …).
-- **CLI** (cobra) — `ladym recall "auth flow"`, `ladym index ./src`, `ladym remember "..."`,
+- **CLI** (cobra) — `ladym recall "auth flow"`, `ladym recall-ops --resource "ladym.db" --action migrate`,
+  `ladym index ./src`, `ladym remember "..."`,
   `ladym record`, `ladym consolidate`, `ladym worker`, `ladym stats`, `ladym config`.
 - **Go SDK** — the `ladym` package is a one-import facade:
   `eng, _ := ladym.NewEngine(ladym.DefaultConfig()); resp, _ := eng.Recall(...)`,
