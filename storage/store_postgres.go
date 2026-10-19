@@ -765,6 +765,30 @@ func (s *PostgresStore) DeleteSymbolMemories(qualifiedName, workspace string) er
 	return err
 }
 
+// DeleteCodeArtifactsByFile removes every code artifact of one file
+// (re-index cleanup, spec §6.4): code_refs touching the file's symbols in
+// either direction, the code_symbols projection rows, and the code_symbol
+// memories. The refs delete must run before the code_symbols delete it
+// subqueries. No vector index sync is needed: VectorSearch reads the table.
+func (s *PostgresStore) DeleteCodeArtifactsByFile(workspace, filePath string) error {
+	ctx := context.Background()
+	if _, err := s.pool.Exec(ctx,
+		`DELETE FROM code_refs
+		  WHERE src_symbol IN (SELECT qualified_name FROM code_symbols WHERE file_path = $1)
+		     OR dst_symbol IN (SELECT qualified_name FROM code_symbols WHERE file_path = $1)`,
+		filePath); err != nil {
+		return err
+	}
+	if _, err := s.pool.Exec(ctx,
+		"DELETE FROM code_symbols WHERE file_path = $1", filePath); err != nil {
+		return err
+	}
+	_, err := s.pool.Exec(ctx,
+		"DELETE FROM memories WHERE type = $1 AND source = $2 AND workspace = $3",
+		string(schema.TypeCodeSymbol), filePath, workspace)
+	return err
+}
+
 // ---- index_state ----
 
 // GetIndexedHash returns the recorded body hash for a file, or "".

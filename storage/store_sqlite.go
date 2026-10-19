@@ -750,6 +750,58 @@ func (s *SQLiteStore) DeleteSymbolMemories(qualifiedName, workspace string) erro
 	return err
 }
 
+// DeleteCodeArtifactsByFile removes every code artifact of one file
+// (re-index cleanup, spec §6.4): code_refs touching the file's symbols in
+// either direction, the code_symbols projection rows, and the code_symbol
+// memories, then syncs the in-process vector index for exactly the deleted
+// memories. The refs delete must run before the code_symbols delete it
+// subqueries.
+func (s *SQLiteStore) DeleteCodeArtifactsByFile(workspace, filePath string) error {
+	if _, err := s.db.Exec(
+		`DELETE FROM code_refs
+		  WHERE src_symbol IN (SELECT qualified_name FROM code_symbols WHERE file_path = ?)
+		     OR dst_symbol IN (SELECT qualified_name FROM code_symbols WHERE file_path = ?)`,
+		filePath, filePath); err != nil {
+		return err
+	}
+	// Collect the memory ids the memories delete below will remove. Querying
+	// them from memories (not code_symbols) keeps the id list scoped to this
+	// workspace, so the vector index never evicts another workspace's
+	// surviving copy of the same file.
+	rows, err := s.db.Query(
+		"SELECT id FROM memories WHERE type = ? AND source = ? AND workspace = ?",
+		string(schema.TypeCodeSymbol), filePath, workspace)
+	if err != nil {
+		return err
+	}
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return err
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+	if _, err := s.db.Exec("DELETE FROM code_symbols WHERE file_path = ?", filePath); err != nil {
+		return err
+	}
+	if _, err := s.db.Exec(
+		"DELETE FROM memories WHERE type = ? AND source = ? AND workspace = ?",
+		string(schema.TypeCodeSymbol), filePath, workspace); err != nil {
+		return err
+	}
+	for _, id := range ids {
+		s.vectorIndex.Delete(id)
+	}
+	return nil
+}
+
 // ---- index_state ----
 
 // GetIndexedHash returns the recorded body hash for a file, or "".

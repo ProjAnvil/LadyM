@@ -88,4 +88,9 @@ type Store interface {
 	// The two deletes the code/indexer.go write path needs.
 	DeleteMemoriesByTypeSource(typ, source, workspace string) error // DELETE FROM memories WHERE type=? AND source=? AND workspace=?
 	DeleteSymbolMemories(qualifiedName, workspace string) error     // DELETE FROM memories WHERE type='code_symbol' AND workspace=? AND id IN (SELECT memory_id FROM code_symbols WHERE qualified_name=?)
+	// DeleteCodeArtifactsByFile removes every code artifact of one file
+	// (re-index cleanup, spec §6.4): code_refs touching the file's symbols in
+	// either direction, the code_symbols projection rows, and the code_symbol
+	// memories. SQLite also syncs its in-process vector index.
+	DeleteCodeArtifactsByFile(workspace, filePath string) error
 }
