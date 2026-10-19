@@ -23,6 +23,32 @@ identical everywhere.
 
 ---
 
+## What's New in 0.7.0
+
+- **Operation-history retrieval (`recall_ops`)** — agents can ask "how did I last
+  operate on X?" with a resource × action pivot query: vector search is confined to
+  resource resolution, an L4 `operates_on` graph join does the exact filtering, and
+  ACT-R activation ranks the results. Exposed as the 10th MCP tool, a
+  `ladym recall-ops` CLI command, and Go SDK one-shot helpers. The read path stays
+  LLM-free; unresolvable resources degrade gracefully to plain `recall`.
+- **Structured `record_event` slots** — optional `resources` and `action_class`
+  arguments resolve against a resource registry (L2 `type=resource` with
+  lazily-grown aliases) and link `operates_on` edges deterministically at write
+  time. Actions normalise against a controlled vocabulary (31 words + aliases,
+  extensible via `[resource]` config).
+- **Self-maintaining L4 graph** — deterministic projections on write
+  (`operates_on`, `produced_from`, `calls`/`imports` from `code_refs`, all
+  idempotent via `ProjectedEdgeID` upserts), plus a new `MaintainL4` System 2
+  step: dangling-edge GC every cycle, budgeted slot backfill, gated semantic
+  linking, and resource alias-merge (LLM-optional, three new `l4_*` agent ops).
+- **Re-index hygiene** — re-indexing a changed file purges its stale symbol
+  memories, `code_symbols`/`code_refs` rows and in-process vector entries first
+  (`DeleteCodeArtifactsByFile`), so removed symbols no longer linger.
+- **Docs matched to code** — ARCHITECTURE.md claims that ran ahead of the
+  implementation ("auto-link on write", "callers/callees via L4 expansion") are
+  now accurate, including an honest scoping note: code-ref projection is
+  same-file today.
+
 ## What's New in 0.6.0
 
 - **Concurrent HTTP data plane** — the global request mutex is gone: requests across

@@ -20,6 +20,26 @@ SQLite 基于 [modernc.org/sqlite](https://pkg.go.dev/modernc.org/sqlite)，向�
 
 ---
 
+## 0.7.0 更新
+
+- **操作历史检索（`recall_ops`）** —— 回答"我上次是怎么操作 X 的"这类资源 × 动作
+  pivot 查询：向量只用于资源解析，L4 `operates_on` 图连接做精确过滤，ACT-R 激活
+  排序。MCP 第 10 个工具、`ladym recall-ops` CLI 命令、Go SDK 便捷函数三形态；
+  读路径零 LLM，资源未命中自动降级普通 `recall`。
+- **`record_event` 结构化槽位** —— 可选 `resources` 与 `action_class` 参数对着
+  资源注册表（L2 `type=resource`，别名惰性增长）解析，写时确定性建
+  `operates_on` 边；动作按受控词表归一（31 词 + 别名，`[resource]` 配置可扩展）。
+- **自维护 L4 图** —— 写时确定性投影（`operates_on`、`produced_from`、
+  `code_refs`→`calls`/`imports`，`ProjectedEdgeID` 幂等 upsert），新增
+  `MaintainL4` System 2 步骤：悬挂边回收每周期恒跑、预算化槽位回填、门控语义
+  建链与资源别名合并（LLM 可选，三个 `l4_*` agent op）。
+- **重索引卫生** —— 变更文件重索引前先清理其陈旧符号记忆、
+  `code_symbols`/`code_refs` 行与进程内向量项（`DeleteCodeArtifactsByFile`），
+  消失的符号不再残留。
+- **文档对齐代码** —— ARCHITECTURE.md 超前于实现的声称（"auto-link on write"、
+  "callers/callees via L4 expansion"）已改为属实，并如实标注：code_refs 投影
+  目前为同文件内调用关系。
+
 ## 0.6.0 更新
 
 - **并发 HTTP 数据面** —— 全局请求互斥锁被移除：跨 workspace 的请求通过请求级
