@@ -134,7 +134,7 @@ func TestWriteIndexReportSkippedUnchanged(t *testing.T) {
 
 func TestNewRootCmdRegistersSubcommands(t *testing.T) {
 	root := newRootCmd()
-	want := []string{"remember", "record", "recall", "index", "consolidate",
+	want := []string{"remember", "record", "recall", "recall-ops", "index", "consolidate",
 		"stats", "forget", "link", "serve", "worker", "config"}
 	for _, name := range want {
 		if _, _, err := root.Find([]string{name}); err != nil {
