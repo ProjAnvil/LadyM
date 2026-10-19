@@ -35,6 +35,9 @@ const linkPrompt = `You decide whether two episodic memories describe semantical
 Return JSON: {"link": bool, "relation": "short relation name (e.g. related_to)", "weight": 0.0-1.0}.
 Use link=false when the memories are unrelated despite surface similarity.`
 
+const aliasMergePrompt = `You decide whether two resource entity names refer to the same real-world entity.
+Return JSON: {"same_entity": bool}. Only confirm when the names are aliases of one entity.`
+
 // bucketMemLimit caps how many memories per (layer, action_class) bucket take
 // part in pairwise linking, guarding against O(n^2) blowups (spec §8.3: keep
 // the most recent 100).
@@ -202,7 +205,13 @@ func MaintainL4(store storage.Store, embedder storage.EmbeddingProvider,
 		report.Skipped = "linking"
 	}
 
-	// ④⑤ alias merge: Task 19.
+	// ④ Alias merge.
+	merged, err := mergeAliases(store, embedder, cfg, ws, agents)
+	if err != nil {
+		return nil, err
+	}
+	report.Merged = merged
+
 	return report, nil
 }
 
@@ -338,6 +347,156 @@ func stampActionClass(store storage.Store, embedder storage.EmbeddingProvider,
 		return err
 	}
 	return store.PutMemory(ep, vec)
+}
+
+// mergeAliases is sub-step ④: LLM-confirmed alias merging of resource
+// entities (spec §8.4). Pairs of non-retired resources with cosine similarity
+// >= cfg.Maintain.AliasMergeSimilarity are sent to the l4_alias_merge op;
+// confirmed pairs merge into a winner (older entity wins, id as tie-break):
+// the loser's aliases join the winner's, the loser's still-valid incoming
+// operates_on edges are rebuilt to point at the winner (deterministic ids),
+// and Retire closes the loser with a supersedes chain.
+func mergeAliases(store storage.Store, embedder storage.EmbeddingProvider,
+	cfg *config.Config, ws string, agents *MaintainAgents) (int, error) {
+
+	var merge providers.LLMProvider
+	if agents != nil {
+		merge = agents.AliasMerge
+	}
+	if merge == nil {
+		return 0, nil
+	}
+
+	res, err := store.IterMemories(ws, string(schema.LayerSemantic), string(schema.TypeResource))
+	if err != nil {
+		return 0, err
+	}
+	var live []*schema.Memory
+	for _, m := range res {
+		if !IsRetired(m) {
+			live = append(live, m)
+		}
+	}
+	if len(live) < 2 {
+		return 0, nil
+	}
+
+	vecs, err := embedder.EmbedBatch(contentsOf(live))
+	if err != nil {
+		return 0, err
+	}
+
+	merged := 0
+	for i := 0; i < len(live); i++ {
+		if IsRetired(live[i]) {
+			continue // merged into an earlier winner this cycle
+		}
+		for j := i + 1; j < len(live); j++ {
+			if IsRetired(live[i]) || IsRetired(live[j]) {
+				continue
+			}
+			if storage.CosineSimilarity(vecs[i], vecs[j]) < cfg.Maintain.AliasMergeSimilarity {
+				continue
+			}
+			d, err := merge.CompleteStructured([]providers.Message{
+				{Role: "system", Content: aliasMergePrompt},
+				{Role: "user", Content: live[i].Content + "\n---\n" + live[j].Content},
+			}, providers.JSONSchema{
+				"type": "object",
+				"properties": map[string]any{
+					"same_entity": map[string]any{"type": "boolean"},
+				},
+				"required": []string{"same_entity"},
+			})
+			if err != nil {
+				return merged, err
+			}
+			if !asBoolDefault(d["same_entity"], false) {
+				continue
+			}
+
+			winner, loser := mergeWinner(live[i], live[j])
+			if err := mergeResourcePair(store, embedder, winner, loser); err != nil {
+				return merged, err
+			}
+			merged++
+		}
+	}
+	return merged, nil
+}
+
+// mergeWinner picks which entity survives: the older one (smaller
+// CreatedAt), id as the tie-break.
+func mergeWinner(a, b *schema.Memory) (winner, loser *schema.Memory) {
+	switch {
+	case a.CreatedAt < b.CreatedAt:
+		return a, b
+	case b.CreatedAt < a.CreatedAt:
+		return b, a
+	case a.ID < b.ID:
+		return a, b
+	default:
+		return b, a
+	}
+}
+
+// mergeResourcePair folds loser into winner (spec §8.4 steps 1-3).
+func mergeResourcePair(store storage.Store, embedder storage.EmbeddingProvider,
+	winner, loser *schema.Memory) error {
+
+	// 1. Winner absorbs the loser's aliases (deduped).
+	if winner.Metadata == nil {
+		winner.Metadata = map[string]any{}
+	}
+	aliasesChanged := false
+	for _, a := range resourceAliases(loser) {
+		if appendAlias(winner, a) {
+			aliasesChanged = true
+		}
+	}
+	if aliasesChanged {
+		// Rewrite with a freshly embedded vector — never a nil one
+		// (scanMemory does not read Memory.Embedding back; a nil vector
+		// would NULL the embedding column and drop the winner from
+		// vector search).
+		vec, err := embedder.Embed(winner.Content)
+		if err != nil {
+			return err
+		}
+		if err := store.PutMemory(winner, vec); err != nil {
+			return err
+		}
+	}
+
+	// 2. Rebuild the loser's still-valid incoming operates_on edges to point
+	// at the winner (deterministic projected ids, so re-runs upsert).
+	neighbors, err := store.Neighbors(loser.ID, "operates_on")
+	if err != nil {
+		return err
+	}
+	for _, e := range neighbors {
+		if e.ValidTo != nil || e.DstID != loser.ID {
+			continue
+		}
+		ne := schema.NewEdge(e.SrcID, "operates_on", winner.ID)
+		ne.ID = schema.ProjectedEdgeID(e.SrcID, "operates_on", winner.ID)
+		if err := store.PutEdge(ne); err != nil {
+			return err
+		}
+	}
+
+	// 3. Retire the loser (closes its still-valid edges both directions and
+	// leaves a supersedes chain); the rebuilt edges above do not touch the
+	// loser, so they survive.
+	return Retire(store, loser, winner.ID)
+}
+
+func contentsOf(ms []*schema.Memory) []string {
+	out := make([]string, len(ms))
+	for i, m := range ms {
+		out[i] = m.Content
+	}
+	return out
 }
 
 func asStringDefault(v any, def string) string {

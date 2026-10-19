@@ -412,3 +412,193 @@ func TestMaintainL4LinkingSimPrefilter(t *testing.T) {
 		t.Errorf("rep.Linked = %d, want 0", rep.Linked)
 	}
 }
+
+// --- Task 19: resource alias merge (spec §8.4) ------------------------------------
+
+func putTestResource(t *testing.T, store storage.Store, emb *storage.HashingEmbedding, content string, aliases []string) *schema.Memory {
+	t.Helper()
+	return putParityMem(t, store, emb, schema.LayerSemantic, schema.TypeResource, content,
+		map[string]any{"aliases": aliases})
+}
+
+func aliasMergeFixture(t *testing.T) (storage.Store, *storage.HashingEmbedding, *schema.Memory, *schema.Memory, *schema.Memory) {
+	t.Helper()
+	store, emb, _ := maintainTestStore(t)
+	// Two highly similar resource entities (identical content => cos 1.0)
+	// with distinct alias lists, plus an episode operating on r2.
+	r1 := putTestResource(t, store, emb, "customer database", []string{"custdb"})
+	r2 := putTestResource(t, store, emb, "customer database", []string{"customers db", "cust db"})
+	ep := putParityMem(t, store, emb, schema.LayerEpisodic, schema.TypeEvent,
+		"agent=bot | action=deploy", map[string]any{"action": "deploy", "action_class": "deploy"})
+	e := schema.NewEdge(ep.ID, "operates_on", r2.ID)
+	e.ID = schema.ProjectedEdgeID(ep.ID, "operates_on", r2.ID)
+	if err := store.PutEdge(e); err != nil {
+		t.Fatal(err)
+	}
+	return store, emb, r1, r2, ep
+}
+
+func TestMaintainL4AliasMergeConfirm(t *testing.T) {
+	store, emb, r1, r2, ep := aliasMergeFixture(t)
+	calls := 0
+	fake := &providers.FakeLLMProvider{StructuredFn: func(_ []providers.Message, _ providers.JSONSchema) (map[string]any, error) {
+		calls++
+		return map[string]any{"same_entity": true}, nil
+	}}
+
+	rep, err := MaintainL4(store, emb, config.Default(), "test", &MaintainAgents{AliasMerge: fake})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep.Merged != 1 {
+		t.Fatalf("rep.Merged = %d, want 1", rep.Merged)
+	}
+	if calls != 1 {
+		t.Errorf("LLM calls = %d, want 1", calls)
+	}
+
+	// Exactly one resource retired; the other (winner) survives.
+	resources, err := store.IterMemories("test", string(schema.LayerSemantic), string(schema.TypeResource))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var winner, loser *schema.Memory
+	for _, m := range resources {
+		switch {
+		case IsRetired(m):
+			loser = m
+		default:
+			winner = m
+		}
+	}
+	if winner == nil || loser == nil {
+		t.Fatalf("after merge want one retired and one live resource, got %v", resources)
+	}
+	if loser.MetaString("superseded_by") != winner.ID {
+		t.Errorf("loser superseded_by = %q, want winner id %q", loser.MetaString("superseded_by"), winner.ID)
+	}
+
+	// Winner's aliases absorbed the loser's (deduped).
+	got := resourceAliases(winner)
+	for _, want := range []string{"custdb", "customers db", "cust db"} {
+		found := false
+		for _, a := range got {
+			if a == want {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("winner aliases = %v, want to contain %q", got, want)
+		}
+	}
+
+	// The episode's operates_on edge was rebuilt to point at the winner.
+	edges, err := store.Neighbors(ep.ID, "operates_on")
+	if err != nil {
+		t.Fatal(err)
+	}
+	validToWinner := false
+	for _, e := range edges {
+		if e.ValidTo != nil {
+			continue
+		}
+		if e.DstID == winner.ID && e.ID == schema.ProjectedEdgeID(e.SrcID, "operates_on", winner.ID) {
+			validToWinner = true
+		}
+		if e.DstID == loser.ID {
+			t.Errorf("still-valid operates_on edge points at the retired loser: %+v", e)
+		}
+	}
+	if !validToWinner {
+		t.Errorf("no valid operates_on edge from the episode to the winner: %v", edges)
+	}
+	_ = r1
+	_ = r2
+
+	// Retire left a supersedes chain loser->winner.
+	sup, err := store.Neighbors(loser.ID, "supersedes")
+	if err != nil {
+		t.Fatal(err)
+	}
+	foundChain := false
+	for _, e := range sup {
+		if e.SrcID == loser.ID && e.DstID == winner.ID && e.ValidTo == nil {
+			foundChain = true
+		}
+	}
+	if !foundChain {
+		t.Errorf("no supersedes edge loser->winner: %v", sup)
+	}
+
+	// Regression guard: the winner is still vector-searchable after the
+	// merge rewrite (re-embedded, never a nil vector).
+	vec, err := emb.Embed(winner.Content)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, hit := range store.VectorSearch(vec, 5) {
+		if hit.ID == winner.ID {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("winner not found in vector search after alias merge (embedding lost?)")
+	}
+}
+
+func TestMaintainL4AliasMergeReject(t *testing.T) {
+	store, emb, _, _, _ := aliasMergeFixture(t)
+	calls := 0
+	fake := &providers.FakeLLMProvider{StructuredFn: func(_ []providers.Message, _ providers.JSONSchema) (map[string]any, error) {
+		calls++
+		return map[string]any{"same_entity": false}, nil
+	}}
+
+	rep, err := MaintainL4(store, emb, config.Default(), "test", &MaintainAgents{AliasMerge: fake})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep.Merged != 0 {
+		t.Errorf("rep.Merged = %d, want 0 (LLM rejected)", rep.Merged)
+	}
+	if calls != 1 {
+		t.Errorf("LLM calls = %d, want 1", calls)
+	}
+	resources, err := store.IterMemories("test", string(schema.LayerSemantic), string(schema.TypeResource))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range resources {
+		if IsRetired(m) {
+			t.Errorf("resource %q retired despite rejection", m.Content)
+		}
+	}
+}
+
+func TestMaintainL4AliasMergeSimPrefilter(t *testing.T) {
+	store, emb, _ := maintainTestStore(t)
+	putTestResource(t, store, emb, "alpha beta gamma", []string{"ab"})
+	putTestResource(t, store, emb, "xray yankee zulu", []string{"xy"})
+	va, _ := emb.Embed("alpha beta gamma")
+	vb, _ := emb.Embed("xray yankee zulu")
+	if sim := storage.CosineSimilarity(va, vb); sim >= config.Default().Maintain.AliasMergeSimilarity {
+		t.Fatalf("fixture similarity = %v, want below %.2f", sim, config.Default().Maintain.AliasMergeSimilarity)
+	}
+	calls := 0
+	fake := &providers.FakeLLMProvider{StructuredFn: func(_ []providers.Message, _ providers.JSONSchema) (map[string]any, error) {
+		calls++
+		return map[string]any{"same_entity": true}, nil
+	}}
+
+	rep, err := MaintainL4(store, emb, config.Default(), "test", &MaintainAgents{AliasMerge: fake})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if calls != 0 {
+		t.Errorf("LLM calls = %d, want 0 (sim below threshold)", calls)
+	}
+	if rep.Merged != 0 {
+		t.Errorf("rep.Merged = %d, want 0", rep.Merged)
+	}
+}
