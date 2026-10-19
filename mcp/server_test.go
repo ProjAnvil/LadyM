@@ -108,12 +108,14 @@ func TestToolsListSchemas(t *testing.T) {
 			"workspace": {typ: "string"},
 		}},
 		"record_event": {[]string{"agent", "action"}, map[string]propSpec{
-			"agent":       {typ: "string"},
-			"action":      {typ: "string"},
-			"observation": {typ: "string", hasDef: true, def: ""},
-			"outcome":     {typ: "string", hasDef: true, def: ""},
-			"tags":        {typ: "array", itemsTyp: "string"},
-			"workspace":   {typ: "string"},
+			"agent":        {typ: "string"},
+			"action":       {typ: "string"},
+			"observation":   {typ: "string", hasDef: true, def: ""},
+			"outcome":       {typ: "string", hasDef: true, def: ""},
+			"tags":          {typ: "array", itemsTyp: "string"},
+			"workspace":     {typ: "string"},
+			"resources":     {typ: "array", itemsTyp: "string"},
+			"action_class": {typ: "string"},
 		}},
 		"search_code": {[]string{"query"}, map[string]propSpec{
 			"query":     {typ: "string"},
@@ -138,6 +140,14 @@ func TestToolsListSchemas(t *testing.T) {
 		}},
 		"forget": {[]string{"memory_id"}, map[string]propSpec{
 			"memory_id": {typ: "string"},
+		}},
+		"recall_ops": {[]string{"resource"}, map[string]propSpec{
+			"resource": {typ: "string"},
+			"action":   {typ: "string"},
+			"since":    {typ: "number", hasDef: true, def: float64(0)},
+			"until":    {typ: "number", hasDef: true, def: float64(0)},
+			"outcome":   {typ: "string"},
+			"limit":    {typ: "integer", hasDef: true, def: 10},
 		}},
 	}
 

@@ -372,6 +372,7 @@ func TestCallEngineErrors(t *testing.T) {
 		"stats":        {},
 		"link":         {"src": "a", "dst": "b"},
 		"forget":       {"memory_id": "x"},
+		"recall_ops":   {"resource": "x"},
 	}
 	for name, args := range calls {
 		if _, err := s.call(name, args); err == nil {
@@ -530,5 +531,137 @@ func TestRememberEmptySourceFallsBackToMCP(t *testing.T) {
 	}
 	if got := resp.Results[0].Memory.Source; got != "mcp" {
 		t.Errorf("source = %q, want %q (empty source must fall back)", got, "mcp")
+	}
+}
+
+// recallOpsOut mirrors the recall_ops tool's JSON response.
+type recallOpsOut struct {
+	Resource *string `json:"resource"`
+	Fallback bool    `json:"fallback"`
+	Items    []struct {
+		Memory struct {
+			ID      string `json:"id"`
+			Content string `json:"content"`
+		} `json:"memory"`
+	} `json:"items"`
+}
+
+// TestRecordEventResourcesFeedRecallOps pins the structured record_event
+// extension: optional resources + action_class are threaded through
+// Engine.RecordOperation, and recall_ops retrieves the event by its
+// resource x action pivot key.
+func TestRecordEventResourcesFeedRecallOps(t *testing.T) {
+	s := newTestServer(t)
+
+	// Structured call: a vocabulary-missing raw action with an explicit
+	// action_class, plus one resource.
+	out, err := s.call("record_event", map[string]any{
+		"agent":        "tester",
+		"action":       "reorganized the schema",
+		"observation":  "v1 -> v2",
+		"outcome":      "success",
+		"resources":    []any{"ladym.db"},
+		"action_class": "migrate",
+	})
+	if err != nil {
+		t.Fatalf("record_event structured: %v", err)
+	}
+	var ev struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal([]byte(out), &ev); err != nil {
+		t.Fatalf("record_event output not JSON: %v (%q)", err, out)
+	}
+	if ev.ID == "" {
+		t.Fatalf("record_event returned no id: %q", out)
+	}
+
+	out, err = s.call("recall_ops", map[string]any{
+		"resource": "ladym.db", "action": "migrate",
+	})
+	if err != nil {
+		t.Fatalf("recall_ops: %v", err)
+	}
+	var resp recallOpsOut
+	if err := json.Unmarshal([]byte(out), &resp); err != nil {
+		t.Fatalf("recall_ops output not JSON: %v (%q)", err, out)
+	}
+	if resp.Fallback {
+		t.Errorf("recall_ops fallback = true, want pivot hit (%q)", out)
+	}
+	if resp.Resource == nil || *resp.Resource == "" {
+		t.Errorf("recall_ops resource = nil, want resolved entity id (%q)", out)
+	}
+	if len(resp.Items) != 1 || resp.Items[0].Memory.ID != ev.ID {
+		t.Errorf("recall_ops items = %+v, want the recorded event %s", resp.Items, ev.ID)
+	}
+}
+
+// TestRecordEventLegacyCallUnchanged locks backward compatibility: a call
+// without the new fields goes down the legacy path (no resource edges, no
+// vocabulary stamping) and still succeeds with the same output shape.
+func TestRecordEventLegacyCallUnchanged(t *testing.T) {
+	s := newTestServer(t)
+
+	out, err := s.call("record_event", map[string]any{
+		"agent": "tester", "action": "cover", "observation": "obs", "outcome": "ok",
+	})
+	if err != nil {
+		t.Fatalf("legacy record_event: %v", err)
+	}
+	var ev struct {
+		ID    string `json:"id"`
+		Layer string `json:"layer"`
+		Type  string `json:"type"`
+	}
+	if err := json.Unmarshal([]byte(out), &ev); err != nil {
+		t.Fatalf("legacy record_event output not JSON: %v (%q)", err, out)
+	}
+	if ev.ID == "" || !strings.Contains(ev.Layer, "episodic") {
+		t.Errorf("legacy record_event returned %q", out)
+	}
+	m, err := s.eng.Store.GetMemory(ev.ID)
+	if err != nil || m == nil {
+		t.Fatalf("GetMemory(%s): %v, %v", ev.ID, m, err)
+	}
+	if ac := m.MetaString("action_class"); ac != "" {
+		t.Errorf("legacy call stamped action_class = %q, want none", ac)
+	}
+	edges, err := s.eng.Store.Neighbors(ev.ID, "operates_on")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(edges) != 0 {
+		t.Errorf("legacy call built %d operates_on edges, want 0", len(edges))
+	}
+}
+
+// TestRecallOpsResourceMissFallsBack pins that an unresolved resource is a
+// fallback response, not an error.
+func TestRecallOpsResourceMissFallsBack(t *testing.T) {
+	s := newTestServer(t)
+	if _, err := s.call("record_event", map[string]any{
+		"agent": "a", "action": "migrate", "outcome": "success",
+		"resources": []any{"ladym.db"},
+	}); err != nil {
+		t.Fatalf("record_event: %v", err)
+	}
+
+	out, err := s.call("recall_ops", map[string]any{"resource": "nonexistent-xyz"})
+	if err != nil {
+		t.Fatalf("recall_ops on resource miss returned error: %v", err)
+	}
+	var resp recallOpsOut
+	if err := json.Unmarshal([]byte(out), &resp); err != nil {
+		t.Fatalf("recall_ops output not JSON: %v (%q)", err, out)
+	}
+	if !resp.Fallback {
+		t.Errorf("fallback = false on resource miss, want true (%q)", out)
+	}
+	if resp.Resource != nil {
+		t.Errorf("resource = %q on miss, want nil", *resp.Resource)
+	}
+	if resp.Items == nil {
+		t.Errorf("items missing from fallback response: %q", out)
 	}
 }

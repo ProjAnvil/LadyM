@@ -203,11 +203,16 @@ func (s *server) tools() []toolDef {
 				"Episodic events feed the System2 worker's consolidation (L1 → L2) and the " +
 				"gated L5 mental-model / L6 forward-intent extractors — record ~3+ to arm " +
 				"those cycles. Note: this bypasses the attention gate (explicit event " +
-				"logging), unlike remember which writes a consolidated L2 fact directly.",
+				"logging), unlike remember which writes a consolidated L2 fact directly.\n\n" +
+				"Optional structured slots: resources (names/aliases of operated-on targets; " +
+				"each is resolved to a resource entity and linked via an operates_on edge) " +
+				"and action_class (canonical action word, overriding vocabulary " +
+				"normalization). Calls without these fields behave exactly as before.",
 			InputSchema: objSchema(map[string]any{
 				"agent": strProp(), "action": strProp(),
 				"observation": strDefProp(""), "outcome": strDefProp(""),
 				"tags": strListProp(), "workspace": strProp(),
+				"resources": strListProp(), "action_class": strProp(),
 			}, "agent", "action"),
 		},
 		{
@@ -251,6 +256,19 @@ func (s *server) tools() []toolDef {
 			InputSchema: objSchema(map[string]any{
 				"memory_id": strProp(),
 			}, "memory_id"),
+		},
+		{
+			Name: "recall_ops",
+			Description: "Pivot query over operation history: which operations touched a " +
+				"resource, narrowed by action / time window / outcome.\n\n" +
+				"The resource is resolved by exact name or alias (vector-assisted); an " +
+				"unresolved resource degrades to plain recall with fallback=true (not an " +
+				"error). The read path never calls an LLM.",
+			InputSchema: objSchema(map[string]any{
+				"resource": strProp(), "action": strProp(),
+				"since": numProp(0), "until": numProp(0),
+				"outcome": strProp(), "limit": intProp(10),
+			}, "resource"),
 		},
 	}
 }
@@ -333,7 +351,25 @@ func (s *server) call(name string, args map[string]any) (string, error) {
 	case "record_event":
 		ws := getStr("workspace", "")
 		s.eng.SetWorkspace(ws)
-		m, err := s.eng.RecordEvent(getStr("agent", ""), getStr("action", ""), getStr("observation", ""), getStr("outcome", ""), getStrList("tags"), nil)
+		agent := getStr("agent", "")
+		action := getStr("action", "")
+		observation := getStr("observation", "")
+		outcome := getStr("outcome", "")
+		tags := getStrList("tags")
+		resources := getStrList("resources")
+		actionClass := getStr("action_class", "")
+		var m *schema.Memory
+		var err error
+		if len(resources) == 0 && actionClass == "" {
+			// Legacy shape: byte-identical to the pre-operation write path.
+			m, err = s.eng.RecordEvent(agent, action, observation, outcome, tags, nil)
+		} else {
+			m, err = s.eng.RecordOperation(engine.OperationEvent{
+				Agent: agent, Action: action, ActionClass: actionClass,
+				Resources: resources, Observation: observation, Outcome: outcome,
+				Tags: tags,
+			})
+		}
 		if err != nil {
 			return "", err
 		}
@@ -388,6 +424,26 @@ func (s *server) call(name string, args map[string]any) (string, error) {
 			return "", err
 		}
 		return mustJSON(map[string]any{"forgotten": id}), nil
+	case "recall_ops":
+		resp, err := s.eng.RecallOperations(engine.OperationsQuery{
+			Resource: getStr("resource", ""),
+			Action:   getStr("action", ""),
+			Since:    getFloat("since", 0),
+			Until:    getFloat("until", 0),
+			Outcome:  getStr("outcome", ""),
+			Limit:    getInt("limit", 0),
+		})
+		if err != nil {
+			return "", err
+		}
+		var resource any // nil → JSON null on fallback
+		if resp.Resource != nil {
+			resource = resp.Resource.ID
+		}
+		return mustJSON(map[string]any{
+			"resource": resource, "fallback": resp.Fallback,
+			"items": recallResultsJSON(resp.Items),
+		}), nil
 	default:
 		return "", fmt.Errorf("unknown tool: %s", name)
 	}
