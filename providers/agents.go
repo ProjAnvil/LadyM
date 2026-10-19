@@ -16,6 +16,9 @@ var NAMED_OPS = []string{
 	"attention_gate",
 	"l5_mental_model",
 	"l6_forward_intent",
+	"l4_backfill",
+	"l4_link",
+	"l4_alias_merge",
 }
 
 // AgentConfig is the resolved per-operation LLM configuration. Provider ==

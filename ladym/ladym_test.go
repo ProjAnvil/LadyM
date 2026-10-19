@@ -7,8 +7,8 @@ import (
 
 func TestNamedOps(t *testing.T) {
 	ops := NamedOps()
-	if len(ops) != 5 {
-		t.Fatalf("NamedOps len = %d, want 5", len(ops))
+	if len(ops) != 8 {
+		t.Fatalf("NamedOps len = %d, want 8", len(ops))
 	}
 	if ops[0] != "consolidate" {
 		t.Errorf("NamedOps[0] = %q", ops[0])
