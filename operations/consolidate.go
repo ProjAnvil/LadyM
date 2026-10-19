@@ -78,14 +78,48 @@ func offlineClassify(candidate, candidateHash string, similar []similarFact, thr
 		if s.Memory.ContentHash != "" && s.Memory.ContentHash == candidateHash {
 			return ActionNoop, ""
 		}
-		if s.Memory.MetaString("superseded_by") == candidateHash {
-			return ActionUpdate, ""
-		}
+		// dead Python-parity check removed: superseded_by holds a memory id,
+		// never a content hash; NOOP replay protection is the content_hash
+		// equality above
 	}
 	if len(similar) > 0 && similar[0].Sim >= threshold {
 		return ActionUpdate, candidate
 	}
 	return ActionAdd, ""
+}
+
+// projectProvenance writes the L4 provenance projections for a newly produced
+// fact (spec §6.3): a produced_from edge fact→source-episode, plus an
+// operates_on edge fact→resource for every resource that episode operated on.
+// Edge ids are deterministic (ProjectedEdgeID), so re-running a projection
+// upserts instead of duplicating.
+func projectProvenance(store storage.Store, factID, epID string) error {
+	e := schema.NewEdge(factID, "produced_from", epID)
+	e.ID = schema.ProjectedEdgeID(factID, "produced_from", epID)
+	if err := store.PutEdge(e); err != nil {
+		return err
+	}
+	neighbors, err := store.Neighbors(epID, "operates_on")
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		if n.ValidTo != nil {
+			continue // retired edges carry no projection
+		}
+		dst := n.DstID
+		if n.SrcID != epID {
+			// operates_on edges point at resources; tolerate the reversed
+			// orientation by taking whichever endpoint is not the episode.
+			dst = n.SrcID
+		}
+		pe := schema.NewEdge(factID, "operates_on", dst)
+		pe.ID = schema.ProjectedEdgeID(factID, "operates_on", dst)
+		if err := store.PutEdge(pe); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // Consolidate promotes salient episodic events into semantic facts. Selection
@@ -182,10 +216,12 @@ func Consolidate(store storage.Store, embedder storage.EmbeddingProvider, cfg *c
 			meta["source_episode"] = ep.ID
 			addedContent := newText
 			addedContent = cmp.Or(addedContent, ep.Content)
-			if _, err := sem.PutFact(addedContent, ep.Summary, ep.Tags, meta, "consolidate"); err != nil {
-				return nil, err
-			}
-			report.PromotedToSemantic++
+		if fact, err := sem.PutFact(addedContent, ep.Summary, ep.Tags, meta, "consolidate"); err != nil {
+			return nil, err
+		} else if err := projectProvenance(store, fact.ID, ep.ID); err != nil {
+			return nil, err
+		}
+		report.PromotedToSemantic++
 		case ActionUpdate:
 			if len(similar) == 0 {
 				continue
@@ -211,6 +247,9 @@ func Consolidate(store storage.Store, embedder storage.EmbeddingProvider, cfg *c
 				return nil, err
 			}
 			if err := Retire(store, target, merged.ID); err != nil {
+				return nil, err
+			}
+			if err := projectProvenance(store, merged.ID, ep.ID); err != nil {
 				return nil, err
 			}
 		case ActionDelete:
