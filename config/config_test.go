@@ -108,3 +108,48 @@ func TestForTesting(t *testing.T) {
 		t.Errorf("PreferSQLiteVec should be false for testing")
 	}
 }
+
+func TestResourceConfigDefaults(t *testing.T) {
+	cfg := Default()
+	if cfg.Resource.ResolveThreshold != 0.85 {
+		t.Errorf("Resource.ResolveThreshold = %v, want 0.85", cfg.Resource.ResolveThreshold)
+	}
+	if cfg.Resource.ReadThreshold != 0.75 {
+		t.Errorf("Resource.ReadThreshold = %v, want 0.75", cfg.Resource.ReadThreshold)
+	}
+	if cfg.Resource.Actions == nil {
+		t.Error("Resource.Actions should be non-nil empty slice by default")
+	}
+	if cfg.Resource.ActionAliases == nil {
+		t.Error("Resource.ActionAliases should be non-nil empty map by default")
+	}
+}
+
+func TestResourceConfigToml(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "ladym.toml")
+	content := "[resource]\n" +
+		"resolve_threshold = 0.9\n" +
+		"read_threshold = 0.8\n" +
+		"actions = [\"frobnicate\"]\n" +
+		"action_aliases = { zap = \"execute\" }\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := FromFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Resource.ResolveThreshold != 0.9 {
+		t.Errorf("ResolveThreshold = %v, want 0.9", cfg.Resource.ResolveThreshold)
+	}
+	if cfg.Resource.ReadThreshold != 0.8 {
+		t.Errorf("ReadThreshold = %v, want 0.8", cfg.Resource.ReadThreshold)
+	}
+	if len(cfg.Resource.Actions) != 1 || cfg.Resource.Actions[0] != "frobnicate" {
+		t.Errorf("Actions = %v, want [frobnicate]", cfg.Resource.Actions)
+	}
+	if cfg.Resource.ActionAliases["zap"] != "execute" {
+		t.Errorf("ActionAliases = %v, want zap->execute", cfg.Resource.ActionAliases)
+	}
+}
