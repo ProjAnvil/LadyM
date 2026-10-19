@@ -41,8 +41,8 @@ Agent 的记忆查询形态是"对某资源的某操作,最近怎么做的"。�
 
 | # | 问题 | 证据 | 影响 |
 |---|---|---|---|
-| P0-1 | `NeighborCounts` 计入悬挂边 | `storage/store_sqlite.go` / `store_postgres.go`:仅查 `valid_to IS NULL`,不 join memories | 已删记忆通过悬挂边继续给邻居加中心性分,激活排序偏差随 Decay 累积;每次 recall 都调用 |
-| P0-2 | `DeleteMemory` 不级联删边 | 两个 store 均只删 memories 行 | 悬挂边(dangling edge)单调累积 |
+| P0-1 | `NeighborCounts` 不校验端点存在性 | `storage/store_sqlite.go` / `store_postgres.go`:仅查 `valid_to IS NULL`,不 join memories | 悬挂边(限无 FK 旧库/外部写库,见 P0-2 修正)计入中心性,激活排序偏差;每次 recall 都调用。EXISTS join 是防御层 |
+| P0-2 | 悬挂边防御缺口(修正:新库无此问题) | edges 表 DDL 自带 `FOREIGN KEY ... ON DELETE CASCADE`,SQLite 连接 `PRAGMA foreign_keys=ON`(store_sqlite.go:162),PG 同——**新库公共 API 造不出悬挂边**;但 `CREATE TABLE IF NOT EXISTS` 不会给 Python 时代旧库补 FK,外部直写库同样绕过 | 风险限于旧库与外部写库;GC + join 作为双保险(纵深防御),非修复现行 bug |
 | P0-3 | consolidate 溯源只在 metadata,不进图 | `operations/consolidate.go:176-215`:UPDATE 已是"新建+Retire 建 supersedes 边"(核实修正,早先"原地改写"结论有误);但 `source_episode`/`updated_from` 只写 metadata 键,图里无 `produced_from` 边,fact 不继承 episode 的资源目标 | 事实-证据-资源三层在图上断开,只有向量相似一条通道 |
 | P1-1 | 写路径零建边 | `engine/scope.go:107` 直接透传 `Episodic.Record` | ARCHITECTURE.md 的 "Auto-link on write" 未实现 |
 | P1-2 | code_refs 不进 L4 | `code/indexer.go` 写 code_refs 表;`operations/recall.go tier2Expand` 只遍历 edges 表 | 最富的确定性关系数据(调用/导入)对图扩展不可见;ARCHITECTURE.md 的 "callers/callees via L4 expansion" 未实现 |
@@ -340,8 +340,10 @@ NeighborCounts 的端点 join(§9)作为双保险,即使 GC 未跑统计也正�
 
 ## 9. 正确性修复(M0,独立可发布)
 
-1. `NeighborCounts`(两 store):端点 join memories,悬挂边不计入。
-2. GC 方法(§8.1)。
+1. `NeighborCounts`(两 store):端点 join memories,悬挂边不计入(防御层)。
+2. GC 方法(§8.1)。测试造数需绕过 FK 模拟无 FK 旧库(SQLite 事务外
+   `PRAGMA foreign_keys=OFF` 后删;PG `DISABLE TRIGGER` 后恢复),并附
+   "FK 正常库 DeleteMemory 后 Neighbors 为空"的回归锁。
 3. consolidate 溯源进图(produced_from/operates_on 投影,§6.3),归 M1;
    UPDATE 的 supersedes 链已存在,无需修。
 
