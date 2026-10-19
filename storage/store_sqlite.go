@@ -587,8 +587,12 @@ func (s *SQLiteStore) CountEdges() (int, error) {
 // NeighborCounts returns {memory_id: neighbour_count} for spreading activation.
 func (s *SQLiteStore) NeighborCounts() (map[string]int, error) {
 	rows, err := s.db.Query(
-		"SELECT src_id AS id FROM edges WHERE valid_to IS NULL UNION ALL " +
-			"SELECT dst_id AS id FROM edges WHERE valid_to IS NULL")
+		"SELECT src_id AS id FROM edges e WHERE e.valid_to IS NULL " +
+			"AND EXISTS (SELECT 1 FROM memories m WHERE m.id = e.src_id) " +
+			"AND EXISTS (SELECT 1 FROM memories m WHERE m.id = e.dst_id) UNION ALL " +
+			"SELECT dst_id AS id FROM edges e WHERE e.valid_to IS NULL " +
+			"AND EXISTS (SELECT 1 FROM memories m WHERE m.id = e.src_id) " +
+			"AND EXISTS (SELECT 1 FROM memories m WHERE m.id = e.dst_id)")
 	if err != nil {
 		return nil, err
 	}

@@ -115,9 +115,10 @@ func TestSQLiteWorkspacesScanError(t *testing.T) {
 	}
 }
 
-// TestSQLiteNeighborCountsScanError: a NULL endpoint fails the scan inside
-// the UNION ALL neighbour count.
-func TestSQLiteNeighborCountsScanError(t *testing.T) {
+// TestSQLiteNeighborCountsIgnoresNullEndpoint: a NULL endpoint never joins
+// memories, so the row is excluded from the UNION ALL neighbour count
+// instead of failing the scan (dangling-edge join, spec §9).
+func TestSQLiteNeighborCountsIgnoresNullEndpoint(t *testing.T) {
 	s := openTestStore(t)
 	if _, err := s.db.Exec("ALTER TABLE edges RENAME TO edges_orig"); err != nil {
 		t.Fatal(err)
@@ -133,8 +134,12 @@ func TestSQLiteNeighborCountsScanError(t *testing.T) {
 		 VALUES ('e1', NULL, 'rel', 'b', 1, 0)`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.NeighborCounts(); err == nil {
-		t.Error("NeighborCounts: expected scan error for NULL src_id")
+	counts, err := s.NeighborCounts()
+	if err != nil {
+		t.Fatalf("NeighborCounts: %v, want no error for NULL src_id", err)
+	}
+	if len(counts) != 0 {
+		t.Errorf("NeighborCounts = %v, want empty (NULL endpoint excluded)", counts)
 	}
 }
 
