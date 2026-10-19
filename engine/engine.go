@@ -425,6 +425,10 @@ func (e *Engine) CountRecentEpisodes(workspace string) (int, error) {
 // MinEpisodesToRun returns the System 2 episode threshold.
 func (e *Engine) MinEpisodesToRun() int { return e.Config.System2.MinEpisodesToRun }
 
+// SweepDanglingEdges delegates to the store's dangling-edge GC (System2
+// maintenance step).
+func (e *Engine) SweepDanglingEdges() (int, error) { return e.Store.SweepDanglingEdges() }
+
 // StartSystem2 launches a daemon goroutine running System2 cycles. Closing the
 // returned channel asks the worker to stop after its current cycle.
 func (e *Engine) StartSystem2(intervalS int, workspace string) chan struct{} {

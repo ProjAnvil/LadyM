@@ -90,6 +90,8 @@ func (f *fakeSystem2Runner) CountRecentEpisodes(workspace string) (int, error) {
 }
 func (f *fakeSystem2Runner) MinEpisodesToRun() int { return 3 }
 
+func (f *fakeSystem2Runner) SweepDanglingEdges() (int, error) { return 0, nil }
+
 func TestSystem2CycleDecayIsNotDryRun(t *testing.T) {
 	r := &fakeSystem2Runner{}
 	if _, err := RunSystem2Cycle(r, "test"); err != nil {

@@ -1142,6 +1142,8 @@ func (r *cycleRunner) CountRecentEpisodes(workspace string) (int, error) {
 }
 func (r *cycleRunner) MinEpisodesToRun() int { return 3 }
 
+func (r *cycleRunner) SweepDanglingEdges() (int, error) { return 0, nil }
+
 func TestRunSystem2CycleFull(t *testing.T) {
 	rep, err := RunSystem2Cycle(&cycleRunner{episodes: 5}, "test")
 	if err != nil {
