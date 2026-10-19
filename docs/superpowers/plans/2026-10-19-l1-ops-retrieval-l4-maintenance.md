@@ -150,7 +150,7 @@
 - [ ] **RED:** 测试:命中规范词(`"migrate"`→`"migrate"`);别名(`"RUN"`→`"execute"`,`"rm"`→`"delete"`);未命中(`"frobnicate"`→`""`);config 追加词生效(`cfg.Resource.Actions=["frobnicate"]` 后命中);config 追加别名生效。
 - [ ] 跑红。
 - [ ] **GREEN:** `operations/actions.go`:
-  1. `defaultActions` 30 词(照 spec §5.5 分组常量);`defaultAliases` 映射(run/launch→execute, rm→delete, grep→search, fetch/get→read, modify→update, list/ls→query, add→create)。
+  1. `defaultActions` 31 词(照 spec §5.5 分组常量,枚举清单为准);`defaultAliases` 映射(run/launch→execute, rm→delete, grep→search, fetch/get→read, modify→update, list/ls→query, add→create)。
   2. `func NormalizeAction(raw string, cfg *config.Config) string`:lower+trim;先查 cfg.Resource.ActionAliases 合并 defaultAliases,再查 cfg.Resource.Actions 合并 defaultActions;未命中返回 `""`。
 - [ ] 绿 + commit `feat(ops): action vocabulary + normalize`。
 

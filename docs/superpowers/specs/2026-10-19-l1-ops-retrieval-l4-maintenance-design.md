@@ -147,7 +147,7 @@ PutEdge 按 ID upsert。重跑投影幂等,不产生重复边。
 
 ### 5.5 动作词表
 
-- 内置默认(代码常量,30 规范词,按域分组):
+- 内置默认(代码常量,31 规范词,按域分组;分组枚举清单即契约,计数为 9+7+10+5):
   - 知识/数据:read, write, create, update, delete, query, search, analyze, summarize
   - 代码:index, fix, refactor, test, review, build, lint
   - 运维:deploy, migrate, configure, monitor, rollback, restart, execute, schedule, backup, restore
