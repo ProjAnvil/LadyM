@@ -255,10 +255,12 @@
 
 **Steps:**
 
-- [ ] **RED:** 测试(临时目录建两文件:A 定义函数,A2 调用它;索引 → 断言 calls 边存在、ID 为 ProjectedEdgeID):
-  1. 修改 A 删除该函数,重索引 → 旧符号 memory/code_symbols/code_refs 全清,旧 calls 边因端点消失成为悬挂边(**本任务断言**:重投影后新边不重复;悬挂旧边留给 GC,不断言)。
-  2. 不改文件重索引 → 边数不变(幂等)。
-  3. IndexReport(定义于 code/indexer.go:23)加 `ProjectedEdges int` 字段。
+- [ ] **RED:** 测试(注意:BuildRefs 只产 **intra-file** refs,code/symbol_graph.go:224,parity 测试已锁;跨文件抽取不在本 spec 范围):
+  1. 临时目录建两文件:svc.py 内 caller 调 helper(同文件内调用,产 ref);other.py 无关。索引 → svc.py 的 calls 边存在、ID 为 ProjectedEdgeID;other.py 无边。
+  2. 修改 svc.py 删除 helper,重索引 → 旧符号 memory/code_symbols/code_refs 全清,新符号无重复边(FK 级联下旧边自动删,不断言悬挂边)。
+  3. 不改文件重索引与 force 重索引 → CountEdges 不变(真幂等)。
+  4. IndexReport(定义于 code/indexer.go:23)加 `ProjectedEdges int` 字段。
+  5. 投影用 IterMemories 建 qname→memory_id 映射(免加 Store 新方法),两端存在才 PutEdge。
 - [ ] 跑红。
 - [ ] **GREEN:**
   1. indexer 主循环:body_hash 变化分支里,在写新符号前调 `store.DeleteCodeArtifactsByFile(ws, rel)`。

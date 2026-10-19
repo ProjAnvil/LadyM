@@ -444,6 +444,6 @@ consolidate NOOP 语义已核实(行 78 content_hash 判 NOOP 承担重放保护
 | ARCHITECTURE.md 原文 | 现状 | 本 spec 动作 |
 |---|---|---|
 | "Auto-link on write + explicit link()" | 未实现 | M1 实现确定性建边,原文改为准确描述 |
-| "recall … callers/callees via the L4 graph expansion" | tier2 仅 symbol→file 回溯 | M1 code_refs 投影后为真 |
+| "recall … callers/callees via the L4 graph expansion" | tier2 仅 symbol→file 回溯;且 BuildRefs 只产 intra-file refs(symbol_graph.go:224,parity 锁定) | M1 投影后**同文件内**调用关系进 L4 为真;跨文件 ref 抽取是后续独立工作,M4 文档按此措辞,不得声称跨文件调用图 |
 | L1 episode 字段描述 | 无槽位说明 | M2 补 resource/action_class 说明 |
 | edges 表说明 | 缺新边类型 | M1 补 operates_on/produced_from/calls/imports |
