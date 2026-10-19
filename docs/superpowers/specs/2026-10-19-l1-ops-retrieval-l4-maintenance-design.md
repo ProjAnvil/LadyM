@@ -367,8 +367,9 @@ alias_merge_similarity = 0.92
 ```
 
 全部有默认值。语义澄清:维护只在 System 2 周期内运行;`[system2].enabled`
-(默认 false,config.go:287)控制 serve 时内嵌 worker 是否自启,`[maintain].enabled`
-只控制周期内是否执行维护步骤。零配置默认下 System 2 不自启(现状不变),
+(默认 false,config.go:287)控制 serve 时内嵌 worker 是否自启。`[maintain].enabled`
+只门控**丰富性子步骤**(回填/语义建链/别名合并);悬挂边回收按 §8.1 "每周期"
+恒跑(正确性卫生,不受该开关控制)。零配置默认下 System 2 不自启(现状不变),
 显式运行(`ladym worker` / 启用 system2)后维护默认开。
 
 ---
