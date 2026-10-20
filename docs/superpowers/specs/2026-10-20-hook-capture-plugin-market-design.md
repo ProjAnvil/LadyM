@@ -101,9 +101,12 @@ Claude Code 与 Codex 的工具名差异（如 Codex 的 `shell` 对 Claude 的 
 
 ```
 ladym hook                     # 读 stdin，分派写入
+  --harness <name>             # claude-code | codex：来源标识，进 Agent 字段（stdin 两家同构，无法自动判别）
   --db <path>                  # 同其他子命令
   -w, --workspace <name>       # 覆盖 cwd 目录名推断（少数场景）
 ```
+
+`--harness` 由 install 时的 command 字符串携带（见 §5.1），手动测试可不传（Agent 字段留空）。
 
 ## 5. `ladym hook install` / `uninstall`
 
@@ -120,12 +123,12 @@ Claude Code 写入内容（用户级 settings.json，合并进已有 `hooks` 数
 ```json
 {
   "hooks": {
-    "SessionStart":  [{ "hooks": [{ "type": "command", "command": "ladym hook" }] }],
-    "SessionEnd":    [{ "hooks": [{ "type": "command", "command": "ladym hook" }] }],
-    "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "ladym hook" }] }],
-    "PostToolUse":   [{ "hooks": [{ "type": "command", "command": "ladym hook" }] }],
-    "PostToolUseFailure": [{ "hooks": [{ "type": "command", "command": "ladym hook" }] }],
-    "Stop":          [{ "hooks": [{ "type": "command", "command": "ladym hook" }] }]
+    "SessionStart":  [{ "hooks": [{ "type": "command", "command": "ladym hook --harness claude-code" }] }],
+    "SessionEnd":    [{ "hooks": [{ "type": "command", "command": "ladym hook --harness claude-code" }] }],
+    "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "ladym hook --harness claude-code" }] }],
+    "PostToolUse":   [{ "hooks": [{ "type": "command", "command": "ladym hook --harness claude-code" }] }],
+    "PostToolUseFailure": [{ "hooks": [{ "type": "command", "command": "ladym hook --harness claude-code" }] }],
+    "Stop":          [{ "hooks": [{ "type": "command", "command": "ladym hook --harness claude-code" }] }]
   }
 }
 ```
@@ -135,11 +138,11 @@ Codex 写入内容（`~/.codex/hooks.json`，同样幂等合并；事件集去�
 ```json
 {
   "hooks": {
-    "SessionStart":  [{ "hooks": [{ "type": "command", "command": "ladym hook", "timeout": 10 }] }],
-    "SessionEnd":    [{ "hooks": [{ "type": "command", "command": "ladym hook", "timeout": 10 }] }],
-    "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "ladym hook", "timeout": 10 }] }],
-    "PostToolUse":   [{ "hooks": [{ "type": "command", "command": "ladym hook", "timeout": 10 }] }],
-    "Stop":          [{ "hooks": [{ "type": "command", "command": "ladym hook", "timeout": 10 }] }]
+    "SessionStart":  [{ "hooks": [{ "type": "command", "command": "ladym hook --harness codex", "timeout": 10 }] }],
+    "SessionEnd":    [{ "hooks": [{ "type": "command", "command": "ladym hook --harness codex", "timeout": 10 }] }],
+    "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "ladym hook --harness codex", "timeout": 10 }] }],
+    "PostToolUse":   [{ "hooks": [{ "type": "command", "command": "ladym hook --harness codex", "timeout": 10 }] }],
+    "Stop":          [{ "hooks": [{ "type": "command", "command": "ladym hook --harness codex", "timeout": 10 }] }]
   }
 }
 ```
@@ -147,7 +150,7 @@ Codex 写入内容（`~/.codex/hooks.json`，同样幂等合并；事件集去�
 要求：
 
 - **合并不覆盖**：目标文件已存在时读入、合并、写回；用户已有 hook 条目原样保留。JSON 解析失败（文件损坏）时报错退出，不写。
-- **幂等**：识别"自己写入的条目"（command 为 `ladym hook` 的条目）已存在则跳过。
+- **幂等**：识别"自己写入的条目"（command 以 `ladym hook` 开头的条目，容忍 `--harness` 参数差异）已存在则跳过。
 - **备份**：写回前把原文件复制为 `<file>.ladym-bak`（一次，不滚动覆盖）。
 - command 字符串固定 `ladym hook`：无管道、无 `$()`、无路径拼接，bash / Git Bash / powershell 统一执行。
 - install 完成后输出：Codex 侧提示「运行 /hooks 完成信任审查」（trust 绑定 hook 定义 hash）；Claude Code 侧提示重启会话生效。
