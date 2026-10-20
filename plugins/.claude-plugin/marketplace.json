@@ -1,0 +1,14 @@
+{
+  "name": "ladym-plugins",
+  "description": "LadyM memory plugins for Claude Code",
+  "owner": {
+    "name": "ProjAnvil"
+  },
+  "plugins": [
+    {
+      "name": "ladym",
+      "source": "./ladym",
+      "description": "Silent memory capture + recall for Claude Code"
+    }
+  ]
+}

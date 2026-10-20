@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "ladym": {
+      "command": "ladym",
+      "args": ["serve"]
+    }
+  }
+}

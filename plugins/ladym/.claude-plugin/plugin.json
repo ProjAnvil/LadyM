@@ -1,0 +1,9 @@
+{
+  "name": "ladym",
+  "version": "0.1.0",
+  "description": "LadyM silent memory capture: hooks record agent sessions into a local brain-inspired memory; MCP tools recall them.",
+  "author": {
+    "name": "ProjAnvil"
+  },
+  "license": "Apache-2.0"
+}
