@@ -2,8 +2,12 @@ package cli
 
 import (
 	"cmp"
+	"errors"
 	"fmt"
 	"io"
+	"os"
+	"os/exec"
+	"path/filepath"
 
 	"github.com/ProjAnvil/LadyM/hook"
 	"github.com/spf13/cobra"
@@ -51,5 +55,89 @@ func hookCmd() *cobra.Command {
 	}
 	addDBWS(cmd, &db, &workspace)
 	cmd.Flags().StringVar(&harness, "harness", "", "Event source (claude-code | codex); lands in the Agent field.")
+	cmd.AddCommand(hookInstallCmd(), hookUninstallCmd())
 	return cmd
+}
+
+// hookInstallCmd is `ladym hook install`: writes LadyM observer entries into
+// the harness user configs. Flags pick the target; --all covers both.
+func hookInstallCmd() *cobra.Command {
+	var claude, codex, all bool
+	cmd := &cobra.Command{
+		Use:   "install",
+		Short: "Write LadyM hook entries into harness user configs.",
+		RunE: func(c *cobra.Command, args []string) error {
+			var anyTarget bool
+			if claude || all {
+				p := filepath.Join(homeDir(), ".claude", "settings.json")
+				if err := installHookFile(p, "claude-code", claudeHookEvents, false); err != nil {
+					return err
+				}
+				fmt.Fprintf(c.OutOrStdout(), "installed LadyM hooks into %s (restart your session to activate)\n", p)
+				anyTarget = true
+			}
+			if codex || all {
+				p := filepath.Join(homeDir(), ".codex", "hooks.json")
+				if err := installHookFile(p, "codex", codexHookEvents, true); err != nil {
+					return err
+				}
+				fmt.Fprintf(c.OutOrStdout(), "installed LadyM hooks into %s (run /hooks in Codex to trust them)\n", p)
+				anyTarget = true
+			}
+			if !anyTarget {
+				return errors.New("pick one: --claude, --codex, or --all")
+			}
+			if _, err := exec.LookPath("ladym"); err != nil {
+				fmt.Fprintln(os.Stderr, "warning: ladym is not on PATH; hooks will fail to start")
+			}
+			return nil
+		},
+	}
+	cmd.Flags().BoolVar(&claude, "claude", false, "Install into ~/.claude/settings.json")
+	cmd.Flags().BoolVar(&codex, "codex", false, "Install into ~/.codex/hooks.json")
+	cmd.Flags().BoolVar(&all, "all", false, "Install into both")
+	return cmd
+}
+
+// hookUninstallCmd is `ladym hook uninstall`: removes our entries and only
+// ours; a missing config file is a no-op success.
+func hookUninstallCmd() *cobra.Command {
+	var claude, codex, all bool
+	cmd := &cobra.Command{
+		Use:   "uninstall",
+		Short: "Remove LadyM hook entries from harness user configs.",
+		RunE: func(c *cobra.Command, args []string) error {
+			var anyTarget bool
+			if claude || all {
+				p := filepath.Join(homeDir(), ".claude", "settings.json")
+				if err := uninstallHookFile(p); err != nil {
+					return err
+				}
+				fmt.Fprintf(c.OutOrStdout(), "removed LadyM hooks from %s\n", p)
+				anyTarget = true
+			}
+			if codex || all {
+				p := filepath.Join(homeDir(), ".codex", "hooks.json")
+				if err := uninstallHookFile(p); err != nil {
+					return err
+				}
+				fmt.Fprintf(c.OutOrStdout(), "removed LadyM hooks from %s\n", p)
+				anyTarget = true
+			}
+			if !anyTarget {
+				return errors.New("pick one: --claude, --codex, or --all")
+			}
+			return nil
+		},
+	}
+	cmd.Flags().BoolVar(&claude, "claude", false, "Uninstall from ~/.claude/settings.json")
+	cmd.Flags().BoolVar(&codex, "codex", false, "Uninstall from ~/.codex/hooks.json")
+	cmd.Flags().BoolVar(&all, "all", false, "Uninstall from both")
+	return cmd
+}
+
+// homeDir resolves the user home (os.UserHomeDir with fallback).
+func homeDir() string {
+	h, _ := os.UserHomeDir()
+	return h
 }
