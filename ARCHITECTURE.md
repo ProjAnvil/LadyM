@@ -223,6 +223,13 @@ of thrashing the same database.
 
 All front-ends call the same `engine` package so behaviour is identical:
 
+- **Hook carrier** (`ladym hook`) — Claude Code / Codex lifecycle hooks pipe their
+  event JSON into stdin; the command maps it onto `RecordOperation` and exits
+  (observer semantics: stdout empty, unknown events tolerated, never exit 2).
+  `ladym hook install` merges the observer entries into `~/.claude/settings.json`
+  / `~/.codex/hooks.json` (idempotent, backup-first, user entries preserved), and
+  `plugins/ladym` + `plugins/ladym-codex` ship the same wiring as installable
+  plugins (commands point at the `ladym` on PATH; plugins carry no binaries).
 - **MCP server** (`ladym serve`, JSON-RPC 2.0 over stdio) — ten tools: `recall`,
   `recall_ops`, `remember`, `record_event` (optional `resources`/`action_class` slots),
   `search_code`, `index_code`, `consolidate`, `stats`, `link`,
@@ -260,6 +267,8 @@ github.com/ProjAnvil/LadyM
 ├── adapter/          ModelRouting + langchain-golang model wrapping
 ├── langgraph/        LangGraph tools/nodes integration (Go)
 ├── storage/          SQLite store, in-process vector index, embedding providers
+├── hook/             harness lifecycle-hook parsing + OperationEvent mapping
+├── plugins/          Claude Code + Codex plugin directories and marketplace catalog
 ├── code/             codebase indexer (gotreesitter symbols + chunk fallback + cross-process lock)
 ├── config/           Config structs, TOML+env loading, secret stripping
 ├── secrets/          AES-256-GCM encrypted secret store (~/.ladyM/)

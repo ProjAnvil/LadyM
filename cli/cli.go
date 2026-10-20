@@ -57,6 +57,7 @@ func newRootCmd() *cobra.Command {
 	root.AddCommand(
 		rememberCmd(), recordCmd(), recallCmd(), recallOpsCmd(), indexCmd(), consolidateCmd(),
 		statsCmd(), forgetCmd(), linkCmd(), userCmd(), serveCmd(), workerCmd(), configCmd(),
+		hookCmd(),
 	)
 	return root
 }
