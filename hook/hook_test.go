@@ -19,7 +19,7 @@ func TestParseValidPayload(t *testing.T) {
 	if p.Cwd != "/Users/x/ladyM" {
 		t.Errorf("cwd = %q", p.Cwd)
 	}
-	// 未知字段必须被宽容忽略（事件 JSON 在演进）。
+	// Unknown fields must be tolerated (the event JSON schema evolves).
 	if _, err := Parse([]byte(`{"hook_event_name":"Stop","brand_new_field":123}`)); err != nil {
 		t.Errorf("unknown field should be tolerated: %v", err)
 	}
@@ -141,14 +141,14 @@ func TestToOperationPostToolUse(t *testing.T) {
 }
 
 func TestTruncateObservation(t *testing.T) {
-	// UserPromptSubmit 的 prompt 截断到 PromptMaxRunes（spec §4.2：2000）。
+	// UserPromptSubmit truncates the prompt to PromptMaxRunes (spec 4.2: 2000).
 	long := strings.Repeat("a", PromptMaxRunes+500)
 	p := &Payload{HookEventName: "UserPromptSubmit", Prompt: long}
 	ev := p.ToOperation("codex")
 	if got := len([]rune(ev.Observation)); got != PromptMaxRunes {
 		t.Errorf("prompt observation runes = %d, want %d", got, PromptMaxRunes)
 	}
-	// PostToolUse 的 tool_response 截断到 ObservationMaxRunes（spec §4.2：500）。
+	// PostToolUse truncates tool_response to ObservationMaxRunes (spec 4.2: 500).
 	tool := &Payload{HookEventName: "PostToolUse", ToolName: "Bash",
 		ToolResponse: strings.Repeat("x", ObservationMaxRunes+100)}
 	tev := tool.ToOperation("codex")

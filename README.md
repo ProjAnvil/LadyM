@@ -18,10 +18,37 @@ through a single keyword. Written in **Go** as a **single static binary with zer
 SQLite via [modernc.org/sqlite](https://pkg.go.dev/modernc.org/sqlite), an in-process
 brute-force cosine vector index, and [gotreesitter](https://github.com/odvcencio/gotreesitter)
 (a pure-Go tree-sitter runtime) for code indexing. Exposed via **MCP**, **Claude Code
-Skill**, **Go SDK**, and **CLI** — all calling the same engine so behaviour is
-identical everywhere.
+Skill**, **Go SDK**, and **CLI** — plus **silent hook capture** for Claude Code and
+Codex (`ladym hook`) that records agent sessions without the agent spending a single
+token. All front-ends call the same engine so behaviour is identical everywhere.
 
 ---
+
+## What's New in 0.8.0
+
+- **Silent hook capture** — Claude Code and Codex lifecycle hooks now feed LadyM
+  automatically through `ladym hook`: session boundaries, user prompts, and tool
+  calls land as structured L1 episodes via the `record_event` pipeline
+  (controlled-vocabulary action classes, resource extraction from `tool_input`,
+  deterministic `operates_on` edges). The hook is a pure observer: stdout stays
+  empty, unknown events are tolerated, and it never blocks the harness.
+- **`ladym hook install`** — one command merges observer hooks into
+  `~/.claude/settings.json` and `~/.codex/hooks.json`. User entries and non-hook
+  keys survive verbatim; installs are idempotent (prefix-matched), a one-time
+  `.ladym-bak` backup is taken, and corrupt config files are refused, never
+  overwritten. Uninstall removes exactly our entries.
+- **Plugin market** — `plugins/ladym` (Claude Code plugin: hooks + MCP server)
+  and `plugins/ladym-codex` (Codex plugin), catalogued under the `ladym-plugins`
+  marketplace in this repository. Plugins carry no binaries: every command points
+  at the `ladym` on your PATH, so the binary stays the single source of truth.
+- **Zero-config db placement** — hook events default to a per-project
+  `ladym.db` (the hook process inherits the harness cwd); set `LADYM_DB` for a
+  unified library, where the workspace (derived from the event's cwd directory
+  name) becomes the isolation key. Changing the db never requires reinstalling
+  hooks.
+- **Honest scoping note** — capture-side sanitization (path exclusion, secret
+  redaction) is *not* in 0.8.0; prompts and tool outputs land as captured. See
+  the known-tradeoffs section of `docs/hooks.md`.
 
 ## What's New in 0.7.0
 

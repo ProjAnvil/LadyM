@@ -16,9 +16,31 @@ LadyM 把工作区的*理解*——代码分析、决策、技能、事件——
 SQLite 基于 [modernc.org/sqlite](https://pkg.go.dev/modernc.org/sqlite)，向量检索是进程内
 暴力余弦索引，代码索引用 [gotreesitter](https://github.com/odvcencio/gotreesitter)
 （纯 Go 的 tree-sitter 运行时）。通过 **MCP**、**Claude Code Skill**、**Go SDK**、
-**CLI** 四种方式暴露——全部调用同一个引擎，行为处处一致。
+**CLI** 四种方式暴露，另有 **hook 静默捕获**（`ladym hook`，支持 Claude Code 与
+Codex）：harness 自动记录 agent 会话，agent 一个 token 都不用花。所有前端调用
+同一个引擎，行为处处一致。
 
 ---
+
+## 0.8.0 更新
+
+- **hook 静默捕获** —— Claude Code 与 Codex 的 lifecycle hook 通过 `ladym hook`
+  自动喂料：会话边界、用户提示词、工具调用全部走 `record_event` 管线落成结构化
+  L1 事件（受控词表动作分类、`tool_input` 资源提取、`operates_on` 确定性建边）。
+  hook 是纯观察者：stdout 恒空、未知事件宽容跳过、绝不阻断 harness。
+- **`ladym hook install`** —— 一条命令把观察者 hook 合并进
+  `~/.claude/settings.json` 与 `~/.codex/hooks.json`。用户已有条目与非 hook 键
+  原样保留；安装幂等（前缀识别）、写前一次性 `.ladym-bak` 备份、损坏配置拒写
+  不覆盖。卸载只删自己的条目。
+- **plugin market** —— `plugins/ladym`（Claude Code 插件：hook + MCP server）与
+  `plugins/ladym-codex`（Codex 插件），收录在本仓库的 `ladym-plugins`
+  marketplace。插件不带二进制：所有 command 指向 PATH 上的 `ladym`，二进制仍是
+  唯一事实源。
+- **零配置 db 定址** —— hook 事件默认落各项目的 `ladym.db`（hook 进程继承
+  harness 的 cwd）；设 `LADYM_DB` 走统一库，此时 workspace（取事件 cwd 的目录
+  名）成为隔离键。换库不用重装 hook。
+- **如实标注** —— 捕获侧脱敏（路径排除、密钥打码）**不在 0.8.0**：提示词与
+  工具输出按原样入库。已知取舍见 `docs/hooks.md`。
 
 ## 0.7.0 更新
 
