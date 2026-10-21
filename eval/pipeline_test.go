@@ -12,15 +12,13 @@ import (
 	"github.com/ProjAnvil/LadyM/hook"
 )
 
-// driftTolerance is how far the stage-by-stage replication may deviate from the
+// DriftTolerance is how far the stage-by-stage replication may deviate from the
 // real write before its breakdown is considered untrustworthy.
-const driftTolerance = 0.20
-
 // pipelineEvents turns one fixture into n distinct events so repeated writes are
 // not deduplicated away and can be summarised into a median.
 func pipelineEvents(t *testing.T, fx Fixture, n int) []engine.OperationEvent {
 	t.Helper()
-	p, err := hook.Parse([]byte(fx.PayloadJSON(t)))
+	p, err := hook.Parse([]byte(fx.mustPayload(t)))
 	if err != nil {
 		t.Fatalf("parse fixture payload: %v", err)
 	}
@@ -66,9 +64,9 @@ func TestMeasureDriftWithinTolerance(t *testing.T) {
 	if got.RealMs <= 0 {
 		t.Fatalf("RealMs = %v, want positive", got.RealMs)
 	}
-	if got.Drift > driftTolerance {
+	if got.Drift > DriftTolerance {
 		t.Errorf("drift = %.3f, want <= %.2f (replicated %.3fms vs real %.3fms)",
-			got.Drift, driftTolerance, got.TotalMs, got.RealMs)
+			got.Drift, DriftTolerance, got.TotalMs, got.RealMs)
 	}
 	t.Logf("replicated=%.3fms real=%.3fms drift=%.3f (scope=%.3f normalize=%.3f resolve=%.3f record=%.3f edges=%.3f)",
 		got.TotalMs, got.RealMs, got.Drift, got.ScopeMs, got.NormalizeMs, got.ResolveMs, got.RecordMs, got.EdgesMs)

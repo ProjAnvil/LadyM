@@ -17,6 +17,10 @@ import (
 	"github.com/ProjAnvil/LadyM/schema"
 )
 
+// DriftTolerance is how far stage-by-stage replication may deviate from the real
+// write before its breakdown counts as untrustworthy.
+const DriftTolerance = 0.20
+
 // Segments is the stage-by-stage breakdown of one hook write together with the
 // real end-to-end write that validates it. Scope is a stage in its own right
 // because the hook builds a fresh Scope per event, and that allocation is real

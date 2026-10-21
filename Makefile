@@ -13,7 +13,7 @@
 
 LADYM_TEST_PG_DSN ?= postgres://postgres:ladym@127.0.0.1:55432/ladym?sslmode=disable
 
-.PHONY: build-personal build-fulldict build-enterprise verify-enterprise test test-pg test-enterprise test-all console-build lint-comments package-personal package-fulldict package-enterprise
+.PHONY: build-personal build-fulldict build-enterprise verify-enterprise test test-pg test-enterprise test-all console-build lint-comments eval-hook package-personal package-fulldict package-enterprise
 
 lint-comments:
 	./scripts/check-comments.sh
@@ -62,6 +62,12 @@ test-enterprise:
 # test-all: dual-edition full regression — personal (with PG) + enterprise
 # (with PG) + the comment linter.
 test-all: test-pg test-enterprise lint-comments
+
+# eval-hook: measure the hook write path across corpus scales. Files in eval/
+# carry the `eval` build tag, so the default `test` target compiles none of them
+# and pays no cost. Reuses build-personal's binary so repeat runs skip the build.
+eval-hook: build-personal
+	LADYM_BIN=$(CURDIR)/bin/ladym go test -tags eval -run TestEval ./eval/... -v
 
 # package-*: release tarballs under dist/ (binary + README + deployment doc).
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)

@@ -9,6 +9,17 @@ import (
 	"testing"
 )
 
+// mustPayload is the assertion-flavoured wrapper around PayloadJSON, so the
+// non-test runner can use the same method without dragging testing.T along.
+func (f Fixture) mustPayload(t *testing.T) string {
+	t.Helper()
+	s, err := f.PayloadJSON()
+	if err != nil {
+		t.Fatalf("marshal payload for %s: %v", f.Name, err)
+	}
+	return s
+}
+
 // metaOf decodes a row's metadata JSON into a flat string map, dropping any
 // non-string values: every field this matrix asserts is a string.
 func metaOf(t *testing.T, r Row) map[string]string {
@@ -36,7 +47,7 @@ func TestFidelityMatrix(t *testing.T) {
 		t.Run(fx.Name, func(t *testing.T) {
 			db := filepath.Join(t.TempDir(), "probe.ladym.db")
 
-			res, err := SpawnHook(bin, db, fx.Harness, fx.PayloadJSON(t))
+			res, err := SpawnHook(bin, db, fx.Harness, fx.mustPayload(t))
 			if err != nil {
 				t.Fatalf("spawn hook: %v", err)
 			}
@@ -98,7 +109,7 @@ func TestObservationIsPersistedTwice(t *testing.T) {
 		Want:    Want{Episodes: 1, ObsRunes: len(obs)},
 	}
 	db := filepath.Join(t.TempDir(), "probe.ladym.db")
-	if _, err := SpawnHook(bin, db, fx.Harness, fx.PayloadJSON(t)); err != nil {
+	if _, err := SpawnHook(bin, db, fx.Harness, fx.mustPayload(t)); err != nil {
 		t.Fatalf("spawn hook: %v", err)
 	}
 	eps, err := ReadEpisodes(db, fx.Workspace)
@@ -141,7 +152,7 @@ func TestHookNeverBlocks(t *testing.T) {
 	bin := ResolveBinary(t)
 	for _, fx := range Fixtures() {
 		db := filepath.Join(t.TempDir(), "probe.ladym.db")
-		res, err := SpawnHook(bin, db, fx.Harness, fx.PayloadJSON(t))
+		res, err := SpawnHook(bin, db, fx.Harness, fx.mustPayload(t))
 		if err != nil {
 			t.Fatalf("%s: spawn hook: %v", fx.Name, err)
 		}

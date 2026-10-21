@@ -62,3 +62,6 @@ benchmarks/.cache/
 coverage.out
 # Local shell profiles (may contain secrets)
 .localProfile
+
+# eval harness output (metrics.json / report.md)
+eval/.cache/

@@ -5,7 +5,6 @@ package eval
 import (
 	"encoding/json"
 	"strings"
-	"testing"
 )
 
 // Fixture couples one harness payload with the persisted state we expect it to
@@ -34,13 +33,12 @@ type Want struct {
 
 // PayloadJSON marshals the payload deterministically: encoding/json sorts map
 // keys, so repeated runs feed byte-identical stdin.
-func (f Fixture) PayloadJSON(t *testing.T) string {
-	t.Helper()
+func (f Fixture) PayloadJSON() (string, error) {
 	b, err := json.Marshal(f.Payload)
 	if err != nil {
-		t.Fatalf("marshal payload for %s: %v", f.Name, err)
+		return "", err
 	}
-	return string(b)
+	return string(b), nil
 }
 
 const (
