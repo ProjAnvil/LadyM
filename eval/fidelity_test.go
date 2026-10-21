@@ -83,16 +83,81 @@ func TestFidelityMatrix(t *testing.T) {
 			if got := meta["action_class"]; got != fx.Want.ActionClass {
 				t.Errorf("action_class = %q, want %q", got, fx.Want.ActionClass)
 			}
+			if got := meta["action_raw"]; got != fx.Want.ActionRaw {
+				t.Errorf("action_raw = %q, want %q", got, fx.Want.ActionRaw)
+			}
+			// Outcome is the only field separating PostToolUse from
+			// PostToolUseFailure, so it must be asserted explicitly.
+			if got := meta["outcome"]; got != fx.Want.Outcome {
+				t.Errorf("outcome = %q, want %q", got, fx.Want.Outcome)
+			}
 			if got := meta["hook_event_name"]; got != fx.EventName {
 				t.Errorf("hook_event_name = %q, want %q", got, fx.EventName)
+			}
+			if got := meta["session_id"]; got != evalSessionID {
+				t.Errorf("session_id = %q, want %q", got, evalSessionID)
+			}
+			if got := meta["cwd"]; got != evalCwd {
+				t.Errorf("cwd = %q, want %q", got, evalCwd)
 			}
 			if fx.Want.ObsRunes != 0 {
 				if got := len([]rune(meta["observation"])); got != fx.Want.ObsRunes {
 					t.Errorf("observation runes = %d, want %d", got, fx.Want.ObsRunes)
 				}
 			}
+			// Resource names must be checked, not just edge counts: a wrong count
+			// can hide a wrong resource entirely.
+			if len(fx.Want.Resources) > 0 {
+				linked := linkedResourceNames(t, db, row.ID)
+				for _, want := range fx.Want.Resources {
+					if !linked[want] {
+						t.Errorf("resource %q is not linked to the episode (linked: %v)", want, linked)
+					}
+				}
+			}
 		})
 	}
+}
+
+// linkedResourceNames resolves the resource entity names an episode is linked
+// to, so assertions can name resources instead of just counting edges.
+func linkedResourceNames(t *testing.T, db, episodeID string) map[string]bool {
+	t.Helper()
+	edges, err := ReadEdges(db)
+	if err != nil {
+		t.Fatalf("read edges: %v", err)
+	}
+	dst := map[string]bool{}
+	for _, e := range edges {
+		if e.SrcID == episodeID && e.Relation == "operates_on" {
+			dst[e.DstID] = true
+		}
+	}
+	rows, err := ReadAll(db, evalWorkspace)
+	if err != nil {
+		t.Fatalf("read rows: %v", err)
+	}
+	out := map[string]bool{}
+	for _, r := range rows {
+		if dst[r.ID] {
+			out[resourceName(r)] = true
+		}
+	}
+	return out
+}
+
+// resourceName pulls the human-readable name out of a resource entity row.
+func resourceName(r Row) string {
+	var raw map[string]any
+	if err := json.Unmarshal([]byte(r.Metadata), &raw); err != nil {
+		return r.Summary
+	}
+	for _, key := range []string{"name", "alias", "resource", "file_path"} {
+		if s, ok := raw[key].(string); ok && s != "" {
+			return s
+		}
+	}
+	return r.Summary
 }
 
 // TestObservationIsPersistedTwice pins a write-amplification finding:

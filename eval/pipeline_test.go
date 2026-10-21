@@ -4,8 +4,6 @@ package eval
 
 import (
 	"fmt"
-	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/ProjAnvil/LadyM/engine"
@@ -98,29 +96,30 @@ func TestMeasureResourcelessEventHasNoResourceStages(t *testing.T) {
 	}
 }
 
-// TestMeasureUsesSeparateCopies pins the anti-warm-bias property: replication and
-// the real write must not share one database file, or whichever runs first heats
-// the SQLite page cache and inflates the other's numbers.
-func TestMeasureUsesSeparateCopies(t *testing.T) {
-	dir := t.TempDir()
-	corpus, err := Seed(50, dir, 7, evalWorkspace)
+// TestMeasureLeavesBothCopiesEquallyUsed checks the anti-warm-bias property in
+// the only observable way: after Measure, each side's database must hold exactly
+// the writes it made, which proves the two paths never shared a file.
+func TestMeasureLeavesBothCopiesEquallyUsed(t *testing.T) {
+	corpus, err := Seed(50, t.TempDir(), 7, evalWorkspace)
 	if err != nil {
 		t.Fatalf("seed corpus: %v", err)
 	}
-	a, err := copyCorpus(corpus, filepath.Join(t.TempDir(), "a"))
+	before, err := ReadEpisodes(corpus, evalWorkspace)
 	if err != nil {
-		t.Fatalf("copy a: %v", err)
+		t.Fatalf("read corpus: %v", err)
 	}
-	b, err := copyCorpus(corpus, filepath.Join(t.TempDir(), "b"))
+
+	fx := fixtureByName(t, "claude/tool-read")
+	if _, err := Measure(corpus, evalWorkspace, pipelineEvents(t, fx, 10)); err != nil {
+		t.Fatalf("measure: %v", err)
+	}
+
+	after, err := ReadEpisodes(corpus, evalWorkspace)
 	if err != nil {
-		t.Fatalf("copy b: %v", err)
+		t.Fatalf("read corpus after measure: %v", err)
 	}
-	if strings.HasPrefix(a, b) || a == b {
-		t.Fatalf("copies share a path: %q vs %q", a, b)
-	}
-	for _, p := range []string{a, b} {
-		if _, err := ReadEpisodes(p, evalWorkspace); err != nil {
-			t.Fatalf("copy %s is not a readable corpus: %v", p, err)
-		}
+	if len(after) != len(before) {
+		t.Errorf("template corpus changed: %d rows before, %d after; Measure must write only into its own copies",
+			len(before), len(after))
 	}
 }

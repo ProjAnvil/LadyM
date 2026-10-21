@@ -95,6 +95,12 @@ func SpawnHook(binPath, dbPath, harness, payload string) (SpawnResult, error) {
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
+	// Pin the offline providers. Without this the child inherits whatever
+	// ~/.ladyM/config.toml says, so a developer with a remote embedding provider
+	// configured would make the harness network- and API-key-dependent, and the
+	// timings would measure network latency instead of the write path.
+	cmd.Env = append(os.Environ(), "LADYM_EMBEDDING=hashing", "LADYM_LLM=none")
+
 	start := time.Now()
 	runErr := cmd.Run()
 	elapsed := time.Since(start)

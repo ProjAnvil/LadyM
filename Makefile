@@ -67,7 +67,9 @@ test-all: test-pg test-enterprise lint-comments
 # carry the `eval` build tag, so the default `test` target compiles none of them
 # and pays no cost. Reuses build-personal's binary so repeat runs skip the build.
 eval-hook: build-personal
-	LADYM_BIN=$(CURDIR)/bin/ladym go test -tags eval -run TestEval ./eval/... -v
+	LADYM_BIN=$(CURDIR)/bin/ladym go test -tags eval \
+		-run 'TestEval|TestFidelityMatrix|TestHook|TestObservation|TestMeasure|TestSeed|TestCounter|TestSummarize|TestPercentile' \
+		./eval/... -v
 
 # package-*: release tarballs under dist/ (binary + README + deployment doc).
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)

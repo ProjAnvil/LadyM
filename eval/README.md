@@ -37,15 +37,14 @@ writes observation and outcome into **both** Content and Metadata.
 
 ### Duration — what does the agent wait for?
 
-Two numbers, because they answer different questions:
-
 | metric | meaning |
 |---|---|
-| cold ms | first invocation on a freshly copied corpus; cold page cache |
-| warm p50 ms | steady state on a hot file, i.e. what a working session pays per tool call |
+| spawn p50 ms | what the agent waits for: fork through process exit |
+| process tax ms | spawn p50 minus the real in-process write: cost unrelated to writing memory |
+| engine open ms | cost of opening the engine, paid once per invocation |
 
-The hook spawns a **fresh process per event**, so cold/warm both matter: cold is
-the first call of a session, warm is every call after it.
+The hook spawns a **fresh process per event**, so every one of these is paid once
+per tool call.
 
 The in-process stage breakdown (`scope`/`normalize`/`resolve`/`record`/`edges`)
 excludes process startup entirely, which is how you tell process tax apart from
@@ -53,23 +52,37 @@ real write work. It is validated by `drift`: if the sum of stages deviates more
 than 20% from a real `RecordOperation`, the report flags the breakdown as
 untrustworthy for that scale.
 
+Note on what is *not* measured: the harness copies each corpus file immediately
+before probing it, so the file is always in page cache. There is no meaningful
+"cold cache" figure here, and none is reported.
+
 ## Headline findings
 
-Measured on this repo, darwin/arm64, Go 1.27.2:
+Measured on this repo, darwin/arm64, Go 1.27.2. `spawn` is what the agent waits
+for; `real` is the write itself, measured in-process.
 
-- **Process tax dominates.** A typical event costs about 30ms wall clock end to
-  end while the write itself takes roughly 0.3ms. Nearly all perceived latency is
-  process startup plus SQLite open, not memory work.
+| scale | spawn p50 | process tax | engine open | resolve | record | real |
+|---|---|---|---|---|---|---|
+| 100 rows | 10.6ms | 10.3ms | 0.6ms | 0.039ms | 0.120ms | 0.26ms |
+| 1k rows | 13.2ms | 12.8ms | 2.1ms | 0.128ms | 0.123ms | 0.33ms |
+| 10k rows | 30.9ms | 29.3ms | 15.2ms | 1.348ms | 0.163ms | 1.59ms |
+
+- **Process tax is essentially all of it.** At 10k rows the write takes 1.6ms
+  while the agent waits 30.9ms: about 95% of perceived latency is cost that has
+  nothing to do with writing memory.
+- **Engine open dominates the tax, and it grows with corpus size** — 0.6ms, 2.1ms,
+  then 15.2ms at 10k rows, where it is roughly half of everything the agent waits
+  for. That is the signature of loading the vector index per invocation.
+- **Resource resolution degrades with size** (0.039ms to 1.348ms), consistent with
+  a scan over a growing index. Record and edges stay flat.
 - **CJK segmentation is the one real hotspot.** A 2000-rune Chinese prompt costs
   about 348ms against a ~30ms baseline, and the cost is linear in character count
   at roughly 0.1ms per character. The same length in English adds almost nothing.
-  Every hook payload containing Chinese pays this, and prompts are capped at 2000
-  runes, so worst case is bounded but large.
-- **Write cost grows with corpus size**: about 0.28ms at 100 rows, 0.37ms at
-  1k, 1.7ms at 10k. Small and medium are equal within noise, so a fixed
-  engine-and-schema-open cost dominates until roughly a thousand rows.
 - **Ignored events are cheap.** An unknown event exits in roughly 10ms versus
   ~30ms, because it never opens the engine.
+
+Worth reading together: per-invocation cost is not a constant. It is ~11ms on a
+small library and ~31ms at 10k rows, and it will keep climbing with history.
 
 ## Caveats
 

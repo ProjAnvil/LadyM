@@ -41,33 +41,35 @@ func writeMarkdown(path string, rep Report) error {
 
 	for _, sc := range scales {
 		var rows [][]string
-		head := []string{"fixture", "event", "cold ms", "warm p50 ms", "warm p95 ms", "tokens p50", "tokens p95", "amplification p50", "rows"}
+		head := []string{"fixture", "event", "spawn p50 ms", "spawn p95 ms", "tokens p50", "amplification p50", "rows"}
 		for _, s := range rep.Scenarios {
 			if s.Scale != sc {
 				continue
 			}
 			rows = append(rows, []string{
 				s.Fixture, s.Event,
-				fmt.Sprintf("%.2f", s.SpawnColdMs.P50),
-				fmt.Sprintf("%.2f", s.SpawnWarmMs.P50),
-				fmt.Sprintf("%.2f", s.SpawnWarmMs.P95),
+				fmt.Sprintf("%.2f", s.SpawnMs.P50),
+				fmt.Sprintf("%.2f", s.SpawnMs.P95),
 				fmt.Sprintf("%.0f", s.PersistedToks.P50),
-				fmt.Sprintf("%.0f", s.PersistedToks.P95),
 				fmt.Sprintf("%.2fx", s.Amplification.P50),
 				fmt.Sprintf("%d", s.NewRows),
 			})
 		}
 		fmt.Fprintf(&b, "## Scale: %s\n\n", sc)
-		fmt.Fprintf(&b, "`cold` is the first invocation on a freshly copied corpus; `warm p50` is steady state once the file is hot.\n\n")
+		fmt.Fprintf(&b, "Token figures come from one row per trial, so they carry no spread: the distribution of interest is across fixtures, not across repeats of the same payload.\n\n")
 		b.WriteString(table(head, rows))
 		b.WriteString("\n")
 	}
 
 	var stageRows [][]string
-	stageHead := []string{"scale", "corpus rows", "scope ms", "normalize ms", "resolve ms", "record ms", "edges ms", "total ms", "real ms", "drift"}
+	stageHead := []string{"scale", "corpus rows", "spawn p50 ms", "process tax ms", "engine open ms",
+		"scope ms", "normalize ms", "resolve ms", "record ms", "edges ms", "total ms", "real ms", "drift"}
 	for _, s := range rep.Stages {
 		stageRows = append(stageRows, []string{
 			s.Scale, fmt.Sprintf("%d", s.Corpus),
+			fmt.Sprintf("%.2f", s.SpawnP50),
+			fmt.Sprintf("%.2f", s.ProcessTaxMs),
+			fmt.Sprintf("%.3f", s.Segments.EngineOpenMs),
 			fmt.Sprintf("%.3f", s.Segments.ScopeMs),
 			fmt.Sprintf("%.3f", s.Segments.NormalizeMs),
 			fmt.Sprintf("%.3f", s.Segments.ResolveMs),
@@ -98,14 +100,15 @@ func writeMarkdown(path string, rep Report) error {
 	b.WriteString(`
 ## How to read these numbers
 
-- **cold ms** is the first invocation on a freshly copied corpus file: cold page
-  cache, worst case a session pays on its very first hook call.
-- **warm p50 ms** is steady state on an already-hot file, which is what a working
-  session pays for every subsequent tool call. This is the number that matters
-  for perceived turn latency, because the hook spawns a fresh process per event
-  and the database file stays hot for the whole session.
+- **spawn p50 ms** is what the agent waits for: fork through process exit. The
+  hook spawns a fresh process per event, so this is paid once per tool call.
+- **process tax ms** is spawn p50 minus the real in-process write: the part of the
+  wait that has nothing to do with writing memory. Everything else in the stage
+  table lives inside the remaining sliver.
+- **engine open ms** is the cost of opening the engine against the corpus, which
+  each invocation pays once and the in-process breakdown cannot see.
 - **In-process stages** (` + "`" + `record ms` + "`" + `, ` + "`" + `edges ms` + "`" + `, and friends) exclude process
-  startup entirely. Comparing them against ` + "`" + `warm p50 ms` + "`" + ` shows how much of the wait
+  startup entirely. Comparing them against ` + "`" + `spawn p50 ms` + "`" + ` shows how much of the wait
   is process tax versus actual write work.
 - **tokens** count what persisted per row: content plus summary plus metadata,
   encoded with Cl100kBase. They are comparable across fixtures and scales, not

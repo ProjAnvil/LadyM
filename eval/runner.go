@@ -14,26 +14,31 @@ import (
 
 // Options controls one evaluation run.
 type Options struct {
-	// Bin is the ladym binary to probe. Empty resolves through LADYM_BIN.
+	// Bin is the ladym binary to probe. Empty falls back to LADYM_BIN.
 	Bin string
 	// Trials is how many fresh corpus copies each scenario measures. More trials
 	// means stabler percentiles and proportionally more disk copies.
 	Trials int
-	// WarmRuns is how many further invocations follow each cold one on the same
-	// file. Cold and warm are reported separately because they answer different
-	// questions: cold is worst-case first touch, warm is what a working session
-	// pays once its database file sits in page cache.
-	WarmRuns int
+	// Spawns is how many invocations run against each corpus copy. Repeats on one
+	// file buy percentile stability cheaply; the file itself is copied fresh per
+	// trial so measurements never see another trial's writes.
+	Spawns int
 	// StageEvents is how many writes feed the per-scale stage breakdown.
 	StageEvents int
-	Workspace   string
-	Seed        int64
+	// EngineOpenRuns is how many engine opens are timed to characterise the
+	// startup cost that the in-process breakdown cannot see.
+	EngineOpenRuns int
+	Workspace      string
+	Seed           int64
 }
 
-// DefaultOptions uses trial counts that keep the large scale affordable: each
-// trial copies the whole corpus, so more rows means fewer repeats.
+// DefaultOptions uses counts that keep the large scale affordable: each trial
+// copies the whole corpus, so more rows means fewer repeats.
 func DefaultOptions() Options {
-	return Options{Trials: 3, WarmRuns: 3, StageEvents: 40, Workspace: evalWorkspace, Seed: 20261021}
+	return Options{
+		Trials: 3, Spawns: 4, StageEvents: 40, EngineOpenRuns: 5,
+		Workspace: evalWorkspace, Seed: 20261021,
+	}
 }
 
 // Scenario is one scale x fixture cell of the report.
@@ -44,26 +49,30 @@ type Scenario struct {
 	Event         string  `json:"event"`
 	Trials        int     `json:"trials"`
 	NewRows       int     `json:"new_rows"`
-	SpawnColdMs   Summary `json:"spawn_cold_ms"`
-	SpawnWarmMs   Summary `json:"spawn_warm_ms"`
+	SpawnMs       Summary `json:"spawn_ms"`
 	PersistedToks Summary `json:"persisted_tokens"`
 	ContentToks   Summary `json:"content_tokens"`
+	SummaryToks   Summary `json:"summary_tokens"`
 	MetadataToks  Summary `json:"metadata_tokens"`
 	Amplification Summary `json:"amplification"`
 }
 
 // StageRow is the per-scale write-path breakdown.
 type StageRow struct {
-	Scale    string   `json:"scale"`
-	Corpus   int      `json:"corpus_rows"`
-	Segments Segments `json:"segments"`
+	Scale    string  `json:"scale"`
+	Corpus   int     `json:"corpus_rows"`
+	SpawnP50 float64 `json:"spawn_p50_ms"`
+	// ProcessTaxMs is SpawnP50 minus the real in-process write: the cost the agent
+	// pays that has nothing to do with writing memory.
+	ProcessTaxMs float64 `json:"process_tax_ms"`
+	Segments     Segments `json:"segments"`
 }
 
 // Report is the complete result of one run.
 type Report struct {
-	GeneratedAt time.Time `json:"generated_at"`
-	Bin         string    `json:"bin"`
-	Trials      int       `json:"trials"`
+	GeneratedAt time.Time  `json:"generated_at"`
+	Bin         string     `json:"bin"`
+	Trials      int        `json:"trials"`
 	Scenarios   []Scenario `json:"scenarios"`
 	Stages      []StageRow `json:"stages"`
 }
@@ -72,6 +81,9 @@ type Report struct {
 // a per-scale stage breakdown. It seeds one corpus template per scale and hands
 // each trial a private copy, so no measurement ever sees another's writes.
 func Evaluate(opts Options, counter *Counter) (Report, error) {
+	if counter == nil {
+		return Report{}, fmt.Errorf("evaluate: counter is nil, token figures would all be zero")
+	}
 	bin := opts.Bin
 	if bin == "" {
 		if env := os.Getenv("LADYM_BIN"); env != "" {
@@ -101,7 +113,7 @@ func Evaluate(opts Options, counter *Counter) (Report, error) {
 			}
 			rep.Scenarios = append(rep.Scenarios, s)
 		}
-		stage, err := measureStages(corpus, sc, opts)
+		stage, err := measureStages(bin, corpus, sc, opts)
 		if err != nil {
 			return rep, fmt.Errorf("stages for %s: %w", sc.Name, err)
 		}
@@ -111,7 +123,10 @@ func Evaluate(opts Options, counter *Counter) (Report, error) {
 }
 
 // runScenario writes one fixture repeatedly into fresh copies of the corpus and
-// summarises cost and duration across trials.
+// summarises cost and duration.
+//
+// Only the first spawn of each trial feeds the token sample. The rest would add
+// byte-identical rows, which would flatten every percentile to a single value.
 func runScenario(bin, corpus string, fx Fixture, sc Scale, opts Options, counter *Counter) (Scenario, error) {
 	payload, err := fx.PayloadJSON()
 	if err != nil {
@@ -123,8 +138,8 @@ func runScenario(bin, corpus string, fx Fixture, sc Scale, opts Options, counter
 		Scale: sc.Name, Fixture: fx.Name, Harness: fx.Harness,
 		Event: fx.EventName, Trials: opts.Trials,
 	}
-	var cold, warm []float64
-	persisted, content, meta, amp := []float64{}, []float64{}, []float64{}, []float64{}
+	spawn := []float64{}
+	persisted, content, summary, meta, amp := []float64{}, []float64{}, []float64{}, []float64{}, []float64{}
 
 	for i := 0; i < opts.Trials; i++ {
 		dir, err := os.MkdirTemp("", "ladym-eval-trial")
@@ -142,25 +157,12 @@ func runScenario(bin, corpus string, fx Fixture, sc Scale, opts Options, counter
 			return out, err
 		}
 
-		// First touch on a freshly copied file: page cache is cold, which is the
-		// worst case a session pays on its first hook call.
 		res, err := SpawnHook(bin, db, fx.Harness, payload)
 		if err != nil {
 			return out, err
 		}
-		cold = append(cold, res.DurationMs)
+		spawn = append(spawn, res.DurationMs)
 
-		// Steady state: what a working session pays once the file is hot.
-		for w := 0; w < opts.WarmRuns; w++ {
-			res, err := SpawnHook(bin, db, fx.Harness, payload)
-			if err != nil {
-				return out, err
-			}
-			warm = append(warm, res.DurationMs)
-		}
-
-		// Read once per trial rather than per invocation: with a 10k-row corpus
-		// that difference dominates harness runtime.
 		rows, err := ReadEpisodes(db, opts.Workspace)
 		if err != nil {
 			return out, err
@@ -170,58 +172,116 @@ func runScenario(bin, corpus string, fx Fixture, sc Scale, opts Options, counter
 				continue
 			}
 			out.NewRows++
-			c := counter.Count(r.Content)
-			m := counter.Count(r.Metadata)
-			s := counter.Count(r.Summary)
+			c, m, s := counter.Count(r.Content), counter.Count(r.Metadata), counter.Count(r.Summary)
 			content = append(content, float64(c))
 			meta = append(meta, float64(m))
+			summary = append(summary, float64(s))
 			persisted = append(persisted, float64(c+m+s))
 			if inputToks > 0 {
 				amp = append(amp, float64(c+m+s)/float64(inputToks))
 			}
 		}
+
+		for n := 1; n < opts.Spawns; n++ {
+			res, err := SpawnHook(bin, db, fx.Harness, payload)
+			if err != nil {
+				return out, err
+			}
+			spawn = append(spawn, res.DurationMs)
+		}
 	}
 
-	out.SpawnColdMs = Summarize(cold)
-	out.SpawnWarmMs = Summarize(warm)
+	out.SpawnMs = Summarize(spawn)
 	out.PersistedToks = Summarize(persisted)
 	out.ContentToks = Summarize(content)
+	out.SummaryToks = Summarize(summary)
 	out.MetadataToks = Summarize(meta)
 	out.Amplification = Summarize(amp)
 	return out, nil
 }
 
-// measureStages produces the cost breakdown for one scale using a resource-bearing
-// representative event, which is the shape that exercises every stage.
-func measureStages(corpus string, sc Scale, opts Options) (StageRow, error) {
-	rep := Fixture{
-		Name: "stage-probe", Harness: "claude-code", EventName: "PostToolUse", Workspace: opts.Workspace,
+// stageProbe is the resource-bearing event used for the per-scale breakdown. It
+// is a synthetic shape rather than a fixture so the same event backs the stage
+// timing and the spawn timing, which is what makes ProcessTaxMs meaningful.
+func stageProbe(workspace string) Fixture {
+	return Fixture{
+		Name: "stage-probe", Harness: "claude-code", EventName: "PostToolUse", Workspace: workspace,
 		Payload: toolPayload("PostToolUse", "Read",
 			map[string]any{"file_path": "/x/ladyM/engine/engine.go"}, "probe observation"),
 	}
-	payload, err := rep.PayloadJSON()
+}
+
+// probeEvents turns the stage probe into n distinct events.
+func probeEvents(probe Fixture, n int) ([]engine.OperationEvent, error) {
+	payload, err := probe.PayloadJSON()
 	if err != nil {
-		return StageRow{}, err
+		return nil, err
 	}
 	p, err := hook.Parse([]byte(payload))
 	if err != nil {
-		return StageRow{}, err
+		return nil, err
 	}
-	base := p.ToOperation(rep.Harness)
+	base := p.ToOperation(probe.Harness)
 	if base == nil {
-		return StageRow{}, fmt.Errorf("stage probe fixture maps to no operation")
+		return nil, fmt.Errorf("stage probe maps to no operation")
 	}
-	evs := make([]engine.OperationEvent, 0, opts.StageEvents)
-	for i := 0; i < opts.StageEvents; i++ {
+	out := make([]engine.OperationEvent, 0, n)
+	for i := 0; i < n; i++ {
 		ev := *base
 		ev.Observation = fmt.Sprintf("probe observation seq=%d", i)
-		evs = append(evs, ev)
+		out = append(out, ev)
+	}
+	return out, nil
+}
+
+// measureStages produces the per-scale breakdown for one representative event and
+// times the same event end to end, so their difference is the process tax.
+func measureStages(bin, corpus string, sc Scale, opts Options) (StageRow, error) {
+	probe := stageProbe(opts.Workspace)
+	evs, err := probeEvents(probe, opts.StageEvents)
+	if err != nil {
+		return StageRow{}, err
 	}
 	segs, err := Measure(corpus, opts.Workspace, evs)
 	if err != nil {
 		return StageRow{}, err
 	}
-	return StageRow{Scale: sc.Name, Corpus: sc.Size, Segments: segs}, nil
+	openMs, err := EngineOpenMs(corpus, opts.Workspace, opts.EngineOpenRuns)
+	if err != nil {
+		return StageRow{}, err
+	}
+	segs.EngineOpenMs = openMs
+
+	payload, err := probe.PayloadJSON()
+	if err != nil {
+		return StageRow{}, err
+	}
+	dir, err := os.MkdirTemp("", "ladym-eval-stage-spawn")
+	if err != nil {
+		return StageRow{}, err
+	}
+	defer os.RemoveAll(dir)
+	db, err := copyCorpus(corpus, dir)
+	if err != nil {
+		return StageRow{}, err
+	}
+	vals := make([]float64, 0, opts.Spawns)
+	for i := 0; i < opts.Spawns; i++ {
+		res, err := SpawnHook(bin, db, probe.Harness, payload)
+		if err != nil {
+			return StageRow{}, err
+		}
+		vals = append(vals, res.DurationMs)
+	}
+	spawnP50 := Summarize(vals).P50
+
+	return StageRow{
+		Scale:        sc.Name,
+		Corpus:       sc.Size,
+		SpawnP50:     spawnP50,
+		ProcessTaxMs: spawnP50 - segs.RealMs,
+		Segments:     segs,
+	}, nil
 }
 
 // episodeIDs collects the episode IDs already in the corpus, so a trial can tell
@@ -238,7 +298,7 @@ func episodeIDs(dbPath, workspace string) (map[string]bool, error) {
 	return out, nil
 }
 
-// ReportsDir is where generated artifacts land, mirroring benchmarks/.cache.
+// ReportsDir is where generated artifacts land, relative to the eval package.
 const ReportsDir = ".cache/reports"
 
 // WriteReport persists metrics.json and report.md under a timestamped folder and

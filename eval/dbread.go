@@ -69,6 +69,29 @@ func ReadEpisodes(dbPath, workspace string) ([]Row, error) {
 	return scanRows(rows)
 }
 
+// ReadAll returns every memory row for workspace regardless of layer, so callers
+// can resolve resource entities alongside episodes.
+func ReadAll(dbPath, workspace string) ([]Row, error) {
+	if absent(dbPath) {
+		return nil, nil
+	}
+	db, err := openDB(dbPath)
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+
+	rows, err := db.Query(`
+		SELECT id, layer, type, content, summary, tags, metadata, workspace, source
+		FROM memories
+		WHERE workspace = ?
+		ORDER BY created_at ASC, id ASC`, workspace)
+	if err != nil {
+		return nil, fmt.Errorf("query all rows: %w", err)
+	}
+	return scanRows(rows)
+}
+
 // ReadEdges returns every edge row in the database. A missing database file
 // yields no edges and no error.
 func ReadEdges(dbPath string) ([]Edge, error) {

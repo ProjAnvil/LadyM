@@ -26,8 +26,11 @@ const DriftTolerance = 0.20
 // because the hook builds a fresh Scope per event, and that allocation is real
 // cost, not bookkeeping.
 type Segments struct {
-	ScopeMs     float64 `json:"scope_ms"`
-	NormalizeMs float64 `json:"normalize_ms"`
+	// EngineOpenMs is the cost of opening an engine against the corpus, which the
+	// hook pays once per process and the in-process breakdown cannot see.
+	EngineOpenMs float64 `json:"engine_open_ms"`
+	ScopeMs      float64 `json:"scope_ms"`
+	NormalizeMs  float64 `json:"normalize_ms"`
 	ResolveMs   float64 `json:"resolve_ms"`
 	RecordMs    float64 `json:"record_ms"`
 	EdgesMs     float64 `json:"edges_ms"`
@@ -197,6 +200,34 @@ func realAll(dbPath, dir, workspace string, evs []engine.OperationEvent) ([]floa
 		out = append(out, sinceMs(start))
 	}
 	return out, nil
+}
+
+// EngineOpenMs times engine construction against a corpus copy. Every hook
+// invocation pays this once, and it is invisible to the in-process stage
+// breakdown, so without it the split between startup and write work would be an
+// inference rather than a measurement.
+func EngineOpenMs(corpus, workspace string, runs int) (float64, error) {
+	dir, err := os.MkdirTemp("", "ladym-eval-engineopen")
+	if err != nil {
+		return 0, err
+	}
+	defer os.RemoveAll(dir)
+
+	db, err := copyCorpus(corpus, dir)
+	if err != nil {
+		return 0, err
+	}
+	vals := make([]float64, 0, runs)
+	for i := 0; i < runs; i++ {
+		start := time.Now()
+		eng, err := openCorpusEngine(dir, db, workspace)
+		if err != nil {
+			return 0, err
+		}
+		vals = append(vals, sinceMs(start))
+		eng.Close()
+	}
+	return Summarize(vals).P50, nil
 }
 
 // openCorpusEngine opens an engine bound to an existing corpus file.
