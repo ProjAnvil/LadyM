@@ -41,9 +41,11 @@ token. All front-ends call the same engine so behaviour is identical everywhere.
   and `plugins/ladym-codex` (Codex plugin), catalogued under the `ladym-plugins`
   marketplace in this repository. Plugins carry no binaries: every command points
   at the `ladym` on your PATH, so the binary stays the single source of truth.
-- **Zero-config db placement** — hook events default to a per-project
-  `ladym.db` (the hook process inherits the harness cwd); set `LADYM_DB` for a
-  unified library, where the workspace (derived from the event's cwd directory
+- **Zero-config db placement** — the default db is a per-project
+  `.ladyM/ladym.db` (`ladym init` creates it and appends `.ladyM/` to
+  `.gitignore`; a legacy flat `./ladym.db` keeps being read until `init`
+  migrates it). Set `LADYM_DB` for a unified library, where the workspace
+  (derived from the event's cwd directory
   name) becomes the isolation key. Changing the db never requires reinstalling
   hooks.
 - **Honest scoping note** — capture-side sanitization (path exclusion, secret
@@ -120,13 +122,16 @@ LadyM turns that throwaway rediscovery into **structured, evolving memory**.
 # 1. install (single static binary — no network or API key needed at runtime)
 go install github.com/ProjAnvil/LadyM/cmd/ladym@latest
 
-# 2. index the codebase you keep re-grepping
+# 2. create the project-local memory db (.ladyM/ladym.db) and update .gitignore
+ladym init
+
+# 3. index the codebase you keep re-grepping
 ladym index ./src
 
-# 3. ask a question — get the analysis back, no Read/Grep needed
+# 4. ask a question — get the analysis back, no Read/Grep needed
 ladym recall "how does password verification work" --code
 
-# 4. store a fact for later
+# 5. store a fact for later
 ladym remember "auth uses JWT with 24h expiry" --tags auth,security
 ```
 

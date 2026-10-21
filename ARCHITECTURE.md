@@ -144,7 +144,9 @@ Defaults `α=1.0, β=0.3, γ=0.2, δ=0.15, ε` per query type. Tunable per call.
 
 ## 5. Storage layout (local-first)
 
-One SQLite file (`ladym.db`) holds everything — relational metadata, JSON blobs, the
+One SQLite file (`ladym.db`, default `./.ladyM/ladym.db` — created by
+`ladym init`, which also appends `.ladyM/` to `.gitignore` and migrates a
+legacy flat `./ladym.db`) holds everything — relational metadata, JSON blobs, the
 associative graph, and the embedding vectors. No server, no Docker, no API keys required
 for the default config. SQLite runs on [modernc.org/sqlite](https://pkg.go.dev/modernc.org/sqlite)
 (pure Go, no cgo); **WAL mode is on by default** and `PRAGMA busy_timeout = 10000` is pinned,
@@ -234,7 +236,8 @@ All front-ends call the same `engine` package so behaviour is identical:
   `recall_ops`, `remember`, `record_event` (optional `resources`/`action_class` slots),
   `search_code`, `index_code`, `consolidate`, `stats`, `link`,
   `forget`. Drop into any MCP-aware agent (Claude Code, Cursor, Kimi Code, …).
-- **CLI** (cobra) — `ladym recall "auth flow"`, `ladym recall-ops --resource "ladym.db" --action migrate`,
+- **CLI** (cobra) — `ladym init` (create `.ladyM/` db, migrate legacy flat db,
+  update `.gitignore`), `ladym recall "auth flow"`, `ladym recall-ops --resource "ladym.db" --action migrate`,
   `ladym index ./src`, `ladym remember "..."`,
   `ladym record`, `ladym consolidate`, `ladym worker`, `ladym stats`, `ladym config`.
 - **Go SDK** — the `ladym` package is a one-import facade:
