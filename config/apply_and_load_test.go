@@ -43,13 +43,38 @@ func TestDefaultDBPathFromEnv(t *testing.T) {
 
 func TestDefaultDBPathFallback(t *testing.T) {
 	t.Setenv("LADYM_DB", "")
+	dir := t.TempDir()
+	t.Chdir(dir)
 	got := defaultDBPath()
 	wd, err := os.Getwd()
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := filepath.Join(wd, "ladym.db")
+	want := filepath.Join(wd, ".ladyM", "ladym.db")
 	if got != want {
+		t.Errorf("defaultDBPath() = %q, want %q", got, want)
+	}
+}
+
+func TestDefaultDBPathLegacyFallback(t *testing.T) {
+	t.Setenv("LADYM_DB", "")
+	dir := t.TempDir()
+	t.Chdir(dir)
+	if err := os.WriteFile(filepath.Join(dir, "ladym.db"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(dir, "ladym.db")
+	if got := defaultDBPath(); got != want {
+		t.Errorf("defaultDBPath() = %q, want legacy %q", got, want)
+	}
+}
+
+func TestDefaultDBPathLegacyAbsent(t *testing.T) {
+	t.Setenv("LADYM_DB", "")
+	dir := t.TempDir()
+	t.Chdir(dir)
+	want := filepath.Join(dir, ".ladyM", "ladym.db")
+	if got := defaultDBPath(); got != want {
 		t.Errorf("defaultDBPath() = %q, want %q", got, want)
 	}
 }

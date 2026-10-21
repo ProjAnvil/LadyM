@@ -55,6 +55,7 @@ func newRootCmd() *cobra.Command {
 	root.PersistentFlags().BoolVar(&globalDebug, "debug", false, "Show full error details on error.")
 
 	root.AddCommand(
+		initCmd(),
 		rememberCmd(), recordCmd(), recallCmd(), recallOpsCmd(), indexCmd(), consolidateCmd(),
 		statsCmd(), forgetCmd(), linkCmd(), userCmd(), serveCmd(), workerCmd(), configCmd(),
 		hookCmd(),

@@ -228,8 +228,11 @@ type Config struct {
 	Maintain        MaintainConfig
 }
 
-// defaultDBPath returns env LADYM_DB or cwd/ladym.db (workspace-local so each
-// project gets its own memory by default).
+// defaultDBPath returns env LADYM_DB, else cwd/.ladyM/ladym.db (workspace-local
+// so each project gets its own memory by default). Pre-0.9 layouts kept the db
+// flat in the project root: when that legacy file exists it keeps being used so
+// existing memories don't vanish behind the new default; `ladym init` migrates
+// it into .ladyM/.
 func defaultDBPath() string {
 	if env := os.Getenv("LADYM_DB"); env != "" {
 		return env
@@ -238,7 +241,10 @@ func defaultDBPath() string {
 	if err != nil {
 		return "ladym.db"
 	}
-	return filepath.Join(wd, "ladym.db")
+	if fileExists(filepath.Join(wd, "ladym.db")) {
+		return filepath.Join(wd, "ladym.db")
+	}
+	return filepath.Join(wd, ".ladyM", "ladym.db")
 }
 
 func envOr(key, def string) string {
