@@ -214,22 +214,35 @@ func NewStore(dbPath string, dim int, preferSQLiteVec bool, enableWAL bool) (*SQ
 func (s *SQLiteStore) UsingSQLiteVec() bool { return s.usingVec }
 
 // ensureIndex warms the vector index from the database at most once per store.
-// It holds the write lock across the load so no write can slip in between the
-// SELECT and the flag flip.
+//
+// It holds the write lock across the load, and every write path takes the read
+// lock around its index mutation, so a write can neither interleave with the
+// SELECT nor mutate the index while warm is filling it. Without both halves a
+// Delete racing warm would have its row resurrected, and an update would have
+// its fresh vector overwritten by warm's stale snapshot — permanently, since
+// warm never runs again.
+//
+// A failed warm leaves the index cold so the next search retries. Marking it
+// warm on error would silently disable vector search for the process.
 func (s *SQLiteStore) ensureIndex() {
 	s.indexMu.Lock()
 	defer s.indexMu.Unlock()
 	if s.indexWarm {
 		return
 	}
-	s.warmIndexFromBlobs()
+	if err := s.warmIndexFromBlobs(); err != nil {
+		return
+	}
 	s.indexWarm = true
 }
 
-func (s *SQLiteStore) warmIndexFromBlobs() {
+// warmIndexFromBlobs reloads every stored embedding into the index. It reports
+// the query error so ensureIndex can stay cold and retry; unscannable rows are
+// skipped rather than failing the whole load.
+func (s *SQLiteStore) warmIndexFromBlobs() error {
 	rows, err := s.db.Query("SELECT id, embedding FROM memories WHERE embedding IS NOT NULL")
 	if err != nil {
-		return
+		return err
 	}
 	defer rows.Close()
 	for rows.Next() {
@@ -243,6 +256,7 @@ func (s *SQLiteStore) warmIndexFromBlobs() {
 			_ = s.vectorIndex.Upsert(id, vec)
 		}
 	}
+	return rows.Err()
 }
 
 // Close commits and closes the underlying connection.
@@ -264,6 +278,8 @@ func (s *SQLiteStore) RebuildVectorIndex(newDim int) {
 // warming it from the database on first use.
 func (s *SQLiteStore) VectorSearch(queryVec []float32, topK int) []SearchHit {
 	s.ensureIndex()
+	s.indexMu.RLock()
+	defer s.indexMu.RUnlock()
 	return s.vectorIndex.Search(queryVec, topK)
 }
 
@@ -317,6 +333,8 @@ func (s *SQLiteStore) PutMemory(mem *schema.Memory, vector []float32) error {
 		return err
 	}
 	if vector != nil {
+		s.indexMu.RLock()
+		defer s.indexMu.RUnlock()
 		return s.vectorIndex.Upsert(mem.ID, vector)
 	}
 	return nil
@@ -374,7 +392,9 @@ func (s *SQLiteStore) DeleteMemory(id string) error {
 	if _, err := s.db.Exec("DELETE FROM memories WHERE id = ?", id); err != nil {
 		return err
 	}
+	s.indexMu.RLock()
 	s.vectorIndex.Delete(id)
+	s.indexMu.RUnlock()
 	return nil
 }
 
@@ -404,6 +424,8 @@ func (s *SQLiteStore) UpdateMemoryContent(id, content, summary string, tags []st
 	}
 	if vector != nil {
 		if n, _ := res.RowsAffected(); n > 0 {
+			s.indexMu.RLock()
+			defer s.indexMu.RUnlock()
 			return s.vectorIndex.Upsert(id, vector)
 		}
 	}
@@ -825,9 +847,11 @@ func (s *SQLiteStore) DeleteCodeArtifactsByFile(workspace, filePath string) erro
 		string(schema.TypeCodeSymbol), filePath, workspace); err != nil {
 		return err
 	}
+	s.indexMu.RLock()
 	for _, id := range ids {
 		s.vectorIndex.Delete(id)
 	}
+	s.indexMu.RUnlock()
 	return nil
 }
 

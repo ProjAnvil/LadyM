@@ -5,6 +5,7 @@ package storage
 import (
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/ProjAnvil/LadyM/schema"
 )
@@ -95,6 +96,58 @@ func TestLazyIndexKeepsDimValidation(t *testing.T) {
 	m := schema.NewMemory(schema.LayerEpisodic, schema.TypeEvent)
 	if err := s.PutMemory(m, []float32{1, 2}); err == nil {
 		t.Error("PutMemory with a wrong-dim vector on a cold index: want error, got nil")
+	}
+}
+
+// TestConcurrentWriteDuringWarm pins the invariant the whole deferral rests
+// on: a write that lands while the index is warming must win. Warm takes a
+// snapshot and never runs again, so a delete that lost the race would have its
+// row resurrected in the index forever, and an update would have its fresh
+// vector replaced by warm's stale one.
+//
+// It deliberately loops over start delays so the write lands before, during,
+// and after the SELECT, rather than relying on one lucky interleaving.
+func TestConcurrentWriteDuringWarm(t *testing.T) {
+	for _, delay := range []time.Duration{0, time.Millisecond, 5 * time.Millisecond} {
+		s, ids := reopenStore(t, 200)
+		victim := ids[len(ids)-1]
+
+		done := make(chan error, 1)
+		go func() {
+			time.Sleep(delay)
+			done <- s.DeleteMemory(victim)
+		}()
+
+		hits := s.VectorSearch([]float32{1, 0, 0, 0, 0, 0, 0, 0}, 8)
+		if err := <-done; err != nil {
+			t.Fatalf("delay %v: DeleteMemory: %v", delay, err)
+		}
+		for _, h := range hits {
+			if h.ID == victim {
+				t.Errorf("delay %v: search returned %s after it was deleted; the delete lost the race with warm",
+					delay, victim)
+			}
+		}
+		if got := s.vectorIndex.Len(); got != len(ids)-1 {
+			t.Errorf("delay %v: index len = %d, want %d", delay, got, len(ids)-1)
+		}
+		s.Close()
+	}
+}
+
+// TestFailedWarmStaysCold pins the retry path: a warm that fails must not mark
+// the index hot, or vector search stays silently empty for the process.
+func TestFailedWarmStaysCold(t *testing.T) {
+	s, _ := reopenStore(t, 2)
+	if _, err := s.db.Exec("DROP TABLE memories"); err != nil {
+		t.Fatal(err)
+	}
+	s.VectorSearch([]float32{1, 0, 0, 0, 0, 0, 0, 0}, 8) // warm fails: no table
+	s.indexMu.RLock()
+	warm := s.indexWarm
+	s.indexMu.RUnlock()
+	if warm {
+		t.Error("index marked warm after a failed load; the next search will skip reloading")
 	}
 }
 

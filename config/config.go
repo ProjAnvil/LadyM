@@ -195,7 +195,7 @@ type Config struct {
 	EmbeddingAllowDimChange   bool
 	EmbeddingHTTPRequest      string
 	EmbeddingHTTPResponsePath string
-	EmbeddingCJKTokenizer    string
+	EmbeddingCJKTokenizer     string
 	Embedding                 EmbeddingConfig
 
 	// CJK tokenizer dictionary (flat — source of truth for storage's dict

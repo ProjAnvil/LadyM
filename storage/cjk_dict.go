@@ -173,8 +173,13 @@ var (
 	cjkEmbeddedProvider func() *gse.Segmenter
 )
 
-// CJK tokenizer modes. Only the offline hashing provider tokenizes locally,
-// so these affect HashingEmbedding's features and nothing else.
+// CJK tokenizer modes.
+//
+// These change what storage.Tokenize emits, which reaches more than the
+// embedding: the same tokens feed recall's coverage scoring
+// (operations/recall.go reflect) and the per-memory token statistics. Under
+// chars a CJK query yields per-rune tokens, so those numbers move too — but
+// only for CJK text; ASCII tokenization is identical in both modes.
 const (
 	// CJKTokenizerDict segments covered scripts with the gse dictionary.
 	// It is the default and the mode every existing database was written

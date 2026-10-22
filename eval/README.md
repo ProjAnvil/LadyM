@@ -61,33 +61,41 @@ before probing it, so the file is always in page cache. There is no meaningful
 Measured on this repo, darwin/arm64, Go 1.27.2. `spawn` is what the agent waits
 for; `real` is the write itself, measured in-process.
 
-### Before / after (same box, `main@220f187` → `feat/hook-write-path-latency`)
+### Before / after (default `dict` mode)
 
-Two root causes were fixed. Both columns below come from `make eval-hook`; the
-baseline was re-measured in a worktree on the same machine, because the
-originally published numbers (10.6 / 13.2 / 30.9ms) were taken on a different
-day and are 2–6ms off this box's baseline.
+Baseline is `main@220f187`, re-measured **back-to-back** with the fix on the same
+box within a two-minute window. That matters: absolute durations here swing by
+2x with machine load, and the numbers originally published in this file
+(10.6 / 13.2 / 30.9ms) were taken on a different day — they are 2–6ms off this
+box's baseline and must not be compared against.
 
 | scale | spawn p50 before | after | engine open before | after |
 |---|---|---|---|---|
-| 100 rows | 14.96ms | **13.18ms** | 0.87ms | **0.45ms** |
-| 1k rows | 17.04ms | **12.30ms** | 2.67ms | **0.38ms** |
-| 10k rows | 36.91ms | **14.07ms** | 18.96ms | **0.41ms** |
+| 100 rows | 18.73ms | 18.48ms | 0.95ms | **0.54ms** |
+| 1k rows | 23.16ms | **19.22ms** | 3.45ms | **0.54ms** |
+| 10k rows | 44.95ms | **22.88ms** | 21.42ms | **0.66ms** |
 
-- **Engine open is now flat in corpus size.** It used to be the whole O(n) cost:
-  0.87 / 2.67 / 18.96ms. `NewStore` called `warmIndexFromBlobs()` unconditionally,
-  which SELECTs every embedding and re-upserts it into the in-memory index — once
-  per process. Warming now happens on the first `VectorSearch` instead of at open,
-  and the steady-state hook write never issues one (resource resolution hits its
-  exact-alias stage first). Measured directly, `NewStore` at 10k rows went from
-  21.9ms to 0.4ms.
-- **spawn p50 at 10k rows fell 62%**, and it no longer climbs with history:
-  the three scales are now within ~2ms of each other instead of spanning 22ms.
-- **Resolve, record, and edges are unchanged** (resolve: 0.046 / 0.138 / 1.489ms
-  after, versus 0.049 / 0.153 / 1.681ms before). The fix removed startup work; it
-  did not make the write itself cheaper.
+- **Engine open is now flat in corpus size** — 0.54 / 0.54 / 0.66ms instead of
+  0.95 / 3.45 / 21.42ms. It used to be the whole O(n) cost: `NewStore` called
+  `warmIndexFromBlobs()` unconditionally, which SELECTs every embedding and
+  re-upserts it into the in-memory index, once per process. Warming now happens
+  on the first `VectorSearch`, and the steady-state hook write never issues one
+  (resource resolution hits its exact-alias stage first).
+- **The spawn win scales with corpus size, and at 100 rows it is ~2%.** That is
+  the honest floor: at 100 rows the invocation is startup-bound, and the only
+  thing removed is a 0.4ms warm out of ~18.7ms. The 1.3% measured difference is
+  inside the noise. Don't expect the small-library number to move.
+- **Resolve, record, and edges are unchanged** (resolve: 0.063 / 0.206 / 2.606ms
+  after versus 0.066 / 0.214 / 2.193ms before — the 10k figure is noise, not a
+  regression). The fix removed startup work; it did not make the write cheaper.
 - **Ignored events are still cheap.** An unknown event exits in roughly 10ms
   because it never opens the engine.
+
+Measured on a quieter machine in the same session, the same comparison read
+14.96 → 13.18ms (100 rows), 17.04 → 12.30ms (1k), 36.91 → 14.07ms (10k), with
+engine open 0.87 / 2.67 / 18.96 → 0.45 / 0.38 / 0.41ms. Same shape, different
+absolute values — which is the point about comparing only against a same-box,
+same-window baseline.
 
 ### CJK: the cost was a dictionary load, not per-character work
 
@@ -107,15 +115,17 @@ segmentation is only ~2.4µs per character.
 That distinction matters: a segmentation cache cannot fix this, because the cost
 is not repeat work.
 
-`embedding.cjk_tokenizer` selects what to do about it. Both columns below are
-`claude/prompt-cjk`, a 3000-rune Chinese prompt truncated to the 2000-rune
-ceiling.
+`embedding.cjk_tokenizer` selects what to do about it. Both columns are
+`claude/prompt-cjk` — a 3000-rune Chinese prompt truncated to the 2000-rune
+ceiling — measured back-to-back in the same window.
 
 | scale | `dict` (default) | `chars` |
 |---|---|---|
-| 100 rows | 461.6ms | **12.08ms** |
-| 1k rows | 349.6ms | **12.82ms** |
-| 10k rows | 355.0ms | **14.08ms** |
+| 100 rows | 635.9ms | **17.38ms** |
+| 1k rows | 614.4ms | **20.37ms** |
+| 10k rows | 605.2ms | **18.76ms** |
+
+A ~35x reduction, and a Chinese prompt now costs what an English one does.
 
 `chars` never loads the dictionary: it emits one token per rune, and `features()`
 adds adjacent-pair bigrams on top. Retrieval quality does not regress — on a
@@ -136,10 +146,20 @@ detected and routed through the same re-embed path as a dim change
   SELECT and 8.6ms of decode+upsert, so batching could only cut ~4ms off a cost
   that no longer runs per invocation. Not built.
 
+### Caveat on the `chars` numbers
+
+The `chars` table above measures write latency only. The mode changes what
+`storage.Tokenize` emits, and those tokens also feed recall's coverage scoring
+and the per-memory token statistics, so switching modes moves those numbers for
+CJK text as well. The retrieval ablation quoted above used the hashing
+embedding; it did not measure `reflect`'s coverage verdict. ASCII tokenization
+is identical in both modes.
+
 Worth reading together: per-invocation cost used to be a function of how much
-history you had (~15ms at 100 rows, ~37ms at 10k). It is now roughly a constant
-~12–14ms, and the remaining gap to the ~1.6ms real write is process startup that
-no amount of index work will remove.
+history you had (~19ms at 100 rows, ~45ms at 10k). It is now roughly a constant
+~18–23ms. The remaining gap to the ~0.4–3ms real write is process startup, which
+no amount of index work will remove — and at 100 rows that startup was already
+almost all of it, which is why the fix barely registers there.
 
 ## Caveats
 
