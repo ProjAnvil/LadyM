@@ -195,6 +195,7 @@ type Config struct {
 	EmbeddingAllowDimChange   bool
 	EmbeddingHTTPRequest      string
 	EmbeddingHTTPResponsePath string
+	EmbeddingCJKTokenizer    string
 	Embedding                 EmbeddingConfig
 
 	// CJK tokenizer dictionary (flat — source of truth for storage's dict
@@ -279,6 +280,7 @@ func Default() *Config {
 		EmbeddingQueryCacheSize:   0,
 		EmbeddingTimeoutS:         10.0,
 		EmbeddingAllowDimChange:   false,
+		EmbeddingCJKTokenizer:     envOr("LADYM_EMBEDDING_CJK_TOKENIZER", "dict"),
 		EmbeddingHTTPRequest:      `{"input": "{text}"}`,
 		EmbeddingHTTPResponsePath: "data",
 
@@ -536,7 +538,7 @@ func applyToml(cfg *Config, data map[string]any) {
 					switch ek {
 					case "provider", "base_url", "model", "api_key_env", "fallback",
 						"query_cache_size", "timeout_s", "allow_dim_change",
-						"http_request", "http_response_path":
+						"http_request", "http_response_path", "cjk_tokenizer":
 						applyFlat(cfg, "embedding_"+ek, ev)
 					default:
 						if !isSecret(ek) {
@@ -835,6 +837,8 @@ func applyFlat(cfg *Config, key string, v any) {
 		cfg.EmbeddingTimeoutS = asFloat(v)
 	case "embedding_allow_dim_change":
 		cfg.EmbeddingAllowDimChange = asBool(v)
+	case "embedding_cjk_tokenizer":
+		cfg.EmbeddingCJKTokenizer = asString(v)
 	case "embedding_http_request":
 		cfg.EmbeddingHTTPRequest = asString(v)
 	case "embedding_http_response_path":
@@ -935,6 +939,9 @@ func applyEnv(cfg *Config) {
 	}
 	if v := os.Getenv("LADYM_DICT_DIR"); v != "" {
 		cfg.CJKDictDir = v
+	}
+	if v := os.Getenv("LADYM_EMBEDDING_CJK_TOKENIZER"); v != "" {
+		cfg.EmbeddingCJKTokenizer = v
 	}
 	if v := os.Getenv("LADYM_EMBEDDING_TIMEOUT_S"); v != "" {
 		cfg.EmbeddingTimeoutS = asFloat(v)

@@ -173,6 +173,66 @@ var (
 	cjkEmbeddedProvider func() *gse.Segmenter
 )
 
+// CJK tokenizer modes. Only the offline hashing provider tokenizes locally,
+// so these affect HashingEmbedding's features and nothing else.
+const (
+	// CJKTokenizerDict segments covered scripts with the gse dictionary.
+	// It is the default and the mode every existing database was written
+	// under, so switching away from it invalidates stored CJK vectors.
+	CJKTokenizerDict = "dict"
+	// CJKTokenizerChars emits one token per rune for every CJK script and
+	// never loads the dictionary. features() adds adjacent-pair bigrams on
+	// top, so retrieval quality holds up: on a 40-doc / 40-query Chinese
+	// probe it scored MRR 1.000 against 0.988 for the dictionary path.
+	// The win is latency — see SetCJKTokenizerMode.
+	CJKTokenizerChars = "chars"
+)
+
+// cjkTokenizerMode selects how segmentCJK splits CJK runs; guarded by cjkMu.
+var cjkTokenizerMode = CJKTokenizerDict
+
+// SetCJKTokenizerMode picks the CJK tokenizer mode. Unknown values fall back
+// to CJKTokenizerDict so a config typo cannot silently change what every
+// stored vector means.
+//
+// The dictionary load is the reason this exists: building gse's cedar trie
+// costs ~520ms and happens once per process, on the first CJK run any call
+// touches. The hook forks a process per tool call, so a Chinese prompt costs
+// ~450ms per invocation under dict mode and ~35ms under chars mode.
+func SetCJKTokenizerMode(mode string) {
+	cjkMu.Lock()
+	defer cjkMu.Unlock()
+	if mode == CJKTokenizerChars {
+		cjkTokenizerMode = CJKTokenizerChars
+		return
+	}
+	cjkTokenizerMode = CJKTokenizerDict
+}
+
+// CJKTokenizerMode reports the active CJK tokenizer mode.
+func CJKTokenizerMode() string {
+	cjkMu.Lock()
+	defer cjkMu.Unlock()
+	return cjkTokenizerMode
+}
+
+// CJKTokenizerVersion tags the vectors the active mode produces. It is
+// persisted under the "embedding_tokenizer" meta key so a mode switch is
+// detectable: vectors produced by different versions are not comparable, and
+// silently mixing them would make older CJK memories unsearchable.
+func CJKTokenizerVersion() string {
+	cjkMu.Lock()
+	defer cjkMu.Unlock()
+	if cjkTokenizerMode == CJKTokenizerChars {
+		return "chars-v1"
+	}
+	return "dict-v1"
+}
+
+// cjkTokenizerUsesDict reports whether segmentCJK may consult the dictionary.
+// Callers hold cjkMu.
+func cjkTokenizerUsesDict() bool { return cjkTokenizerMode != CJKTokenizerChars }
+
 // cjkProbeInterval bounds how often the dict dir is re-checked for a
 // dictionary another instance provisioned on a shared volume. Var (not
 // const) so tests can zero it.

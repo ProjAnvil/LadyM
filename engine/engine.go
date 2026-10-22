@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -69,6 +70,12 @@ func NewWithModels(cfg *config.Config, models *adapter.ModelRouting) (*Engine, e
 	if cfg.CJKDictDir != "" {
 		storage.SetCJKDictDir(cfg.CJKDictDir)
 	}
+	// Same for the CJK tokenizer mode: which mode was active decides what the
+	// stored vectors mean. Skipped when unset so a host that configured the
+	// mode directly keeps it.
+	if cfg.EmbeddingCJKTokenizer != "" {
+		storage.SetCJKTokenizerMode(cfg.EmbeddingCJKTokenizer)
+	}
 	e := &Engine{Config: cfg, routing: models, agents: map[string]providers.LLMProvider{}}
 
 	var provider storage.EmbeddingProvider
@@ -94,6 +101,10 @@ func NewWithModels(cfg *config.Config, models *adapter.ModelRouting) (*Engine, e
 	e.Store = store
 
 	if err := e.enforceEmbeddingDim(); err != nil {
+		store.Close()
+		return nil, err
+	}
+	if err := e.enforceEmbeddingTokenizer(); err != nil {
 		store.Close()
 		return nil, err
 	}
@@ -166,6 +177,40 @@ func (e *Engine) enforceEmbeddingDim() error {
 		return storage.AssertDimMatches(storedDim, actual)
 	}
 	return nil
+}
+
+// enforceEmbeddingTokenizer records which CJK tokenizer built the stored
+// vectors, and refuses to reopen a database whose vectors came from a
+// different one unless re-embedding is explicitly allowed.
+//
+// Only the offline hashing provider tokenizes locally. Hosted and injected
+// providers do their own tokenization server-side, so their vectors are
+// unaffected by the CJK mode and nothing is recorded for them.
+func (e *Engine) enforceEmbeddingTokenizer() error {
+	if e.routing != nil && e.routing.Embedding != nil {
+		return nil
+	}
+	if !strings.EqualFold(e.Config.EmbeddingProvider, "hashing") {
+		return nil
+	}
+	want := storage.CJKTokenizerVersion()
+	stored, err := e.Store.GetMeta("embedding_tokenizer")
+	if err != nil {
+		return err
+	}
+	if stored == "" {
+		return e.Store.SetMeta("embedding_tokenizer", want)
+	}
+	if stored == want {
+		return nil
+	}
+	if !e.Config.EmbeddingAllowDimChange {
+		return &storage.EmbeddingTokenizerMismatch{Stored: stored, Configured: want}
+	}
+	if err := e.reembedAll(); err != nil {
+		return err
+	}
+	return e.Store.SetMeta("embedding_tokenizer", want)
 }
 
 func (e *Engine) reembedAll() error {

@@ -58,10 +58,29 @@
 | 决策点 | 结论 | 依据 |
 |---|---|---|
 | 向量索引预热时机 | 改为懒加载：首次 `VectorSearch` 才预热 | hook 稳态下资源多已存在，解析走精确别名命中，不触发向量检索 |
-| 冷态下的索引写入 | 索引未预热时，`Upsert`/`Delete` 直接跳过 | 冷态下后续预热必然从库里读全量，跳过不会丢数据；不跳过则索引永远处于「只有 1 条」的部分状态 |
-| 预热加载方式 | 批量装载：一次查询直接填装矩阵，不走逐行 `Upsert` | 逐行路径每行 2 次分配 + 1 次归一化 + map 操作；批量路径每行 1 次解码 |
+| 冷态下的索引写入 | **不跳过**（与初稿相反）| 冷态跳过会让 `PutMemory` 的 dim 校验静默失效（`store_crud_test.go` 钉住了该错误）。索引始终可写，热化时 `Upsert` 全量覆盖，天然幂等 |
+| 预热加载方式 | 不改 | 见 §3.1：批量装载最多省 4ms，而该成本已不在每次调用的路径上 |
 | CJK 切词 | **保留词典切词为默认**，新增 `chars` 模式可选 | 用户明确选择（2026-10-22） |
 | CJK 切词缓存 | **不做** | 见 §2.2：瓶颈是一次性词典加载，缓存对它无效；且会引入一份全局可变状态 |
+
+### 3.1 为什么不做预热批量装载（实测后否决）
+
+原计划给 `InMemoryVectorIndex` 加 `BulkLoad`，一次查询直接填装矩阵，省掉每行的
+`slices.Clone` + 归一化遍历 + map 写入。先量了预热本身：
+
+| 阶段（10k 行，dim=256） | 耗时 |
+|---|---|
+| `SELECT id, embedding` | 9.1ms |
+| `decodeVec` + `Upsert` | 8.6ms |
+| 合计 | 17.7ms |
+
+批量装载只能动后面那 8.6ms 的一部分，乐观估计省 ~4ms（17.7 → ~13ms）。而懒加载之后
+这 17.7ms 已经不在每次 hook 调用的路径上。收益约 25% 落在一个已经离开热路径的成本上，
+不值得新增一个索引接口。
+
+顺带更正一个错误假设：初稿写「BulkLoad 可假定向量已归一化」不成立。`PutMemory` 存的是
+`encodeVec(vector)` 原始值，归一化只发生在 `Upsert` 内部。任何绕过 `Upsert` 的装载路径
+都必须自己做 L2 归一化，否则相似度全错。省事的写法正好是错的写法，这是否决它的第二个理由。
 
 ### 3.1 为什么 CJK 默认保留词典切词，但仍要提供 `chars`
 
@@ -97,51 +116,59 @@ Python / 机器学习侧的通行做法也是两条路并存：
 
 ```
 SQLiteStore 增加：
-  indexMu   sync.Mutex
+  indexMu   sync.RWMutex
   indexWarm bool
 
 NewStore：删掉 s.warmIndexFromBlobs()
 
+ensureIndex()：
+  indexMu.Lock()
+  if indexWarm { return }
+  warmIndexFromBlobs()      // Upsert 全量覆盖，幂等
+  indexWarm = true
+
 VectorSearch(q, k)：
-  s.ensureIndex()          // 冷则预热，一次
+  s.ensureIndex()           // 冷则预热，一次
   return s.vectorIndex.Search(q, k)
 
-PutMemory / 批量 upsert / DeleteMemory 等写路径：
-  if !s.indexWarm { 跳过 vectorIndex 操作 }
+写路径（PutMemory / UpdateMemoryContent / DeleteMemory /
+DeleteCodeArtifactsByFile）：完全不动，照常 Upsert / Delete
 
 RebuildVectorIndex(newDim)：indexWarm = false
 ```
 
-不变式（写进注释）：
+不变式（写进 `SQLiteStore` 的字段注释）：
 
-> 索引只有两种状态：冷（空，未从库读）和热（与库中全部 embedding 一致）。
-> 冷态下的写不进索引，因为热化时必然从库里读全量，会自然包含这些写。
-> 任何读（`VectorSearch`）前必热化。
+> 索引要么冷（未从库读），要么热（覆盖库中全部 embedding）。
+> 写随时可发生，两种状态下都一样；热化只在首次 `VectorSearch` 时发生一次，
+> 且用 `Upsert` 全量覆盖，因此对已经进索引的写是幂等的。
 
-### 4.2 预热批量装载（storage/vector_index.go + store_sqlite.go）
+为什么不在冷态跳过写：跳过会连带跳过 `Upsert` 里的 dim 校验，让错维度的向量静默
+入库。`store_crud_test.go` 钉住了这个错误，属于可观测行为，不能改。
 
-`InMemoryVectorIndex` 增加：
+### 4.2 预热批量装载 —— 已否决
 
-```go
-// BulkLoad replaces the index contents in one shot. Vectors must already be
-// L2-normalised and of length dim, as Upsert guarantees on write.
-func (ix *InMemoryVectorIndex) BulkLoad(ids []string, mat [][]float32)
-```
+见 §3.1。不实现。
 
-`warmIndexFromBlobs` 改成：一次 `SELECT id, embedding`，把每行 blob 解到共享 backing array 的切片里，攒齐后 `BulkLoad`。当 `vectorIndex` 不是 `*InMemoryVectorIndex` 时回退到逐行 `Upsert`（当前代码里该字段只会被赋 `NewInMemoryVectorIndex`，回退只是保险）。
+### 4.3 CJK 切词模式（storage + config + engine）
 
-### 4.3 CJK 切词模式（storage/embeddings.go + config/config.go）
-
-- `config` 增加 `EmbeddingCJKTokenizer string`，取值 `dict`（默认）/ `chars`。
-- `segmentCJK`：新增参数或包级开关，`chars` 时直接走现有的逐字回退分支，不碰 `cjkSegmenterFor`，因此**不触发词典加载**。
-- `engine.enforceEmbeddingDim` 增加 tokenizer 版本校验（§3.2）。
+- `config` 增加 `EmbeddingCJKTokenizer string`，取值 `dict`（默认）/ `chars`；
+  TOML `[embedding] cjk_tokenizer`、flat `embedding_cjk_tokenizer`、
+  环境 `LADYM_EMBEDDING_CJK_TOKENIZER`。未知值回落 `dict`。
+- `storage` 增加 `SetCJKTokenizerMode` / `CJKTokenizerMode` / `CJKTokenizerVersion`，
+  模式与 `cjkSeg` 同一把 `cjkMu` 保护。`segmentCJK` 在 `chars` 下走新的
+  `perRuneTokens`，不碰 `cjkSegmenterFor`，因此**不触发词典加载**。
+- `engine.NewWithModels` 在打开 store 前把 config 的模式推进 storage（与既有的
+  `SetCJKDictDir` 同一位置）。
+- `engine.enforceEmbeddingTokenizer` 增加 tokenizer 版本校验（§3.2）。只对
+  hashing provider 生效：托管 / 注入的 provider 在服务端切词，与 CJK 模式无关。
 
 ## 5. 验收
 
 | 项 | 要求 |
 |---|---|
 | `make eval-hook` 复测 | 三档规模的 spawn p50 与 engine open 都要低于基线 |
-| 基线 | 100 行 10.6 / 0.6ms；1k 行 13.2 / 2.1ms；10k 行 30.9 / 15.2ms |
+| 基线 | **必须与同机基线比**。原先发布的 10.6 / 13.2 / 30.9ms 是另一天跑的，本机重测基线是 14.96 / 17.04 / 36.91ms（engine open 0.87 / 2.67 / 18.96ms）|
 | `claude/prompt-cjk` | 默认 `dict` 不变；附 `chars` 模式的对照数 |
 | 主套件 | 22 个包全绿 |
 | `make lint-comments` | 通过（Go 注释只能英文） |
