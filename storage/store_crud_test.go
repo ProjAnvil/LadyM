@@ -103,11 +103,16 @@ func TestWarmIndexFromBlobs(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer s2.Close()
-	// Only the good 8-dim vector is warmed; the 2-dim blob is skipped.
-	if s2.vectorIndex.Len() != 1 {
-		t.Errorf("warmed index len = %d, want 1", s2.vectorIndex.Len())
+
+	// Warming is deferred: the reopened store has read nothing yet.
+	if n := s2.vectorIndex.Len(); n != 0 {
+		t.Errorf("index len right after open = %d, want 0 (warm is deferred)", n)
 	}
-	hits := s2.vectorIndex.Search([]float32{1, 0, 0, 0, 0, 0, 0, 0}, 1)
+	// Only the good 8-dim vector is warmed; the 2-dim blob is skipped.
+	hits := s2.VectorSearch([]float32{1, 0, 0, 0, 0, 0, 0, 0}, 1)
+	if n := s2.vectorIndex.Len(); n != 1 {
+		t.Errorf("warmed index len = %d, want 1", n)
+	}
 	if len(hits) != 1 || hits[0].ID != good.ID {
 		t.Errorf("warm search hits = %v, want [%s]", hits, good.ID)
 	}

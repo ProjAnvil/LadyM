@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/ProjAnvil/LadyM/schema"
 	_ "modernc.org/sqlite"
@@ -120,12 +121,22 @@ func decodeVec(b []byte) []float32 {
 
 // SQLiteStore is the single persistence layer for LadyM. It owns the SQLite
 // connection and the (in-memory) vector index.
+//
+// The vector index is warm-loaded lazily: it is either cold (nothing read from
+// the database yet) or hot (it covers every stored embedding). Writes may land
+// at any time in either state. Warming happens once, on the first VectorSearch,
+// and reloads every row with Upsert, so it is idempotent with respect to any
+// write that already reached the index. The hook pays NewStore once per tool
+// call, so an eager O(n) warm is an O(n) tax on every event.
 type SQLiteStore struct {
 	DBPath      string
 	Dim         int
 	db          *sql.DB
 	vectorIndex VectorIndex
 	usingVec    bool
+
+	indexMu   sync.RWMutex
+	indexWarm bool
 }
 
 var _ Store = (*SQLiteStore)(nil)
@@ -196,12 +207,24 @@ func NewStore(dbPath string, dim int, preferSQLiteVec bool, enableWAL bool) (*SQ
 	}
 
 	s := &SQLiteStore{DBPath: dbPath, Dim: dim, db: db, vectorIndex: NewInMemoryVectorIndex(dim)}
-	s.warmIndexFromBlobs()
 	return s, nil
 }
 
 // UsingSQLiteVec always returns false (see NewStore).
 func (s *SQLiteStore) UsingSQLiteVec() bool { return s.usingVec }
+
+// ensureIndex warms the vector index from the database at most once per store.
+// It holds the write lock across the load so no write can slip in between the
+// SELECT and the flag flip.
+func (s *SQLiteStore) ensureIndex() {
+	s.indexMu.Lock()
+	defer s.indexMu.Unlock()
+	if s.indexWarm {
+		return
+	}
+	s.warmIndexFromBlobs()
+	s.indexWarm = true
+}
 
 func (s *SQLiteStore) warmIndexFromBlobs() {
 	rows, err := s.db.Query("SELECT id, embedding FROM memories WHERE embedding IS NOT NULL")
@@ -227,14 +250,20 @@ func (s *SQLiteStore) Close() error {
 	return s.db.Close()
 }
 
-// RebuildVectorIndex resets the index at a new dim (used on dim change).
+// RebuildVectorIndex resets the index at a new dim (used on dim change). The
+// index goes cold again: the next VectorSearch reloads at the new dim.
 func (s *SQLiteStore) RebuildVectorIndex(newDim int) {
+	s.indexMu.Lock()
 	s.Dim = newDim
 	s.vectorIndex = NewInMemoryVectorIndex(newDim)
+	s.indexWarm = false
+	s.indexMu.Unlock()
 }
 
-// VectorSearch runs a cosine top-k search over the in-memory vector index.
+// VectorSearch runs a cosine top-k search over the in-memory vector index,
+// warming it from the database on first use.
 func (s *SQLiteStore) VectorSearch(queryVec []float32, topK int) []SearchHit {
+	s.ensureIndex()
 	return s.vectorIndex.Search(queryVec, topK)
 }
 
