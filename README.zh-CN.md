@@ -399,7 +399,12 @@ ladym record --agent claude --action "fixed login bug" --outcome success
 ladym consolidate                       # L1 → L2
 ladym worker --once                     # 触发 System 2 的 L5/L6 抽取
 ladym stats                             # 查看记忆里有什么
+ladym doctor                            # 报告配置 / 存储问题
 ```
+
+`ladym doctor` 是只读的：不调 LLM、不写文件、不联网。它逐项打印检查结果（home 目录、
+遗留 `~/.ladym` 目录、全局配置、数据库、遗留平铺 db、`.gitignore`、词典目录），只有 error
+级别的发现才会让退出码非 0。
 
 用 `ladym <command> --help` 查看各命令 flag；`ladym completion <shell>` 生成 shell 自动补全。
 每条索引结果都带符号的**身份、签名、docstring、代码片段、源文件**——外加可通过符号图查询的
@@ -408,7 +413,8 @@ ladym stats                             # 查看记忆里有什么
 ## 配置
 
 配置按以下优先级解析（从高到低）：CLI flag → `LADYM_*` 环境变量 → `./ladym.toml` →
-`~/.ladyM/config.toml` → 内建默认值(旧版写入的 `~/.ladym/config.toml` 仍会读取)。
+`~/.ladyM/config.toml` → 内建默认值(旧版写入的 `~/.ladym/config.toml` 不再读取，
+用 `ladym doctor` 可查出这种情况)。
 `ladym --config <path>` 可在其上再叠加一个 TOML 文件。
 
 | 环境变量 | 默认值 | 用途 |

@@ -239,7 +239,8 @@ All front-ends call the same `engine` package so behaviour is identical:
 - **CLI** (cobra) — `ladym init` (create `.ladyM/` db, migrate legacy flat db,
   update `.gitignore`), `ladym recall "auth flow"`, `ladym recall-ops --resource "ladym.db" --action migrate`,
   `ladym index ./src`, `ladym remember "..."`,
-  `ladym record`, `ladym consolidate`, `ladym worker`, `ladym stats`, `ladym config`.
+  `ladym record`, `ladym consolidate`, `ladym worker`, `ladym stats`, `ladym config`,
+  `ladym doctor` (read-only install diagnostics).
 - **Go SDK** — the `ladym` package is a one-import facade:
   `eng, _ := ladym.NewEngine(ladym.DefaultConfig()); resp, _ := eng.Recall(...)`,
   plus one-shot helpers (`ladym.Recall`, `ladym.Remember`, `ladym.IndexCode`) and

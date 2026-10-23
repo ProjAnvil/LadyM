@@ -700,34 +700,6 @@ func TestLoadFileLayersOnly(t *testing.T) {
 	}
 }
 
-// An install created before the home directory spelling was standardized keeps
-// its global config at ~/.ladym/config.toml. On a case-sensitive filesystem
-// that is a different directory from ~/.ladyM, so Load must still read it.
-func TestLoadLegacyGlobalConfig(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("LADYM_DB", "")
-	t.Setenv("LADYM_WORKSPACE", "")
-
-	legacyDir := filepath.Join(home, LegacyDirName)
-	if err := os.MkdirAll(legacyDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(legacyDir, "config.toml"),
-		[]byte("[recall]\ntop_k_tier1 = 7\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	t.Chdir(t.TempDir())
-
-	cfg, err := Load("", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.Recall.TopKTier1 != 7 {
-		t.Errorf("recall.top_k_tier1 = %d, want 7 from legacy global layer", cfg.Recall.TopKTier1)
-	}
-}
-
 func TestLoadNoLayers(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("LADYM_DB", "")

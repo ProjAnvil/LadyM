@@ -9,8 +9,7 @@
 //  1. cli_overrides passed to Load (e.g. from CLI flags).
 //  2. Environment variables (LADYM_*).
 //  3. The project file ./ladym.toml.
-//  4. The global file ~/.ladyM/config.toml (a legacy ~/.ladym/config.toml is
-//     still read when the preferred path is absent).
+//  4. The global file ~/.ladyM/config.toml.
 //  5. The defaults (offline: hashing embedding, llm_provider == "none").
 //
 // Secret literals (api_key/*_key/token/secret/password) found in TOML are
@@ -237,9 +236,8 @@ type Config struct {
 // ~/.ladyM as two different directories.
 const DirName = ".ladyM"
 
-// LegacyDirName is the pre-standardization spelling of DirName. It is only
-// consulted as a read fallback so installs created before the case was
-// standardized keep working; nothing writes to it.
+// LegacyDirName is the pre-standardization spelling of DirName. Nothing loads
+// from it — `ladym doctor` reports it so the user can move the files across.
 const LegacyDirName = ".ladym"
 
 // HomeDir returns the LadyM home directory (~/.ladyM), resolved at call time.
@@ -253,31 +251,30 @@ func HomeDir() string {
 	return filepath.Join(home, DirName)
 }
 
-// GlobalConfigPath resolves the global config file, preferring
-// ~/.ladyM/config.toml and falling back to ~/.ladym/config.toml when only the
-// legacy spelling exists. It returns "" when neither exists.
+// GlobalConfigPath resolves the global config file, ~/.ladyM/config.toml. It
+// returns "" when that file does not exist.
+//
+// There is deliberately no fallback to the legacy ~/.ladym spelling: an install
+// still using it would silently keep running on defaults while appearing
+// configured. `ladym doctor` reports the situation instead.
 func GlobalConfigPath() string {
 	return globalConfigPath(fileExists)
 }
 
 // globalConfigPath is the testable core of GlobalConfigPath. exists is injected
-// because on a case-insensitive filesystem (macOS APFS) both spellings resolve
-// to the same file, so the fallback branch cannot be reached from disk state
-// alone; tests inject a case-sensitive view instead.
+// because a case-insensitive filesystem (macOS APFS) reports ~/.ladym/config.toml
+// and ~/.ladyM/config.toml as the same file, so the "legacy spelling is not
+// loaded" contract cannot be checked from disk state alone.
 func globalConfigPath(exists func(string) bool) string {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return ""
 	}
-	current := filepath.Join(home, DirName, "config.toml")
-	if exists(current) {
-		return current
+	path := filepath.Join(home, DirName, "config.toml")
+	if !exists(path) {
+		return ""
 	}
-	legacy := filepath.Join(home, LegacyDirName, "config.toml")
-	if exists(legacy) {
-		return legacy
-	}
-	return ""
+	return path
 }
 
 // defaultDBPath returns env LADYM_DB, else cwd/.ladyM/ladym.db (workspace-local

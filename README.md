@@ -476,7 +476,13 @@ ladym record --agent claude --action "fixed login bug" --outcome success
 ladym consolidate                       # L1 → L2
 ladym worker --once                     # fire the System 2 L5/L6 extractors
 ladym stats                             # what's in memory
+ladym doctor                            # report config / storage problems
 ```
+
+`ladym doctor` is read-only: no LLM calls, no writes, no network. It prints one
+line per check (home dir, legacy `~/.ladym` directory, global config, database,
+legacy flat db, `.gitignore`, dictionary dir) and exits non-zero only when a
+finding is an error.
 
 Run `ladym <command> --help` for flags; `ladym completion <shell>` generates shell
 autocompletion. Each indexed result carries the symbol's **identity, signature,

@@ -3,6 +3,12 @@
 Date: 2026-10-23
 Status: approved
 
+> Update: the §"Legacy read fallback" below was removed the same day. LadyM has
+> too few installations for a compatibility path to earn its keep, and a silent
+> fallback hides exactly what the user needs to know. See
+> `2026-10-23-doctor-command-design.md` — `ladym doctor` reports the legacy
+> directory instead.
+
 ## Problem
 
 LadyM resolves its home directory from several places, and they do not agree on
