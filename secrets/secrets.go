@@ -32,13 +32,10 @@ const (
 	aesKeyLen = 32
 )
 
-// Dir returns the default ~/.ladyM directory (resolved at call time).
+// Dir returns the default ~/.ladyM directory (resolved at call time). It
+// delegates to config.HomeDir so every subsystem agrees on the spelling.
 func Dir() string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		home = "."
-	}
-	return filepath.Join(home, ".ladyM")
+	return config.HomeDir()
 }
 
 func hmacSHA256(key, data []byte) []byte {

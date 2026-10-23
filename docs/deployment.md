@@ -73,8 +73,12 @@ docker-compose 拓扑、配置参考与运维基线。个人版 / 企业版的�
 
 ## 2. 配置参考
 
-配置优先级:CLI flag → `LADYM_*` env → `./ladym.toml` → `~/.ladym/config.toml` →
+配置优先级:CLI flag → `LADYM_*` env → `./ladym.toml` → `~/.ladyM/config.toml` →
 默认值。容器内推荐全部用 env 注入。
+
+注意大小写:目录统一为 `.ladyM`(大写 M)。Linux 上文件系统区分大小写,
+`~/.ladym` 与 `~/.ladyM` 是两个不同目录;旧版留下的 `~/.ladym/config.toml`
+仍会被读取,但新配置一律写到 `~/.ladyM/`。
 
 | 配置 | env | 说明 |
 |---|---|---|

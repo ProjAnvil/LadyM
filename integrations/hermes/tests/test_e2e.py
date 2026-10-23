@@ -26,7 +26,7 @@ pytestmark = pytest.mark.skipif(
 @pytest.fixture
 def client(tmp_path):
     # Isolate the server from the operator's environment: the repo-root
-    # ./ladym.toml (loaded when cwd is the repo root) and ~/.ladym/config.toml
+    # ./ladym.toml (loaded when cwd is the repo root) and ~/.ladyM/config.toml
     # can wire an LLM-backed attention gate / embeddings, which makes
     # remember/recall nondeterministic. An empty HOME + cwd forces the
     # offline heuristic mode.

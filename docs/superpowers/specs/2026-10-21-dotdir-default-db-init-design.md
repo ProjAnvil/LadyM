@@ -69,6 +69,8 @@ func defaultDBPath() string {
 ### 3.3 显式不做的（YAGNI）
 
 - 不做 `~/.ladym/config.toml` 与 `~/.ladyM` 大小写统一（独立问题，另行处理）。
+  → 已于 2026-10-23 处理，见 `2026-10-23-home-dir-case-unification-design.md`：统一到
+  `.ladyM`，旧小写全局配置只做兼容读。
 - 不自动迁移：只有跑 `init` 才搬旧库；不跑 init 的存量用户靠 defaultDBPath 的旧路径回退继续用。
 - 不检测 db 是否被其他进程占用（文档提示：先停 serve/worker 再 init）。
 
