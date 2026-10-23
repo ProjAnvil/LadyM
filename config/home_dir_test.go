@@ -44,7 +44,9 @@ func TestGlobalConfigPathFindsRealFile(t *testing.T) {
 }
 
 // caseSensitiveExists simulates a filesystem that distinguishes ~/.ladym from
-// ~/.ladyM, which macOS APFS does not. Only the listed paths exist.
+// ~/.ladyM, which macOS APFS does not. Only the listed paths exist. Without it,
+// writing only the legacy file on macOS also makes ~/.ladyM/config.toml exist,
+// and every assertion about the two spellings becomes unfalsifiable.
 func caseSensitiveExists(paths ...string) func(string) bool {
 	set := make(map[string]bool, len(paths))
 	for _, p := range paths {
@@ -66,22 +68,21 @@ func TestGlobalConfigPathPrefersCurrentSpelling(t *testing.T) {
 	}
 }
 
-// A case-sensitive filesystem keeps ~/.ladym and ~/.ladyM apart, so an install
-// that predates the case standardization would otherwise lose its global
-// config silently.
-func TestGlobalConfigPathFallsBackToLegacySpelling(t *testing.T) {
+// There is no fallback to the legacy spelling: an install that still keeps its
+// config at ~/.ladym would otherwise run on defaults while looking configured.
+func TestGlobalConfigPathIgnoresLegacySpelling(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 
 	legacy := filepath.Join(home, LegacyDirName, "config.toml")
 	exists := caseSensitiveExists(legacy)
 
-	if got := globalConfigPath(exists); got != legacy {
-		t.Errorf("globalConfigPath() = %q, want %q (legacy fallback)", got, legacy)
+	if got := globalConfigPath(exists); got != "" {
+		t.Errorf("globalConfigPath() = %q, want empty (legacy config is not loaded)", got)
 	}
 }
 
-func TestGlobalConfigPathEmptyWhenNeitherExists(t *testing.T) {
+func TestGlobalConfigPathEmptyWhenAbsent(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 
 	if got := globalConfigPath(caseSensitiveExists()); got != "" {
