@@ -6,20 +6,29 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/ProjAnvil/LadyM/config"
 )
 
 func TestDir(t *testing.T) {
 	t.Run("home set", func(t *testing.T) {
 		home := t.TempDir()
 		t.Setenv("HOME", home)
-		if got := Dir(); got != filepath.Join(home, ".ladyM") {
-			t.Errorf("Dir = %q, want %q", got, filepath.Join(home, ".ladyM"))
+		if got := Dir(); got != filepath.Join(home, config.DirName) {
+			t.Errorf("Dir = %q, want %q", got, filepath.Join(home, config.DirName))
 		}
 	})
 	t.Run("home unset falls back to dot", func(t *testing.T) {
 		t.Setenv("HOME", "")
-		if got := Dir(); got != filepath.Join(".", ".ladyM") {
-			t.Errorf("Dir with empty HOME = %q, want %q", got, filepath.Join(".", ".ladyM"))
+		if got := Dir(); got != filepath.Join(".", config.DirName) {
+			t.Errorf("Dir with empty HOME = %q, want %q", got, filepath.Join(".", config.DirName))
+		}
+	})
+	// Every subsystem must resolve the same spelling: on a case-sensitive
+	// filesystem ~/.ladym and ~/.ladyM are two different directories.
+	t.Run("agrees with config.HomeDir", func(t *testing.T) {
+		if got := Dir(); got != config.HomeDir() {
+			t.Errorf("Dir = %q, want config.HomeDir() = %q", got, config.HomeDir())
 		}
 	})
 }

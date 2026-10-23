@@ -408,7 +408,8 @@ ladym stats                             # 查看记忆里有什么
 ## 配置
 
 配置按以下优先级解析（从高到低）：CLI flag → `LADYM_*` 环境变量 → `./ladym.toml` →
-`~/.ladym/config.toml` → 内建默认值。`ladym --config <path>` 可在其上再叠加一个 TOML 文件。
+`~/.ladyM/config.toml` → 内建默认值(旧版写入的 `~/.ladym/config.toml` 仍会读取)。
+`ladym --config <path>` 可在其上再叠加一个 TOML 文件。
 
 | 环境变量 | 默认值 | 用途 |
 |---|---|---|

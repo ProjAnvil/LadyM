@@ -13,7 +13,7 @@ import (
 
 // gitignoreBlock is the two-line entry `ladym init` appends so the project's
 // runtime memory data never lands in version control.
-const gitignoreBlock = "# ladyM\n.ladyM/\n"
+const gitignoreBlock = "# ladyM\n" + config.DirName + "/\n"
 
 // initCmd is `ladym init`: create the memory database (default .ladyM/ladym.db),
 // migrate a legacy flat ./ladym.db, and keep .ladyM/ out of git.
@@ -46,7 +46,7 @@ func runInit(db string) error {
 		return err
 	}
 	legacy := filepath.Join(wd, "ladym.db")
-	target := filepath.Join(wd, ".ladyM", "ladym.db")
+	target := filepath.Join(wd, config.DirName, "ladym.db")
 	// The default layout covers both the fresh .ladyM/ path and the legacy
 	// flat path (defaultDBPath falls back to it while the old file exists).
 	defaultLayout := cfg.DBPath == legacy || cfg.DBPath == target
@@ -160,7 +160,9 @@ func ensureGitignoreEntry(wd string) (string, error) {
 }
 
 // gitignoreIgnoresLadyM reports whether a .gitignore body already ignores the
-// .ladyM directory (with or without a leading slash or trailing slash).
+// LadyM dotdir (with or without a leading slash or trailing slash). Matching is
+// exact, not case-folded: on a case-sensitive filesystem only config.DirName
+// names the directory we actually write to.
 func gitignoreIgnoresLadyM(content string) bool {
 	for _, line := range strings.Split(content, "\n") {
 		line = strings.TrimSpace(line)
@@ -168,7 +170,8 @@ func gitignoreIgnoresLadyM(content string) bool {
 			continue
 		}
 		switch line {
-		case ".ladyM", ".ladyM/", "/.ladyM", "/.ladyM/":
+		case config.DirName, config.DirName + "/",
+			"/" + config.DirName, "/" + config.DirName + "/":
 			return true
 		}
 	}

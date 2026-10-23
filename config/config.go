@@ -9,7 +9,8 @@
 //  1. cli_overrides passed to Load (e.g. from CLI flags).
 //  2. Environment variables (LADYM_*).
 //  3. The project file ./ladym.toml.
-//  4. The global file ~/.ladym/config.toml.
+//  4. The global file ~/.ladyM/config.toml (a legacy ~/.ladym/config.toml is
+//     still read when the preferred path is absent).
 //  5. The defaults (offline: hashing embedding, llm_provider == "none").
 //
 // Secret literals (api_key/*_key/token/secret/password) found in TOML are
@@ -229,6 +230,56 @@ type Config struct {
 	Maintain        MaintainConfig
 }
 
+// DirName is the LadyM directory name, used both under the user's home and as
+// the workspace dotdir. The capital M is deliberate: v0.8.1 shipped this
+// spelling and every site that resolves the path must agree, because a
+// case-sensitive filesystem (Linux, CI, containers) treats ~/.ladym and
+// ~/.ladyM as two different directories.
+const DirName = ".ladyM"
+
+// LegacyDirName is the pre-standardization spelling of DirName. It is only
+// consulted as a read fallback so installs created before the case was
+// standardized keep working; nothing writes to it.
+const LegacyDirName = ".ladym"
+
+// HomeDir returns the LadyM home directory (~/.ladyM), resolved at call time.
+// When the home directory cannot be determined it falls back to the current
+// directory.
+func HomeDir() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		home = "."
+	}
+	return filepath.Join(home, DirName)
+}
+
+// GlobalConfigPath resolves the global config file, preferring
+// ~/.ladyM/config.toml and falling back to ~/.ladym/config.toml when only the
+// legacy spelling exists. It returns "" when neither exists.
+func GlobalConfigPath() string {
+	return globalConfigPath(fileExists)
+}
+
+// globalConfigPath is the testable core of GlobalConfigPath. exists is injected
+// because on a case-insensitive filesystem (macOS APFS) both spellings resolve
+// to the same file, so the fallback branch cannot be reached from disk state
+// alone; tests inject a case-sensitive view instead.
+func globalConfigPath(exists func(string) bool) string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	current := filepath.Join(home, DirName, "config.toml")
+	if exists(current) {
+		return current
+	}
+	legacy := filepath.Join(home, LegacyDirName, "config.toml")
+	if exists(legacy) {
+		return legacy
+	}
+	return ""
+}
+
 // defaultDBPath returns env LADYM_DB, else cwd/.ladyM/ladym.db (workspace-local
 // so each project gets its own memory by default). Pre-0.9 layouts kept the db
 // flat in the project root: when that legacy file exists it keeps being used so
@@ -245,7 +296,7 @@ func defaultDBPath() string {
 	if fileExists(filepath.Join(wd, "ladym.db")) {
 		return filepath.Join(wd, "ladym.db")
 	}
-	return filepath.Join(wd, ".ladyM", "ladym.db")
+	return filepath.Join(wd, DirName, "ladym.db")
 }
 
 func envOr(key, def string) string {
@@ -1006,16 +1057,12 @@ func FromFile(path string) (*Config, error) {
 }
 
 // Load resolves a Config through the 4-layer precedence: defaults →
-// ~/.ladym/config.toml → ./ladym.toml → configPath, then env vars, then
+// ~/.ladyM/config.toml → ./ladym.toml → configPath, then env vars, then
 // cli_overrides.
 func Load(configPath string, cliOverrides map[string]any) (*Config, error) {
 	var layers []string
-	home, err := os.UserHomeDir()
-	if err == nil {
-		globalPath := filepath.Join(home, ".ladym", "config.toml")
-		if fileExists(globalPath) {
-			layers = append(layers, globalPath)
-		}
+	if globalPath := GlobalConfigPath(); globalPath != "" {
+		layers = append(layers, globalPath)
 	}
 	projectPath := filepath.Join(".", "ladym.toml")
 	if fileExists(projectPath) {

@@ -1377,7 +1377,7 @@ class Config:
     def load(cls, config_path: Path | None = None, *,
              cli_overrides: dict | None = None) -> Config:
         layers: list[Path] = []
-        global_path = Path.home() / ".ladym" / "config.toml"
+        global_path = Path.home() / ".ladyM" / "config.toml"
         if global_path.exists():
             layers.append(global_path)
         project_path = Path.cwd() / "ladym.toml"

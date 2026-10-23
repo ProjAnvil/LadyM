@@ -486,7 +486,7 @@ via the symbol graph. That is what saves the agent from re-reading.
 ## Configuration
 
 Config resolves through (highest precedence first): CLI flags → `LADYM_*` env vars →
-`./ladym.toml` → `~/.ladym/config.toml` → built-in defaults. `ladym --config <path>`
+`./ladym.toml` → `~/.ladyM/config.toml` → built-in defaults. `ladym --config <path>`
 loads an extra TOML file on top.
 
 | Env var | Default | Purpose |

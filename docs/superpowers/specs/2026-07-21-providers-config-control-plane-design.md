@@ -123,7 +123,7 @@ layers, TOML config files, and a memory-density stat.
 ### 2.1 Architecture (how new pieces attach to `Engine`)
 
 ```
-              Config.load()  ← CLI > env > ./ladym.toml > ~/.ladym/config.toml > defaults
+              Config.load()  ← CLI > env > ./ladym.toml > ~/.ladyM/config.toml > defaults
                      │
    ┌─────────────────Engine─────────────────────────────────────────────┐
    │ EmbeddingProvider  hashing(default) | st | openai | ollama | http | callable
@@ -148,8 +148,12 @@ path** (NFR-3).
 
 #### 2.2.1 Precedence (high → low)
 
-**CLI args > env vars > `./ladym.toml` (project) > `~/.ladym/config.toml` (global) > code
+**CLI args > env vars > `./ladym.toml` (project) > `~/.ladyM/config.toml` (global) > code
 dataclass defaults.**
+
+(Historical note: this spec originally wrote the global path as
+`~/.ladym/config.toml`. The spelling was standardized to `.ladyM`; a legacy
+`~/.ladym/config.toml` is still read as a fallback.)
 
 - Project file overrides global (matches the workspace-local philosophy of `ladym.db`).
 - Env still overrides files (existing `LADYM_DB/LADYM_WORKSPACE/LADYM_EMBEDDING` kept; extended
