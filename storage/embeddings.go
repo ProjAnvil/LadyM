@@ -33,13 +33,27 @@ var cjkRunRe = regexp.MustCompile(`[\p{Han}]+|[\p{Hiragana}\p{Katakana}]+|[\p{Ha
 // zh dictionaries, and any script without a dictionary — falls back to
 // per-character tokens. features() adds adjacent-pair bigrams on top, so
 // the fallback still yields non-empty token sets and working similarity.
+//
+// Under CJKTokenizerChars the dictionary is never consulted and never
+// loaded: see SetCJKTokenizerMode for why that matters on short-lived
+// processes such as `ladym hook`.
 func segmentCJK(run string) []string {
-	if seg := cjkSegmenterFor(runScript(run)); seg != nil {
-		if words := seg.Cut(run, true); len(words) > 0 {
-			return words
+	cjkMu.Lock()
+	useDict := cjkTokenizerUsesDict()
+	cjkMu.Unlock()
+	if useDict {
+		if seg := cjkSegmenterFor(runScript(run)); seg != nil {
+			if words := seg.Cut(run, true); len(words) > 0 {
+				return words
+			}
 		}
 	}
-	var out []string
+	return perRuneTokens(run)
+}
+
+// perRuneTokens splits run into one token per rune.
+func perRuneTokens(run string) []string {
+	out := make([]string, 0, len(run))
 	for _, r := range run {
 		out = append(out, string(r))
 	}
@@ -277,6 +291,21 @@ func AssertDimMatches(stored, configured int) error {
 		return &EmbeddingDimensionMismatch{Stored: stored, Configured: configured}
 	}
 	return nil
+}
+
+// EmbeddingTokenizerMismatch is raised when a reopened database holds vectors
+// produced by a different CJK tokenizer than the one now configured. Unlike a
+// dim mismatch the vectors still have the right shape, so mixing them degrades
+// recall silently instead of failing — hence the explicit check.
+type EmbeddingTokenizerMismatch struct {
+	Stored     string
+	Configured string
+}
+
+func (e *EmbeddingTokenizerMismatch) Error() string {
+	return fmt.Sprintf(
+		"embedding tokenizer mismatch: DB vectors were built with %q but the config asks for %q. Set embedding.allow_dim_change=true to re-embed, or restore the previous embedding.cjk_tokenizer.",
+		e.Stored, e.Configured)
 }
 
 // callableRegistry holds user-registered callable embedding providers.

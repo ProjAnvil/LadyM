@@ -92,7 +92,7 @@ func TestWALConcurrentReadWhileWriting(t *testing.T) {
 				errCh <- err
 				return
 			}
-			reader.vectorIndex.Search(qvec, 8)
+			reader.VectorSearch(qvec, 8)
 			time.Sleep(5 * time.Millisecond)
 		}
 	})

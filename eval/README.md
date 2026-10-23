@@ -61,28 +61,105 @@ before probing it, so the file is always in page cache. There is no meaningful
 Measured on this repo, darwin/arm64, Go 1.27.2. `spawn` is what the agent waits
 for; `real` is the write itself, measured in-process.
 
-| scale | spawn p50 | process tax | engine open | resolve | record | real |
-|---|---|---|---|---|---|---|
-| 100 rows | 10.6ms | 10.3ms | 0.6ms | 0.039ms | 0.120ms | 0.26ms |
-| 1k rows | 13.2ms | 12.8ms | 2.1ms | 0.128ms | 0.123ms | 0.33ms |
-| 10k rows | 30.9ms | 29.3ms | 15.2ms | 1.348ms | 0.163ms | 1.59ms |
+### Before / after (default `dict` mode)
 
-- **Process tax is essentially all of it.** At 10k rows the write takes 1.6ms
-  while the agent waits 30.9ms: about 95% of perceived latency is cost that has
-  nothing to do with writing memory.
-- **Engine open dominates the tax, and it grows with corpus size** — 0.6ms, 2.1ms,
-  then 15.2ms at 10k rows, where it is roughly half of everything the agent waits
-  for. That is the signature of loading the vector index per invocation.
-- **Resource resolution degrades with size** (0.039ms to 1.348ms), consistent with
-  a scan over a growing index. Record and edges stay flat.
-- **CJK segmentation is the one real hotspot.** A 2000-rune Chinese prompt costs
-  about 348ms against a ~30ms baseline, and the cost is linear in character count
-  at roughly 0.1ms per character. The same length in English adds almost nothing.
-- **Ignored events are cheap.** An unknown event exits in roughly 10ms versus
-  ~30ms, because it never opens the engine.
+Baseline is `main@220f187`, re-measured **back-to-back** with the fix on the same
+box within a two-minute window. That matters: absolute durations here swing by
+2x with machine load, and the numbers originally published in this file
+(10.6 / 13.2 / 30.9ms) were taken on a different day — they are 2–6ms off this
+box's baseline and must not be compared against.
 
-Worth reading together: per-invocation cost is not a constant. It is ~11ms on a
-small library and ~31ms at 10k rows, and it will keep climbing with history.
+| scale | spawn p50 before | after | engine open before | after |
+|---|---|---|---|---|
+| 100 rows | 18.73ms | 18.48ms | 0.95ms | **0.54ms** |
+| 1k rows | 23.16ms | **19.22ms** | 3.45ms | **0.54ms** |
+| 10k rows | 44.95ms | **22.88ms** | 21.42ms | **0.66ms** |
+
+- **Engine open is now flat in corpus size** — 0.54 / 0.54 / 0.66ms instead of
+  0.95 / 3.45 / 21.42ms. It used to be the whole O(n) cost: `NewStore` called
+  `warmIndexFromBlobs()` unconditionally, which SELECTs every embedding and
+  re-upserts it into the in-memory index, once per process. Warming now happens
+  on the first `VectorSearch`, and the steady-state hook write never issues one
+  (resource resolution hits its exact-alias stage first).
+- **The spawn win scales with corpus size, and at 100 rows it is ~2%.** That is
+  the honest floor: at 100 rows the invocation is startup-bound, and the only
+  thing removed is a 0.4ms warm out of ~18.7ms. The 1.3% measured difference is
+  inside the noise. Don't expect the small-library number to move.
+- **Resolve, record, and edges are unchanged** (resolve: 0.063 / 0.206 / 2.606ms
+  after versus 0.066 / 0.214 / 2.193ms before — the 10k figure is noise, not a
+  regression). The fix removed startup work; it did not make the write cheaper.
+- **Ignored events are still cheap.** An unknown event exits in roughly 10ms
+  because it never opens the engine.
+
+Measured on a quieter machine in the same session, the same comparison read
+14.96 → 13.18ms (100 rows), 17.04 → 12.30ms (1k), 36.91 → 14.07ms (10k), with
+engine open 0.87 / 2.67 / 18.96 → 0.45 / 0.38 / 0.41ms. Same shape, different
+absolute values — which is the point about comparing only against a same-box,
+same-window baseline.
+
+### CJK: the cost was a dictionary load, not per-character work
+
+An earlier reading here said "0.1ms per character, ~348ms for a 2000-rune
+prompt". That was wrong. Measured again:
+
+| input | first call in a process | steady state |
+|---|---|---|
+| 2000 Han runes | 592ms | 4.7ms |
+| 2000 ASCII chars | — | 0.077ms |
+
+Splitting the 592ms: reading the two dictionary files is 5.4ms, splitting lines
+is 28ms, and **building gse's cedar trie over 352k entries is ~520ms**. It is a
+one-off per process, paid the first time any call touches CJK text. Steady-state
+segmentation is only ~2.4µs per character.
+
+That distinction matters: a segmentation cache cannot fix this, because the cost
+is not repeat work.
+
+`embedding.cjk_tokenizer` selects what to do about it. Both columns are
+`claude/prompt-cjk` — a 3000-rune Chinese prompt truncated to the 2000-rune
+ceiling — measured back-to-back in the same window.
+
+| scale | `dict` (default) | `chars` |
+|---|---|---|
+| 100 rows | 635.9ms | **17.38ms** |
+| 1k rows | 614.4ms | **20.37ms** |
+| 10k rows | 605.2ms | **18.76ms** |
+
+A ~35x reduction, and a Chinese prompt now costs what an English one does.
+
+`chars` never loads the dictionary: it emits one token per rune, and `features()`
+adds adjacent-pair bigrams on top. Retrieval quality does not regress — on a
+40-document / 40-short-query Chinese probe the character path scored MRR 1.000
+against 0.988 for the dictionary path, which matches the standing result that
+character bigrams beat words at high dimensionality. Chinese BERT also tokenizes
+per character.
+
+The default stays `dict` because that is what every existing database was
+written with; switching silently would make stored CJK vectors unsearchable.
+The mode is recorded under the `embedding_tokenizer` meta key, so switching is
+detected and routed through the same re-embed path as a dim change
+(`embedding.allow_dim_change=true`, else a hard error).
+
+### What was measured and rejected
+
+- **Bulk-loading the vector index.** At 10k rows the warm splits into 9.1ms of
+  SELECT and 8.6ms of decode+upsert, so batching could only cut ~4ms off a cost
+  that no longer runs per invocation. Not built.
+
+### Caveat on the `chars` numbers
+
+The `chars` table above measures write latency only. The mode changes what
+`storage.Tokenize` emits, and those tokens also feed recall's coverage scoring
+and the per-memory token statistics, so switching modes moves those numbers for
+CJK text as well. The retrieval ablation quoted above used the hashing
+embedding; it did not measure `reflect`'s coverage verdict. ASCII tokenization
+is identical in both modes.
+
+Worth reading together: per-invocation cost used to be a function of how much
+history you had (~19ms at 100 rows, ~45ms at 10k). It is now roughly a constant
+~18–23ms. The remaining gap to the ~0.4–3ms real write is process startup, which
+no amount of index work will remove — and at 100 rows that startup was already
+almost all of it, which is why the fix barely registers there.
 
 ## Caveats
 
