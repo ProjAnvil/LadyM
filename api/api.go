@@ -91,6 +91,11 @@ func NewMuxWithRegistry(eng *engine.Engine, cfg *config.Config, reg *observabili
 	mux.HandleFunc("POST /api/recall", h.instrument("/api/recall", h.handleRecall))
 	mux.HandleFunc("POST /api/remember", h.instrument("/api/remember", h.handleRemember))
 	mux.HandleFunc("POST /api/record_event", h.instrument("/api/record_event", h.handleRecordEvent))
+	// recall_ops mirrors the MCP tool of the same name (spec
+	// 2026-10-24-recall-ops-http-design.md §2); record_operation has no MCP
+	// counterpart — engine/CLI front-ends only.
+	mux.HandleFunc("POST /api/recall_ops", h.instrument("/api/recall_ops", h.handleRecallOps))
+	mux.HandleFunc("POST /api/record_operation", h.instrument("/api/record_operation", h.handleRecordOperation))
 	mux.HandleFunc("POST /api/search_code", h.instrument("/api/search_code", h.handleSearchCode))
 	mux.HandleFunc("POST /api/index_code", h.instrument("/api/index_code", h.handleIndexCode))
 	mux.HandleFunc("POST /api/consolidate", h.instrument("/api/consolidate", h.handleConsolidate))
@@ -521,6 +526,95 @@ func (h *Handler) handleRecordEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"id": m.ID, "layer": m.Layer, "type": m.Type})
+}
+
+// recallOpsMaxLimit caps POST /api/recall_ops page sizes (spec §2); 0 rides
+// the engine default (10).
+const recallOpsMaxLimit = 100
+
+// handleRecallOps mirrors the MCP recall_ops tool: the operation-history
+// pivot for one resource (resource × action filter, operates_on graph join,
+// ACT-R ranking). resource serializes as the resolved entity id — JSON null
+// on fallback — matching mcp/server.go.
+func (h *Handler) handleRecallOps(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Resource  string  `json:"resource"`
+		Action    string  `json:"action"`
+		Since     float64 `json:"since"`
+		Until     float64 `json:"until"`
+		Outcome   string  `json:"outcome"`
+		Limit     int     `json:"limit"`
+		Workspace string  `json:"workspace"`
+	}
+	if err := decodeBody(r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body: "+err.Error())
+		return
+	}
+	if body.Resource == "" {
+		writeError(w, http.StatusBadRequest, "missing required field: resource")
+		return
+	}
+	// A negative limit would reach the engine's items[:limit] truncation.
+	if body.Limit < 0 {
+		writeError(w, http.StatusBadRequest, "invalid limit: want >= 0")
+		return
+	}
+	body.Limit = min(body.Limit, recallOpsMaxLimit)
+	ws := h.effectiveWS(r, body.Workspace)
+
+	resp, err := h.eng.Scope(ws).RecallOperations(engine.OperationsQuery{
+		Resource: body.Resource, Action: body.Action, Since: body.Since,
+		Until: body.Until, Outcome: body.Outcome, Limit: body.Limit,
+	})
+	if err != nil {
+		engineError(w, err)
+		return
+	}
+	var resource any // nil → JSON null on fallback (mirrors mcp/server.go)
+	if resp.Resource != nil {
+		resource = resp.Resource.ID
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"resource": resource, "fallback": resp.Fallback,
+		"items": recallResultsJSON(resp.Items),
+	})
+}
+
+// handleRecordOperation writes one structured L1 operation: explicit
+// resource slots resolved (or created) per resource, the action normalized
+// server-side onto the controlled vocabulary. The attention gate covers the
+// Remember path only, so dropped is always false today; the field keeps the
+// spec'd wire shape forward-compatible.
+func (h *Handler) handleRecordOperation(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Action      string   `json:"action"`
+		Resources   []string `json:"resources"`
+		Observation string   `json:"observation"`
+		Outcome     string   `json:"outcome"`
+		Agent       string   `json:"agent"`
+		Tags        []string `json:"tags"`
+		Workspace   string   `json:"workspace"`
+	}
+	if err := decodeBody(r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body: "+err.Error())
+		return
+	}
+	if len(body.Resources) == 0 {
+		writeError(w, http.StatusBadRequest, "missing required field: resources")
+		return
+	}
+	body.Agent = cmp.Or(body.Agent, "api")
+	ws := h.effectiveWS(r, body.Workspace)
+
+	m, err := h.eng.Scope(ws).RecordOperation(engine.OperationEvent{
+		Agent: body.Agent, Action: body.Action, Resources: body.Resources,
+		Observation: body.Observation, Outcome: body.Outcome, Tags: body.Tags,
+	})
+	if err != nil {
+		engineError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"id": m.ID, "dropped": false})
 }
 
 func (h *Handler) handleSearchCode(w http.ResponseWriter, r *http.Request) {

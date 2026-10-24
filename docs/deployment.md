@@ -191,6 +191,17 @@ curl -X POST localhost:18080/api/recall \
   -H 'Content-Type: application/json' \
   -d '{"query":"how do we deploy","workspace":"acme"}'
 
+# 操作历史检索(recall_ops):某资源被怎样操作过;resource 解析为实体 id,未命中回落 fallback=true
+curl -X POST localhost:18080/api/recall_ops \
+  -H 'Content-Type: application/json' \
+  -d '{"resource":"src/a.go","action":"update","limit":10}'
+
+# 结构化操作写入(record_operation):显式 resource slot,action 服务端归一到受控词表
+curl -X POST localhost:18080/api/record_operation \
+  -H 'Content-Type: application/json' \
+  -d '{"action":"updated","resources":["src/a.go"],"observation":"rewrote the handler","outcome":"success"}'
+# {"id":"...","dropped":false}
+
 # 负载均衡证据:连续多次请求后看两个 api 节点的请求日志
 docker compose -p ladym-ent logs api-1 api-2
 
