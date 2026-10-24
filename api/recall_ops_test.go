@@ -60,11 +60,20 @@ func TestRecallOpsValidation(t *testing.T) {
 	if rec := do(t, h, "/api/recall_ops", "", "", `{}`); rec.Code != http.StatusBadRequest {
 		t.Errorf("recall_ops missing resource: %d, want 400", rec.Code)
 	}
+	// Whitespace-only carries no value; the engine rejects it, and the
+	// handler rejects it earlier with the same 400 class.
+	if rec := do(t, h, "/api/recall_ops", "", "", `{"resource": "   "}`); rec.Code != http.StatusBadRequest {
+		t.Errorf("recall_ops blank resource: %d, want 400", rec.Code)
+	}
 	if rec := do(t, h, "/api/recall_ops", "", "", `{"resource": "x", "limit": -1}`); rec.Code != http.StatusBadRequest {
 		t.Errorf("recall_ops negative limit: %d, want 400", rec.Code)
 	}
 	if rec := do(t, h, "/api/record_operation", "", "", `{}`); rec.Code != http.StatusBadRequest {
 		t.Errorf("record_operation missing resources: %d, want 400", rec.Code)
+	}
+	// A blank entry inside resources would create an empty-content entity.
+	if rec := do(t, h, "/api/record_operation", "", "", `{"resources": ["src/a.go", "   "]}`); rec.Code != http.StatusBadRequest {
+		t.Errorf("record_operation blank resource entry: %d, want 400", rec.Code)
 	}
 }
 

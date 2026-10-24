@@ -47,6 +47,9 @@ const recallOpsDefaultLimit = 10
 //	  filtered by workspace/retired/action_class/time window/outcome.
 //	Stage 3 activation ranking: ACT-R ActivationScore with a flat sim proxy.
 func (s *Scope) RecallOperations(q OperationsQuery) (*OperationsResponse, error) {
+	// A whitespace-only resource carries no value (the pivot has no default),
+	// so every front-end — MCP, CLI, HTTP — sees the same error for it.
+	q.Resource = strings.TrimSpace(q.Resource)
 	if q.Resource == "" {
 		return nil, ErrResourceRequired
 	}

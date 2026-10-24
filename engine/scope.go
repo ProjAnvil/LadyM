@@ -2,7 +2,9 @@ package engine
 
 import (
 	"cmp"
+	"errors"
 	"maps"
+	"strings"
 
 	"github.com/ProjAnvil/LadyM/layers"
 	"github.com/ProjAnvil/LadyM/operations"
@@ -103,6 +105,11 @@ func (s *Scope) Remember(content string, layer schema.Layer, type_ schema.Memory
 	}
 }
 
+// ErrBlankResource is returned by RecordOperation when a resource name is
+// whitespace-only: resolving it would create an empty-content entity, so the
+// shared write path rejects it before any front-end can cause that.
+var ErrBlankResource = errors.New("record_operation: blank resource name")
+
 // OperationEvent is a structured L1 write: explicit resource and action slots
 // layered on the legacy record_event fields (spec §6.1). ActionClass, when
 // empty, is derived from Action via the controlled vocabulary.
@@ -160,6 +167,9 @@ func (s *Scope) recordOperation(ev OperationEvent, slots bool) (*schema.Memory, 
 
 	var resources []*schema.Memory
 	for _, name := range ev.Resources {
+		if strings.TrimSpace(name) == "" {
+			return nil, ErrBlankResource
+		}
 		res, _, err := operations.ResolveResource(s.eng.Store, s.eng.Provider, s.eng.Config, s.workspace, name)
 		if err != nil {
 			return nil, err

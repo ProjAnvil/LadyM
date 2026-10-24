@@ -3,6 +3,7 @@
 package engine
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/ProjAnvil/LadyM/schema"
@@ -260,5 +261,17 @@ func TestRecallOperationsLimit(t *testing.T) {
 	}
 	if len(resp.Items) != 1 {
 		t.Errorf("items = %d, want Limit truncation to 1", len(resp.Items))
+	}
+}
+
+// A whitespace-only resource carries no value — the pivot has no default —
+// so it errors exactly like an empty one (all front-ends route through here,
+// so MCP/CLI/HTTP stay unified on this).
+func TestRecallOperationsBlankResource(t *testing.T) {
+	eng := newTestEngine(t)
+	sc := eng.Scope("")
+	_, err := sc.RecallOperations(OperationsQuery{Resource: "   "})
+	if err == nil || !errors.Is(err, ErrResourceRequired) {
+		t.Errorf("blank-resource recall err = %v, want ErrResourceRequired", err)
 	}
 }
