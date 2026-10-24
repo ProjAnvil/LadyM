@@ -18,6 +18,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -550,7 +551,9 @@ func (h *Handler) handleRecallOps(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid JSON body: "+err.Error())
 		return
 	}
-	if body.Resource == "" {
+	// Whitespace-only carries no value (the engine rejects it too); a blank
+	// resource name is a client bug, not a resource miss.
+	if strings.TrimSpace(body.Resource) == "" {
 		writeError(w, http.StatusBadRequest, "missing required field: resource")
 		return
 	}
@@ -601,6 +604,12 @@ func (h *Handler) handleRecordOperation(w http.ResponseWriter, r *http.Request) 
 	}
 	if len(body.Resources) == 0 {
 		writeError(w, http.StatusBadRequest, "missing required field: resources")
+		return
+	}
+	// A blank entry would create an empty-content resource entity (the
+	// engine rejects it as well); 400 keeps it in the client-error class.
+	if slices.ContainsFunc(body.Resources, func(name string) bool { return strings.TrimSpace(name) == "" }) {
+		writeError(w, http.StatusBadRequest, "invalid resources: blank entry")
 		return
 	}
 	body.Agent = cmp.Or(body.Agent, "api")

@@ -3,6 +3,7 @@
 package engine
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/ProjAnvil/LadyM/schema"
@@ -102,8 +103,8 @@ func TestRecordOperationExplicitActionClass(t *testing.T) {
 	eng := newTestEngine(t)
 	sc := eng.Scope("")
 	ep, err := sc.RecordOperation(OperationEvent{
-		Agent:      "a",
-		Action:     "frobnicate the widget",
+		Agent:       "a",
+		Action:      "frobnicate the widget",
 		ActionClass: "configure",
 	})
 	if err != nil {
@@ -168,5 +169,19 @@ func TestEngineRecordOperationDelegates(t *testing.T) {
 	}
 	if len(edges) != 1 {
 		t.Fatalf("operates_on edges = %d, want 1", len(edges))
+	}
+}
+
+// A blank resource name would resolve-or-create an empty-content entity —
+// store pollution no front-end should be able to cause, so the shared write
+// path rejects it (CLI hook, SDK, and HTTP all route through here).
+func TestRecordOperationBlankResource(t *testing.T) {
+	eng := newTestEngine(t)
+	sc := eng.Scope("")
+	_, err := sc.RecordOperation(OperationEvent{
+		Agent: "a", Action: "migrate", Resources: []string{"ladym.db", "   "},
+	})
+	if err == nil || !errors.Is(err, ErrBlankResource) {
+		t.Errorf("blank-resource record err = %v, want ErrBlankResource", err)
 	}
 }
