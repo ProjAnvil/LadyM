@@ -106,6 +106,82 @@ func (c *Client) RecordEvent(ctx context.Context, agent, action, observation, ou
 	return &out, nil
 }
 
+// OperationsQuery mirrors the POST /api/recall_ops body. Resource is
+// required; Limit 0 lets the server default (10, capped at 100); Since and
+// Until are unix seconds (0 = unbounded).
+type OperationsQuery struct {
+	Workspace string
+	Resource  string
+	Action    string
+	Since     float64
+	Until     float64
+	Outcome   string
+	Limit     int
+}
+
+// OperationsResult is the /api/recall_ops response. Resource is the resolved
+// entity id ("" on a fallback pivot); Items decode straight into
+// schema.RecallResult — the server mirrors the MCP recall_ops item shape.
+type OperationsResult struct {
+	Resource string                 `json:"resource"`
+	Items    []*schema.RecallResult `json:"items"`
+	Fallback bool                   `json:"fallback"`
+}
+
+// RecallOperations asks "how did I operate on this resource?" — the
+// operation-history pivot (resource × action filter, operates_on graph join,
+// ACT-R ranking). An unknown resource degrades to plain recall with
+// Fallback=true and an empty Resource.
+func (c *Client) RecallOperations(ctx context.Context, q OperationsQuery) (*OperationsResult, error) {
+	var out OperationsResult
+	err := c.post(ctx, "/api/recall_ops", map[string]any{
+		"workspace": q.Workspace, "resource": q.Resource, "action": q.Action,
+		"since": q.Since, "until": q.Until, "outcome": q.Outcome, "limit": q.Limit,
+	}, &out)
+	if err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// RecordOperationInput mirrors the POST /api/record_operation body. Agent ""
+// lets the server default to "api"; the action is normalized server-side
+// onto the controlled vocabulary (Resources must be non-empty).
+type RecordOperationInput struct {
+	Action      string
+	Resources   []string
+	Observation string
+	Outcome     string
+	Agent       string
+	Tags        []string
+}
+
+// RecordOperationResult is the /api/record_operation response. Dropped is
+// always false today (the attention gate covers the Remember path only);
+// the field keeps the wire shape forward-compatible, with Reason explaining
+// a drop if one ever applies.
+type RecordOperationResult struct {
+	ID      string `json:"id"`
+	Dropped bool   `json:"dropped"`
+	Reason  string `json:"reason"`
+}
+
+// RecordOperation writes one structured L1 operation: each resource is
+// resolved (or created) as a workspace entity and linked to the episode
+// with operates_on.
+func (c *Client) RecordOperation(ctx context.Context, ws string, ev RecordOperationInput) (*RecordOperationResult, error) {
+	var out RecordOperationResult
+	err := c.post(ctx, "/api/record_operation", map[string]any{
+		"workspace": ws, "action": ev.Action, "resources": ev.Resources,
+		"observation": ev.Observation, "outcome": ev.Outcome,
+		"agent": ev.Agent, "tags": ev.Tags,
+	}, &out)
+	if err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 // ConsolidateResult is the /api/consolidate report.
 type ConsolidateResult struct {
 	KeptEpisodes        int            `json:"kept_episodes"`
