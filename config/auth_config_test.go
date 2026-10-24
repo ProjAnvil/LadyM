@@ -52,7 +52,9 @@ enabled = true
 func TestAuthEnabledEnvOverride(t *testing.T) {
 	t.Setenv("LADYM_AUTH_ENABLED", "true")
 	cfg := Default()
-	applyEnv(cfg)
+	if err := applyEnv(cfg); err != nil {
+		t.Fatal(err)
+	}
 	syncNested(cfg)
 	if !cfg.AuthEnabled {
 		t.Error("AuthEnabled = false, want true (env)")

@@ -164,7 +164,7 @@ func ensureGitignoreEntry(wd string) (string, error) {
 // exact, not case-folded: on a case-sensitive filesystem only config.DirName
 // names the directory we actually write to.
 func gitignoreIgnoresLadyM(content string) bool {
-	for _, line := range strings.Split(content, "\n") {
+	for line := range strings.SplitSeq(content, "\n") {
 		line = strings.TrimSpace(line)
 		if strings.HasPrefix(line, "#") || line == "" {
 			continue

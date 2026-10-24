@@ -957,16 +957,21 @@ func syncNested(cfg *Config) {
 
 // applyDict applies a CLI-style dict (same shape as the TOML dict), stripping
 // secret literals first.
-func applyDict(cfg *Config, d map[string]any) {
+func applyDict(cfg *Config, d map[string]any) error {
 	cleaned := stripSecrets(d, "<cli-overrides>", false)
-	applyToml(cfg, cleaned)
+	normalized, err := normalizeLLMNumericSource(cleaned, "<cli-overrides>")
+	if err != nil {
+		return err
+	}
+	applyToml(cfg, normalized)
+	return nil
 }
 
 // ---------------------------------------------------------------------------
 // Env overlay
 // ---------------------------------------------------------------------------
 
-func applyEnv(cfg *Config) {
+func applyEnv(cfg *Config) error {
 	if v := os.Getenv("LADYM_DB"); v != "" {
 		cfg.DBPath = v
 	}
@@ -1007,10 +1012,25 @@ func applyEnv(cfg *Config) {
 		cfg.LLMAPIKeyEnv = v
 	}
 	if v := os.Getenv("LADYM_LLM_MAX_TOKENS"); v != "" {
-		cfg.LLMMaxTokens = asInt(v)
+		n, err := ParseIntValue("LADYM_LLM_MAX_TOKENS (llm.max_tokens)", v)
+		if err != nil {
+			return err
+		}
+		cfg.LLMMaxTokens = n
 	}
 	if v := os.Getenv("LADYM_LLM_TEMPERATURE"); v != "" {
-		cfg.LLMTemperature = asFloat(v)
+		n, err := ParseFloatValue("LADYM_LLM_TEMPERATURE (llm.temperature)", v)
+		if err != nil {
+			return err
+		}
+		cfg.LLMTemperature = n
+	}
+	if v := os.Getenv("LADYM_LLM_TIMEOUT_S"); v != "" {
+		n, err := ParseFloatValue("LADYM_LLM_TIMEOUT_S (llm.timeout_s)", v)
+		if err != nil {
+			return err
+		}
+		cfg.LLMTimeoutS = n
 	}
 	if v := os.Getenv("LADYM_LLM_REASONING_EFFORT"); v != "" {
 		cfg.LLMReasoningEffort = v
@@ -1030,6 +1050,7 @@ func applyEnv(cfg *Config) {
 	if v := os.Getenv("LADYM_AUTH_ENABLED"); v != "" {
 		cfg.AuthEnabled = toBool(v)
 	}
+	return nil
 }
 
 // ---------------------------------------------------------------------------
@@ -1047,6 +1068,10 @@ func FromFile(path string) (*Config, error) {
 	allow := asBool(raw["allow_plaintext_secrets"])
 	data := stripSecrets(raw, path, allow)
 	data = renameDeprecated(data, path)
+	data, err := normalizeLLMNumericSource(data, path)
+	if err != nil {
+		return nil, err
+	}
 	cfg := Default()
 	applyToml(cfg, data)
 	syncNested(cfg)
@@ -1090,18 +1115,26 @@ func Load(configPath string, cliOverrides map[string]any) (*Config, error) {
 	for _, rl := range rawLayers {
 		rl.data = stripSecrets(rl.data, rl.path, allowPlaintext)
 		rl.data = renameDeprecated(rl.data, rl.path)
-		merged = deepMerge(merged, rl.data)
+		normalized, err := normalizeLLMNumericSource(rl.data, rl.path)
+		if err != nil {
+			return nil, err
+		}
+		merged = deepMerge(merged, normalized)
 	}
 
 	cfg := Default()
 	applyToml(cfg, merged)
 	syncNested(cfg)
 
-	applyEnv(cfg)
+	if err := applyEnv(cfg); err != nil {
+		return nil, err
+	}
 	syncNested(cfg)
 
 	if len(cliOverrides) > 0 {
-		applyDict(cfg, cliOverrides)
+		if err := applyDict(cfg, cliOverrides); err != nil {
+			return nil, err
+		}
 		syncNested(cfg)
 	}
 	return cfg, nil

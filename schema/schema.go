@@ -10,6 +10,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"maps"
 	"strconv"
 	"time"
 
@@ -167,17 +168,12 @@ func (m *Memory) MetaFloat(key string) (float64, bool) {
 	return 0, false
 }
 
-// Clone returns a shallow copy (Metadata and Tags are deep-copied so callers
-// can mutate the copy without affecting the original).
+// Clone returns a shallow copy with independent Tags and Metadata containers.
+// Tags is always non-nil; Metadata preserves nil.
 func (m *Memory) Clone() *Memory {
 	c := *m
 	c.Tags = append([]string{}, m.Tags...)
-	if m.Metadata != nil {
-		c.Metadata = make(map[string]any, len(m.Metadata))
-		for k, v := range m.Metadata {
-			c.Metadata[k] = v
-		}
-	}
+	c.Metadata = maps.Clone(m.Metadata)
 	return &c
 }
 

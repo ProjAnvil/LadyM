@@ -5,6 +5,7 @@ package operations
 import (
 	"cmp"
 	"math"
+	"slices"
 	"strings"
 
 	"github.com/ProjAnvil/LadyM/config"
@@ -35,10 +36,8 @@ func TypeBoostForQuery(mem *schema.Memory, queryTypes []schema.MemoryType, weigh
 	if len(queryTypes) == 0 {
 		return 0.0
 	}
-	for _, t := range queryTypes {
-		if mem.Type == t {
-			return weight
-		}
+	if slices.Contains(queryTypes, mem.Type) {
+		return weight
 	}
 	return 0.0
 }

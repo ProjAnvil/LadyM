@@ -1,6 +1,7 @@
 package fulldict_test
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/ProjAnvil/LadyM/storage"
@@ -40,12 +41,9 @@ func TestEmbeddedDict_SimplifiedAndTraditionalWords_SegmentsMultiCharTokens(t *t
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			tokens := storage.Tokenize(tc.sentence)
-			for _, tok := range tokens {
-				if tok == tc.wantWord {
-					return
-				}
+			if !slices.Contains(tokens, tc.wantWord) {
+				t.Fatalf("Tokenize(%q) = %v, want a token %q", tc.sentence, tokens, tc.wantWord)
 			}
-			t.Fatalf("Tokenize(%q) = %v, want a token %q", tc.sentence, tokens, tc.wantWord)
 		})
 	}
 }

@@ -112,9 +112,9 @@ func TestMigrateLegacyDBMovesSidecars(t *testing.T) {
 		t.Fatal("migrated = false, want true")
 	}
 	for name, want := range map[string]string{
-		target:              "ladym.db",
-		target + "-wal":     "ladym.db-wal",
-		target + "-shm":     "ladym.db-shm",
+		target:                 "ladym.db",
+		target + "-wal":        "ladym.db-wal",
+		target + "-shm":        "ladym.db-shm",
 		legacy + ".index.lock": "ladym.db.index.lock", // stale lock stays behind
 	} {
 		got, err := os.ReadFile(name)
@@ -283,7 +283,7 @@ func TestInitIdempotentRunTwice(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(dir, ".git"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		if _, err := runInitCmd(t); err != nil {
 			t.Fatalf("run %d: %v", i+1, err)
 		}

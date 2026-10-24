@@ -425,28 +425,28 @@ func (e *Engine) Proceduralize(workspace string, minClusterSize int) (*operation
 
 // ExtractMentalModels runs L5 extraction (skipped when no LLM is configured).
 func (e *Engine) ExtractMentalModels(workspace string) (*operations.L5ExtractionReport, error) {
+	ac, err := providers.NewAgentRegistry(e.Config).Get("l5_mental_model")
+	if err != nil {
+		return nil, err
+	}
 	llm, err := e.getAgent("l5_mental_model")
 	if err != nil {
 		return nil, err
 	}
-	prompt := ""
-	if ac, err := providers.NewAgentRegistry(e.Config).Get("l5_mental_model"); err == nil {
-		prompt = ac.PromptTemplate
-	}
-	return operations.ExtractL5(e.Store, e.Provider, e.Config, workspace, llm, prompt)
+	return operations.ExtractL5(e.Store, e.Provider, e.Config, workspace, llm, ac.PromptTemplate)
 }
 
 // PredictForwardIntents runs L6 prediction (skipped when no LLM is configured).
 func (e *Engine) PredictForwardIntents(workspace string) (*operations.L6PredictionReport, error) {
+	ac, err := providers.NewAgentRegistry(e.Config).Get("l6_forward_intent")
+	if err != nil {
+		return nil, err
+	}
 	llm, err := e.getAgent("l6_forward_intent")
 	if err != nil {
 		return nil, err
 	}
-	prompt := ""
-	if ac, err := providers.NewAgentRegistry(e.Config).Get("l6_forward_intent"); err == nil {
-		prompt = ac.PromptTemplate
-	}
-	return operations.PredictL6(e.Store, e.Provider, e.Config, workspace, llm, prompt)
+	return operations.PredictL6(e.Store, e.Provider, e.Config, workspace, llm, ac.PromptTemplate)
 }
 
 // Decay forgets low-activation episodic events.
@@ -636,12 +636,8 @@ func (e *Engine) StatsFor(workspace string) (*schema.Stats, error) {
 }
 
 func splitCountKey(k string) (string, string) {
-	for i := 0; i < len(k); i++ {
-		if k[i] == '/' {
-			return k[:i], k[i+1:]
-		}
-	}
-	return k, ""
+	layer, typ, _ := strings.Cut(k, "/")
+	return layer, typ
 }
 
 func truncate80(s string) string {
@@ -655,7 +651,7 @@ func truncate80(s string) string {
 func splitLines(s string) []string {
 	var out []string
 	start := 0
-	for i := 0; i < len(s); i++ {
+	for i := range len(s) {
 		if s[i] == '\n' {
 			out = append(out, s[start:i])
 			start = i + 1

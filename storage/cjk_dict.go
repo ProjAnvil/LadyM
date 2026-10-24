@@ -34,6 +34,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -357,10 +358,8 @@ func cjkSegmenterFor(script string) *gse.Segmenter {
 	if !ok {
 		return nil
 	}
-	for _, s := range v.Scripts {
-		if s == script {
-			return cjkSeg
-		}
+	if slices.Contains(v.Scripts, script) {
+		return cjkSeg
 	}
 	return nil
 }

@@ -176,8 +176,20 @@ func TestCloneNilMetadata(t *testing.T) {
 	if c.Metadata != nil {
 		t.Errorf("Clone Metadata = %v, want nil", c.Metadata)
 	}
-	if len(c.Tags) != 0 {
-		t.Errorf("Clone Tags = %v, want empty", c.Tags)
+	if c.Tags == nil || len(c.Tags) != 0 {
+		t.Errorf("Clone Tags = %#v, want non-nil empty slice", c.Tags)
+	}
+}
+
+func TestCloneEmptyMetadata(t *testing.T) {
+	m := &Memory{Metadata: map[string]any{}}
+	c := m.Clone()
+	if c.Metadata == nil {
+		t.Fatal("Clone converted empty Metadata to nil")
+	}
+	c.Metadata["new"] = "value"
+	if len(m.Metadata) != 0 {
+		t.Errorf("Clone shares Metadata with original: %v", m.Metadata)
 	}
 }
 

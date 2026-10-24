@@ -9,6 +9,7 @@ package engine
 import (
 	"errors"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -47,28 +48,39 @@ func TestSplitLines(t *testing.T) {
 		{"single", []string{"single"}},
 		{"a\nb\nc", []string{"a", "b", "c"}},
 		{"a\nb\n", []string{"a", "b"}}, // trailing newline: no empty final line
+		{"\n", []string{""}},
+		{"\na\n\n", []string{"", "a", ""}},
+		{"a\r\nb", []string{"a\r", "b"}},
+		{"界\n面", []string{"界", "面"}},
 	}
 	for _, tc := range cases {
 		got := splitLines(tc.in)
-		if len(got) != len(tc.want) {
+		if !slices.Equal(got, tc.want) || (got == nil) != (tc.want == nil) {
 			t.Fatalf("splitLines(%q) = %v, want %v", tc.in, got, tc.want)
-		}
-		for i := range got {
-			if got[i] != tc.want[i] {
-				t.Fatalf("splitLines(%q)[%d] = %q, want %q", tc.in, i, got[i], tc.want[i])
-			}
 		}
 	}
 }
 
 func TestSplitCountKey(t *testing.T) {
-	layer, typ := splitCountKey("L2_semantic/fact")
-	if layer != "L2_semantic" || typ != "fact" {
-		t.Errorf("splitCountKey with slash = (%q, %q)", layer, typ)
+	cases := []struct {
+		in    string
+		layer string
+		typ   string
+	}{
+		{"L2_semantic/fact", "L2_semantic", "fact"},
+		{"noslash", "noslash", ""},
+		{"", "", ""},
+		{"/", "", ""},
+		{"/fact", "", "fact"},
+		{"layer/", "layer", ""},
+		{"layer/type/subtype", "layer", "type/subtype"},
+		{"层/类型", "层", "类型"},
 	}
-	layer, typ = splitCountKey("noslash")
-	if layer != "noslash" || typ != "" {
-		t.Errorf("splitCountKey without slash = (%q, %q), want (noslash, \"\")", layer, typ)
+	for _, tc := range cases {
+		layer, typ := splitCountKey(tc.in)
+		if layer != tc.layer || typ != tc.typ {
+			t.Errorf("splitCountKey(%q) = (%q, %q), want (%q, %q)", tc.in, layer, typ, tc.layer, tc.typ)
+		}
 	}
 }
 
@@ -377,6 +389,73 @@ func TestExtractMentalModelsMissingKey(t *testing.T) {
 	}
 	if _, err := eng.PredictForwardIntents(""); err == nil {
 		t.Fatal("PredictForwardIntents with an unresolvable agent should fail")
+	}
+}
+
+func TestCognitiveOperationsPropagateNumericConfigErrors(t *testing.T) {
+	ops := []struct {
+		name string
+		run  func(*Engine) (bool, error)
+	}{
+		{"l5_mental_model", func(e *Engine) (bool, error) {
+			report, err := e.ExtractMentalModels("")
+			return report != nil, err
+		}},
+		{"l6_forward_intent", func(e *Engine) (bool, error) {
+			report, err := e.PredictForwardIntents("")
+			return report != nil, err
+		}},
+	}
+	for _, op := range ops {
+		for _, mode := range []string{"normal", "cached", "injected"} {
+			t.Run(op.name+"/"+mode, func(t *testing.T) {
+				cfg := config.ForTesting(t.TempDir())
+				calls := 0
+				fake := &providers.FakeLLMProvider{StructuredFn: func([]providers.Message, providers.JSONSchema) (map[string]any, error) {
+					calls++
+					return nil, errors.New("LLM must not run with invalid configuration")
+				}}
+				routing := &adapter.ModelRouting{Embedding: storage.NewHashingEmbedding(32)}
+				if mode == "injected" {
+					routing.L5MentalModel = fake
+					routing.L6ForwardIntent = fake
+				}
+				eng, err := NewWithModels(cfg, routing)
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer eng.Close()
+				if mode == "cached" {
+					if _, err := eng.getAgent(op.name); err != nil {
+						t.Fatal(err)
+					}
+				}
+				cfg.AgentsOverrides[op.name] = map[string]any{"timeout_s": "bad"}
+				hasReport, err := op.run(eng)
+				if _, ok := errors.AsType[*config.ConfigError](err); !ok {
+					t.Fatalf("operation error = %v, want ConfigError", err)
+				}
+				if hasReport || calls != 0 {
+					t.Fatalf("invalid config performed work: report=%v, calls=%d", hasReport, calls)
+				}
+				cfg.AgentsOverrides[op.name] = map[string]any{"prompt_template": "custom prompt"}
+				if hasReport, err := op.run(eng); err != nil || !hasReport {
+					t.Fatalf("corrected configuration did not recover: report=%v, err=%v", hasReport, err)
+				}
+			})
+		}
+	}
+}
+
+func TestNumericConfigErrorDoesNotPoisonAgentCache(t *testing.T) {
+	eng := newTestEngine(t)
+	eng.Config.AgentsOverrides["consolidate"] = map[string]any{"max_tokens": "bad"}
+	if _, err := eng.getAgent("consolidate"); err == nil {
+		t.Fatal("invalid config did not fail")
+	}
+	eng.Config.AgentsOverrides["consolidate"] = map[string]any{"max_tokens": 8.0}
+	if agent, err := eng.getAgent("consolidate"); err != nil || agent != nil {
+		t.Fatalf("corrected offline config failed to recover: agent=%v, err=%v", agent, err)
 	}
 }
 

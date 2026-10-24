@@ -294,6 +294,24 @@ func TestConsolidateMalformedJSON(t *testing.T) {
 	}
 }
 
+func TestConsolidateNumericConfigErrorReturns400(t *testing.T) {
+	h := newTestHandler(t, func(cfg *config.Config) {
+		cfg.AgentsOverrides["consolidate"] = map[string]any{"max_tokens": "9junk"}
+	})
+	rec := do(t, h, "/api/consolidate", "", "", `{}`)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("invalid numeric config: status=%d, body=%s", rec.Code, rec.Body.String())
+	}
+	body := decodeBody(t, rec)
+	msg, ok := body["error"].(string)
+	if !ok || !strings.Contains(msg, "agents.consolidate.max_tokens") || strings.ContainsAny(msg, "\r\n") {
+		t.Errorf("unexpected error payload: %v", body)
+	}
+	if _, exists := body["kept_episodes"]; exists {
+		t.Errorf("configuration failure returned a success-shaped report: %v", body)
+	}
+}
+
 // A non-admin forget whose GetMemory lookup fails (store error) must surface
 // as a 500 from the workspace-enforcement guard, not a silent allow.
 func TestEnforceMemoryWorkspaceStoreError(t *testing.T) {

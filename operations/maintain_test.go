@@ -199,7 +199,7 @@ func TestMaintainL4BackfillBatchCap(t *testing.T) {
 	if cfg.Maintain.BackfillBatch != 50 {
 		t.Fatalf("default BackfillBatch = %d, want 50", cfg.Maintain.BackfillBatch)
 	}
-	for i := 0; i < 60; i++ {
+	for i := range 60 {
 		putParityMem(t, store, emb, schema.LayerEpisodic, schema.TypeEvent,
 			fmt.Sprintf("agent=bot | action=run | seq=%d", i), map[string]any{"action": "run"})
 	}
@@ -231,7 +231,7 @@ func TestMaintainL4BackfillBatchCap(t *testing.T) {
 func linkTestEpisodes(t *testing.T, store storage.Store, emb *storage.HashingEmbedding, count int, content, actionClass string) []*schema.Memory {
 	t.Helper()
 	var out []*schema.Memory
-	for i := 0; i < count; i++ {
+	for range count {
 		m := putParityMem(t, store, emb, schema.LayerEpisodic, schema.TypeEvent, content,
 			map[string]any{"action": actionClass, "action_class": actionClass})
 		out = append(out, m)

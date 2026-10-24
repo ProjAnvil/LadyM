@@ -4,6 +4,7 @@ package eval
 
 import (
 	"encoding/json"
+	"maps"
 	"strings"
 )
 
@@ -80,7 +81,7 @@ func toolPayload(event, tool string, input map[string]any, response any) map[str
 // aim is only to break the input into multiple lines, not to vary the alphabet.
 func repeat(ch string, n int) string {
 	var b strings.Builder
-	for i := 0; i < n; i++ {
+	for i := range n {
 		if i > 0 && i%64 == 0 {
 			b.WriteString("\n")
 			continue
@@ -172,7 +173,7 @@ func Fixtures() []Fixture {
 		{
 			Name: "claude/tool-response-capped", Harness: "claude-code", EventName: "PostToolUse",
 			Workspace: evalWorkspace,
-			Payload: toolPayload("PostToolUse", "Read", map[string]any{}, repeat("y", 3000)),
+			Payload:   toolPayload("PostToolUse", "Read", map[string]any{}, repeat("y", 3000)),
 			Want:      Want{Episodes: 1, Edges: 0, ActionClass: "read", ActionRaw: "tool:Read", Outcome: "success", ObsRunes: observationMaxRunes},
 		},
 		{
@@ -220,11 +221,7 @@ func Fixtures() []Fixture {
 // merge copies base and layers extras on top, so fixtures stay one-liners.
 func merge(base, extras map[string]any) map[string]any {
 	out := map[string]any{}
-	for k, v := range base {
-		out[k] = v
-	}
-	for k, v := range extras {
-		out[k] = v
-	}
+	maps.Copy(out, base)
+	maps.Copy(out, extras)
 	return out
 }

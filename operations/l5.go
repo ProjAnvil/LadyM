@@ -97,7 +97,7 @@ func connectedComponents(ids []string, vecs [][]float32, threshold float64) [][]
 			parent[ra] = rb
 		}
 	}
-	for i := 0; i < len(ids); i++ {
+	for i := range ids {
 		for j := i + 1; j < len(ids); j++ {
 			if dot(unit[i], unit[j]) >= threshold {
 				union(i, j)

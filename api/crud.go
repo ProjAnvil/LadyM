@@ -36,9 +36,7 @@ func parsePagination(r *http.Request) (limit, offset int, err error) {
 		if err != nil || limit <= 0 {
 			return 0, 0, fmt.Errorf("invalid limit %q (want 1..%d)", s, maxListLimit)
 		}
-		if limit > maxListLimit {
-			limit = maxListLimit
-		}
+		limit = min(limit, maxListLimit)
 	}
 	if s := q.Get("offset"); s != "" {
 		offset, err = strconv.Atoi(s)
@@ -69,10 +67,7 @@ func (h *Handler) handleListMemories(w http.ResponseWriter, r *http.Request) {
 	total := len(mems)
 	page := make([]*schema.Memory, 0, limit)
 	if offset < total {
-		end := offset + limit
-		if end > total {
-			end = total
-		}
+		end := min(offset+limit, total)
 		page = mems[offset:end]
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"memories": page, "total": total})

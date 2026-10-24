@@ -91,8 +91,10 @@ func TestNewEngineWithModels(t *testing.T) {
 func TestOpenEngine(t *testing.T) {
 	t.Run("dbPath and workspace overrides", func(t *testing.T) {
 		db := filepath.Join(t.TempDir(), "mem.db")
+		cfg := DefaultConfig()
+		originalDB, originalWS := cfg.DBPath, cfg.Workspace
 		var gotWS string
-		err := OpenEngine(DefaultConfig(), db, "custom-ws", func(eng *Engine) error {
+		err := OpenEngine(cfg, db, "custom-ws", func(eng *Engine) error {
 			gotWS = eng.Config.Workspace
 			if eng.Config.DBPath != db {
 				t.Errorf("DBPath = %q, want %q", eng.Config.DBPath, db)
@@ -104,6 +106,9 @@ func TestOpenEngine(t *testing.T) {
 		}
 		if gotWS != "custom-ws" {
 			t.Errorf("Workspace = %q, want custom-ws", gotWS)
+		}
+		if cfg.DBPath != originalDB || cfg.Workspace != originalWS {
+			t.Errorf("OpenEngine mutated caller config: DBPath=%q, Workspace=%q", cfg.DBPath, cfg.Workspace)
 		}
 	})
 	t.Run("fn error propagates", func(t *testing.T) {

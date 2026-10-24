@@ -64,7 +64,7 @@ type StageRow struct {
 	SpawnP50 float64 `json:"spawn_p50_ms"`
 	// ProcessTaxMs is SpawnP50 minus the real in-process write: the cost the agent
 	// pays that has nothing to do with writing memory.
-	ProcessTaxMs float64 `json:"process_tax_ms"`
+	ProcessTaxMs float64  `json:"process_tax_ms"`
 	Segments     Segments `json:"segments"`
 }
 
@@ -141,7 +141,7 @@ func runScenario(bin, corpus string, fx Fixture, sc Scale, opts Options, counter
 	spawn := []float64{}
 	persisted, content, summary, meta, amp := []float64{}, []float64{}, []float64{}, []float64{}, []float64{}
 
-	for i := 0; i < opts.Trials; i++ {
+	for range opts.Trials {
 		dir, err := os.MkdirTemp("", "ladym-eval-trial")
 		if err != nil {
 			return out, err
@@ -226,7 +226,7 @@ func probeEvents(probe Fixture, n int) ([]engine.OperationEvent, error) {
 		return nil, fmt.Errorf("stage probe maps to no operation")
 	}
 	out := make([]engine.OperationEvent, 0, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		ev := *base
 		ev.Observation = fmt.Sprintf("probe observation seq=%d", i)
 		out = append(out, ev)
@@ -266,7 +266,7 @@ func measureStages(bin, corpus string, sc Scale, opts Options) (StageRow, error)
 		return StageRow{}, err
 	}
 	vals := make([]float64, 0, opts.Spawns)
-	for i := 0; i < opts.Spawns; i++ {
+	for range opts.Spawns {
 		res, err := SpawnHook(bin, db, probe.Harness, payload)
 		if err != nil {
 			return StageRow{}, err

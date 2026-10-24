@@ -1,12 +1,13 @@
 package cli
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 
 	"github.com/ProjAnvil/LadyM/config"
 	"github.com/spf13/cobra"
@@ -239,10 +240,9 @@ func checkDictDir(cfgDir string) doctorFinding {
 func writeDoctor(w io.Writer, findings []doctorFinding) {
 	fmt.Fprintln(w, "LadyM doctor")
 	fmt.Fprintln(w)
-	ordered := make([]doctorFinding, len(findings))
-	copy(ordered, findings)
-	sort.SliceStable(ordered, func(i, j int) bool {
-		return doctorSeverity(ordered[i]) > doctorSeverity(ordered[j])
+	ordered := slices.Clone(findings)
+	slices.SortStableFunc(ordered, func(a, b doctorFinding) int {
+		return cmp.Compare(doctorSeverity(b), doctorSeverity(a))
 	})
 	for _, f := range ordered {
 		fmt.Fprintf(w, "  %-5s %-17s %s\n", f.Status, f.Name, f.Detail)

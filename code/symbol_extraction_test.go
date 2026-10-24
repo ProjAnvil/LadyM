@@ -17,15 +17,6 @@ import (
 
 // --- small pure helpers -------------------------------------------------
 
-func TestItoa(t *testing.T) {
-	cases := map[int]string{0: "0", 7: "7", 42: "42", -7: "-7", 1234: "1234", -1000: "-1000"}
-	for in, want := range cases {
-		if got := itoa(in); got != want {
-			t.Errorf("itoa(%d) = %q, want %q", in, got, want)
-		}
-	}
-}
-
 func TestTruncateStr(t *testing.T) {
 	if got := truncateStr("short", 10); got != "short" {
 		t.Errorf("truncateStr short = %q", got)
@@ -100,6 +91,63 @@ func TestShouldIgnore(t *testing.T) {
 	}
 	if shouldIgnore("proj/keep.py", []string{"generated_*"}) {
 		t.Error("clean file ignored")
+	}
+}
+
+func TestFileSummaryDecimalCounts(t *testing.T) {
+	syms := []RawSymbol{{Kind: "type", Name: "T"}}
+	for range 12 {
+		syms = append(syms, RawSymbol{Kind: "function", Name: "f"})
+	}
+	got := fileSummary("file.go", "go", syms)
+	want := "file.go (go): 12 function, 1 type. Top symbols: T, f, f, f, f, f, f, f."
+	if got != want {
+		t.Errorf("fileSummary = %q, want %q", got, want)
+	}
+}
+
+func TestChunkFallbackDecimalLineNumbers(t *testing.T) {
+	got := chunkFallback([]byte(strings.Repeat("line\n", 9)+"last"), "mod", "file.txt", "text", 1)
+	if len(got) != 10 {
+		t.Fatalf("chunk count = %d, want 10", len(got))
+	}
+	last := got[9]
+	if last.Name != "lines_10" || last.QualifiedName != "mod.lines_10" ||
+		last.LineStart != 10 || last.LineEnd != 10 || last.Body != "last" {
+		t.Errorf("last chunk = %+v, want mod.lines_10 containing line 10", last)
+	}
+}
+
+func TestChunkFallbackBoundaries(t *testing.T) {
+	cases := []struct {
+		name string
+		text string
+		want []RawSymbol
+	}{
+		{"empty", "", []RawSymbol{{Name: "lines_1", LineStart: 1, LineEnd: 1, Body: ""}}},
+		{"exact", "a\nb", []RawSymbol{{Name: "lines_1", LineStart: 1, LineEnd: 2, Body: "a\nb"}}},
+		{"partial", "a\nb\nc", []RawSymbol{
+			{Name: "lines_1", LineStart: 1, LineEnd: 2, Body: "a\nb"},
+			{Name: "lines_3", LineStart: 3, LineEnd: 3, Body: "c"},
+		}},
+		{"crlf-trailing", "a\r\nb\r\n", []RawSymbol{
+			{Name: "lines_1", LineStart: 1, LineEnd: 2, Body: "a\nb"},
+			{Name: "lines_3", LineStart: 3, LineEnd: 3, Body: ""},
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := chunkFallback([]byte(tc.text), "mod", "file.txt", "text", 2)
+			if len(got) != len(tc.want) {
+				t.Fatalf("chunks = %d, want %d", len(got), len(tc.want))
+			}
+			for i, want := range tc.want {
+				sym := got[i]
+				if sym.Name != want.Name || sym.LineStart != want.LineStart || sym.LineEnd != want.LineEnd || sym.Body != want.Body {
+					t.Errorf("chunk %d = %+v, want %+v", i, sym, want)
+				}
+			}
+		})
 	}
 }
 

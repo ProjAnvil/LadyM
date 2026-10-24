@@ -31,12 +31,12 @@ type Segments struct {
 	EngineOpenMs float64 `json:"engine_open_ms"`
 	ScopeMs      float64 `json:"scope_ms"`
 	NormalizeMs  float64 `json:"normalize_ms"`
-	ResolveMs   float64 `json:"resolve_ms"`
-	RecordMs    float64 `json:"record_ms"`
-	EdgesMs     float64 `json:"edges_ms"`
-	TotalMs     float64 `json:"total_ms"`
-	RealMs      float64 `json:"real_ms"`
-	Drift       float64 `json:"drift"`
+	ResolveMs    float64 `json:"resolve_ms"`
+	RecordMs     float64 `json:"record_ms"`
+	EdgesMs      float64 `json:"edges_ms"`
+	TotalMs      float64 `json:"total_ms"`
+	RealMs       float64 `json:"real_ms"`
+	Drift        float64 `json:"drift"`
 }
 
 // Measure compares stage-by-stage replication against the real write path. Both
@@ -218,7 +218,7 @@ func EngineOpenMs(corpus, workspace string, runs int) (float64, error) {
 		return 0, err
 	}
 	vals := make([]float64, 0, runs)
-	for i := 0; i < runs; i++ {
+	for range runs {
 		start := time.Now()
 		eng, err := openCorpusEngine(dir, db, workspace)
 		if err != nil {

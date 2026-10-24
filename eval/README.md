@@ -15,6 +15,16 @@ Output lands in `eval/.cache/reports/<timestamp>/{metrics.json,report.md}`.
 Everything here lives behind the `eval` build tag, so the default `make test`
 compiles none of it and pays no cost.
 
+For regression checks without the full timing matrix:
+
+```bash
+go test -short -tags eval ./eval
+```
+
+This still runs fidelity, corpus, statistics, report ordering, and subprocess
+exit/error checks. `LADYM_BIN` can point to a freshly built binary; otherwise
+the tests build one automatically.
+
 ## What it measures
 
 ### Fidelity — does the write actually land?

@@ -37,6 +37,55 @@ func metaOf(t *testing.T, r Row) map[string]string {
 	return out
 }
 
+func TestFixtureMergeOverrideWithoutMutatingInputs(t *testing.T) {
+	base := map[string]any{"event": "base", "keep": "original"}
+	extras := map[string]any{"event": "override", "new": true}
+	merged := merge(base, extras)
+	payload, err := (Fixture{Payload: merged}).PayloadJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := `{"event":"override","keep":"original","new":true}`; payload != want {
+		t.Errorf("merged payload = %s, want %s", payload, want)
+	}
+	merged["keep"] = "changed"
+	merged["new"] = false
+	if base["event"] != "base" || base["keep"] != "original" || len(base) != 2 {
+		t.Errorf("base mutated by merge: %v", base)
+	}
+	if extras["event"] != "override" || extras["new"] != true || len(extras) != 2 {
+		t.Errorf("extras mutated by merge: %v", extras)
+	}
+}
+
+func TestFixtureMergeNilInputs(t *testing.T) {
+	cases := []struct {
+		name   string
+		base   map[string]any
+		extras map[string]any
+		want   string
+	}{
+		{"both-nil", nil, nil, "{}"},
+		{"nil-base", nil, map[string]any{"new": true}, `{"new":true}`},
+		{"nil-extras", map[string]any{"keep": "original"}, nil, `{"keep":"original"}`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			merged := merge(tc.base, tc.extras)
+			if merged == nil {
+				t.Fatal("merge returned nil, want a writable map")
+			}
+			payload, err := (Fixture{Payload: merged}).PayloadJSON()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if payload != tc.want {
+				t.Errorf("payload = %s, want %s", payload, tc.want)
+			}
+		})
+	}
+}
+
 // TestFidelityMatrix drives every fixture through the REAL `ladym hook` binary
 // and asserts what landed in SQLite. Each fixture gets its own database so a
 // failing case can never contaminate another.

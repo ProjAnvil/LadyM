@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"sort"
+	"slices"
 	"strings"
 )
 
@@ -37,7 +37,7 @@ func writeMarkdown(path string, rep Report) error {
 			scales = append(scales, s.Scale)
 		}
 	}
-	sort.Strings(scales)
+	slices.Sort(scales)
 
 	for _, sc := range scales {
 		var rows [][]string
@@ -138,9 +138,7 @@ func table(head []string, rows [][]string) string {
 	}
 	for _, r := range rows {
 		for i, c := range r {
-			if len(c) > widths[i] {
-				widths[i] = len(c)
-			}
+			widths[i] = max(widths[i], len(c))
 		}
 	}
 	var b strings.Builder

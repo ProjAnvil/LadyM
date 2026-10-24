@@ -1,6 +1,7 @@
 package operations
 
 import (
+	"slices"
 	"strings"
 
 	"github.com/ProjAnvil/LadyM/config"
@@ -70,10 +71,8 @@ func NormalizeAction(raw string, cfg *config.Config) string {
 		}
 	}
 	for _, words := range [][]string{defaultActions, cfg.Resource.Actions} {
-		for _, a := range words {
-			if a == w {
-				return w
-			}
+		if slices.Contains(words, w) {
+			return w
 		}
 	}
 	return ""

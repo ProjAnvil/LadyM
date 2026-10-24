@@ -21,19 +21,32 @@ import (
 func unsetLadymEnv(t *testing.T) {
 	t.Helper()
 	for _, kv := range os.Environ() {
-		k := strings.SplitN(kv, "=", 2)[0]
+		k, _, _ := strings.Cut(kv, "=")
 		if !strings.HasPrefix(k, "LADYM_") {
 			continue
 		}
-		old, had := os.LookupEnv(k)
+		t.Setenv(k, "")
 		if err := os.Unsetenv(k); err != nil {
 			t.Fatal(err)
 		}
-		t.Cleanup(func() {
-			if had {
-				os.Setenv(k, old)
-			}
-		})
+	}
+}
+
+func TestUnsetLadymEnvRestoresEnvironment(t *testing.T) {
+	const key = "LADYM_TEST_ENV_ISOLATION"
+	t.Setenv(key, "value=with=equals")
+	t.Setenv("UNRELATED_TEST_ENV_ISOLATION", "unchanged")
+	t.Run("isolated", func(t *testing.T) {
+		unsetLadymEnv(t)
+		if _, exists := os.LookupEnv(key); exists {
+			t.Error("LADYM variable still exists, want it unset rather than empty")
+		}
+		if got := os.Getenv("UNRELATED_TEST_ENV_ISOLATION"); got != "unchanged" {
+			t.Errorf("unrelated variable = %q, want unchanged", got)
+		}
+	})
+	if got := os.Getenv(key); got != "value=with=equals" {
+		t.Errorf("variable after cleanup = %q, want original value", got)
 	}
 }
 

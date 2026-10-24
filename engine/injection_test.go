@@ -21,7 +21,9 @@ func TestNewWithModelsInjectsProviders(t *testing.T) {
 	}
 	routing := &adapter.ModelRouting{Embedding: emb, Consolidate: classifier}
 
-	eng, err := NewWithModels(config.ForTesting(t.TempDir()), routing)
+	cfg := config.ForTesting(t.TempDir())
+	cfg.AgentsOverrides["consolidate"] = map[string]any{"timeout_s": "unused-invalid"}
+	eng, err := NewWithModels(cfg, routing)
 	if err != nil {
 		t.Fatal(err)
 	}

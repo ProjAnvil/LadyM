@@ -2,6 +2,7 @@ package providers
 
 import (
 	"errors"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -168,6 +169,83 @@ func TestAgentRegistryOverrideTypeCoercion(t *testing.T) {
 			}
 			c.check(t, ac)
 		})
+	}
+}
+
+func TestAgentRegistryRejectsInvalidNumericOverrides(t *testing.T) {
+	for _, field := range []string{"max_tokens", "temperature", "timeout_s"} {
+		t.Run(field, func(t *testing.T) {
+			invalid := []any{nil, true, "", "bad", "9junk", "NaN", "Inf", math.NaN(), math.Inf(-1), []int{1}}
+			if field == "max_tokens" {
+				invalid = append(invalid, 8.5, "9.5", "999999999999999999999999999")
+			}
+			for _, value := range invalid {
+				cfg := config.Default()
+				cfg.AgentsOverrides["consolidate"] = map[string]any{field: value}
+				ac, err := NewAgentRegistry(cfg).Get("consolidate")
+				if _, ok := errors.AsType[*config.ConfigError](err); !ok {
+					t.Fatalf("Get(%s=%v) error = %v, want ConfigError", field, value, err)
+				}
+				if ac != nil || !strings.Contains(err.Error(), "agents.consolidate."+field) {
+					t.Fatalf("invalid result: config=%v, error=%v", ac, err)
+				}
+				agent, err := MakeAgent(cfg, "consolidate")
+				if _, ok := errors.AsType[*config.ConfigError](err); !ok || agent != nil {
+					t.Fatalf("provider=none must not hide numeric errors: agent=%v, err=%v", agent, err)
+				}
+			}
+		})
+	}
+}
+
+func TestAgentRegistryRejectsInvalidGlobalNumericValues(t *testing.T) {
+	for _, field := range []string{"temperature", "timeout_s"} {
+		cfg := config.Default()
+		if field == "temperature" {
+			cfg.LLMTemperature = math.NaN()
+		} else {
+			cfg.LLMTimeoutS = math.Inf(1)
+		}
+		cfg.AgentsOverrides["consolidate"] = map[string]any{field: 1.0}
+		_, err := NewAgentRegistry(cfg).Get("consolidate")
+		if _, ok := errors.AsType[*config.ConfigError](err); !ok {
+			t.Fatalf("invalid inherited %s masked by override: %v", field, err)
+		}
+		if !strings.Contains(err.Error(), "llm."+field) {
+			t.Errorf("error = %v, want global field %s", err, field)
+		}
+	}
+}
+
+func TestAgentRegistryPreservesNumericZeroAndNegativeValues(t *testing.T) {
+	for _, value := range []int{0, -2} {
+		cfg := config.Default()
+		cfg.AgentsOverrides["consolidate"] = map[string]any{
+			"max_tokens": value, "temperature": value, "timeout_s": value,
+		}
+		ac, err := NewAgentRegistry(cfg).Get("consolidate")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if ac.MaxTokens != value || ac.Temperature != float64(value) || ac.TimeoutS != float64(value) {
+			t.Errorf("explicit numeric values replaced by defaults: %+v", ac)
+		}
+	}
+}
+
+func TestMakeAgentNumericErrorPrecedesSecretResolution(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "not-a-directory")
+	if err := os.WriteFile(home, []byte("blocked"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+	cfg := config.Default()
+	cfg.LLMProvider = "http"
+	cfg.LLMAPIKeyEnv = "LADYM_TEST_UNRESOLVABLE_KEY"
+	cfg.AgentsOverrides["consolidate"] = map[string]any{"timeout_s": "bad"}
+	_, err := MakeAgent(cfg, "consolidate")
+	if _, ok := errors.AsType[*config.ConfigError](err); !ok || !strings.Contains(err.Error(), "timeout_s") {
+		t.Fatalf("numeric error must precede secret access: %v", err)
 	}
 }
 

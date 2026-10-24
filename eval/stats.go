@@ -4,7 +4,7 @@ package eval
 
 import (
 	"math"
-	"sort"
+	"slices"
 )
 
 // Summary holds descriptive statistics for one sample of measurements.
@@ -25,8 +25,8 @@ func Summarize(vals []float64) Summary {
 	if len(vals) == 0 {
 		return Summary{}
 	}
-	sorted := append([]float64(nil), vals...)
-	sort.Float64s(sorted)
+	sorted := slices.Clone(vals)
+	slices.Sort(sorted)
 
 	var sum float64
 	for _, v := range sorted {

@@ -5,6 +5,7 @@ package operations
 import (
 	"math"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/ProjAnvil/LadyM/config"
@@ -40,15 +41,6 @@ func aliasesOf(t *testing.T, m *schema.Memory) []string {
 	}
 }
 
-func containsString(list []string, want string) bool {
-	for _, s := range list {
-		if s == want {
-			return true
-		}
-	}
-	return false
-}
-
 func TestResolveResourceCreatesNew(t *testing.T) {
 	store, emb, cfg := newResourceEnv(t)
 	m, created, err := ResolveResource(store, emb, cfg, "t", "ladym.db")
@@ -70,7 +62,7 @@ func TestResolveResourceCreatesNew(t *testing.T) {
 	if m.Content != "ladym.db" {
 		t.Errorf("content = %q, want ladym.db", m.Content)
 	}
-	if !containsString(aliasesOf(t, m), "ladym.db") {
+	if !slices.Contains(aliasesOf(t, m), "ladym.db") {
 		t.Errorf("aliases = %v, want to contain ladym.db", m.Metadata["aliases"])
 	}
 	// Persisted: GetMemory round-trips.
@@ -162,7 +154,7 @@ func TestResolveResourceVectorBranch(t *testing.T) {
 		t.Errorf("vector hit id = %s, want %s", m2.ID, m.ID)
 	}
 	// Lazy alias growth: the queried name is appended.
-	if !containsString(aliasesOf(t, m2), "postgres primary database") {
+	if !slices.Contains(aliasesOf(t, m2), "postgres primary database") {
 		t.Errorf("aliases = %v, want to contain queried name", m2.Metadata["aliases"])
 	}
 

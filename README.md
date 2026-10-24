@@ -508,15 +508,36 @@ loads an extra TOML file on top.
 | `LADYM_LLM_BASE_URL` | (provider default) | Override LLM API base URL (OpenAI/Ollama-compatible) |
 | `LADYM_LLM_MODEL` | `gpt-4o-mini` | LLM model name for the consolidation classifier |
 | `LADYM_LLM_API_KEY_ENV` | (none) | Name of the env var holding the LLM API key |
+| `LADYM_LLM_MAX_TOKENS` | `1024` | Global LLM token limit |
+| `LADYM_LLM_TEMPERATURE` | `0.2` | Global LLM temperature |
+| `LADYM_LLM_TIMEOUT_S` | `30` | Global LLM timeout in seconds |
 | `LADYM_ENABLE_WAL` | `true` | Enable SQLite WAL journal mode (default on so multiple processes can share one db; set `false` on filesystems without WAL support) |
 
 `base_url` support lets you point embedding and LLM calls at any OpenAI/Ollama-compatible
 endpoint (e.g. vLLM, LiteLLM, local Ollama); the `http` providers let you template an
 arbitrary embedding/LLM HTTP API. Finer knobs (`LADYM_EMBEDDING_TIMEOUT_S`,
-`LADYM_LLM_MAX_TOKENS`, `LADYM_LLM_TEMPERATURE`, per-op overrides under `[agents]`, and
+per-op overrides under `[agents]`, and
 the recall/activation weights) live in TOML or on the `config.Config` struct — see
 [config/config.go](config/config.go). Secret literals in TOML are rejected with a
 warning; use `<name>_env` indirection or the secret store below.
+
+LLM numeric settings (`max_tokens`, `temperature`, `timeout_s`) in `[llm]`,
+their flat `llm_*` aliases, and `[agents.<op>]` overrides are **strictly
+validated per source, before merging**. An invalid value is an error even when
+a higher-priority source would override it, the operation is unused, or its
+provider is `none`. Within one source, specifying both flat and nested forms of
+the same global numeric setting is an error; across sources, normal precedence
+still applies.
+
+`max_tokens` accepts integers, integral floats, and complete decimal integer
+strings such as `" 2048 "`; fractional values, overflow, and trailing text such
+as `"2048junk"` are rejected. Floating settings accept finite numbers and
+complete numeric strings, including scientific notation; NaN and infinity are
+rejected. Missing settings inherit defaults. Empty environment variables count
+as unset, but an explicitly empty string in TOML or programmatic overrides is
+invalid. Zero and negative values retain their existing behavior: this is
+conversion validation, not provider-specific parameter-range validation.
+Errors identify the source and field without dumping configuration values.
 
 ### Secret store (encrypted keys at rest)
 
@@ -701,6 +722,13 @@ Contributions are welcome. The fastest way to help:
 2. Add a scenario under [scenarios/](scenarios/) or a `*_test.go` beside the changed
    package for any new behaviour — they are the spec.
 3. Keep the read path heuristic-only; route any LLM use through the System 2 worker.
+4. Follow the Go version in `go.mod`: prefer standard helpers such as `slices.Clone`,
+   `slices.Contains`, `slices.SortStableFunc`, and `strings.SplitSeq` over equivalent
+   hand-written loops. Preserve ordering, nil/empty semantics, and public output.
+
+Inspect modernization suggestions with `go fix -diff ./...`; for the evaluation
+harness, also use `go fix -diff -tags eval ./eval`. The `-diff` flag leaves files
+unchanged so each suggestion can be checked for behavioral compatibility.
 
 For the design rationale behind any layer or operation, read
 [ARCHITECTURE.md](ARCHITECTURE.md) first, then open an issue to discuss before large

@@ -3,6 +3,7 @@ package cli
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -217,5 +218,47 @@ func TestDoctorJSONOutput(t *testing.T) {
 	}
 	if !strings.Contains(out, `"name": "home dir"`) {
 		t.Errorf("output should be JSON findings:\n%s", out)
+	}
+}
+
+func TestWriteDoctorStableOrderWithoutMutatingFindings(t *testing.T) {
+	findings := []doctorFinding{
+		{Name: "ok-first", Status: string(statusOK)},
+		{Name: "warn-first", Status: string(statusWarn), Hint: "warning hint"},
+		{Name: "error-first", Status: string(statusError)},
+		{Name: "warn-second", Status: string(statusWarn)},
+		{Name: "error-second", Status: string(statusError)},
+		{Name: "ok-second", Status: string(statusOK)},
+	}
+	original := slices.Clone(findings)
+	var out strings.Builder
+	writeDoctor(&out, findings)
+
+	var names []string
+	for line := range strings.SplitSeq(out.String(), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) >= 2 && fields[0] != "LadyM" && fields[0] != "->" {
+			names = append(names, fields[1])
+		}
+	}
+	want := []string{"error-first", "error-second", "warn-first", "warn-second", "ok-first", "ok-second"}
+	if !slices.Equal(names, want) {
+		t.Errorf("finding order = %v, want %v", names, want)
+	}
+	if !slices.Equal(findings, original) {
+		t.Errorf("writeDoctor mutated findings: got %v, want %v", findings, original)
+	}
+	if !strings.Contains(out.String(), "-> warning hint") {
+		t.Errorf("output missing hint:\n%s", out.String())
+	}
+}
+
+func TestWriteDoctorEmptyFindings(t *testing.T) {
+	for _, findings := range [][]doctorFinding{nil, {}} {
+		var out strings.Builder
+		writeDoctor(&out, findings)
+		if got := out.String(); got != "LadyM doctor\n\n" {
+			t.Errorf("writeDoctor(%v) = %q, want header only", findings, got)
+		}
 	}
 }

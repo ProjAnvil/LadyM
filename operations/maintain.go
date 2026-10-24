@@ -1,7 +1,8 @@
 package operations
 
 import (
-	"sort"
+	"cmp"
+	"slices"
 
 	"github.com/ProjAnvil/LadyM/config"
 	"github.com/ProjAnvil/LadyM/providers"
@@ -112,8 +113,8 @@ func linkEpisodes(store storage.Store, embedder storage.EmbeddingProvider,
 	for _, key := range order {
 		members := buckets[key]
 		// Most recent first; ties keep iteration order (stable).
-		sort.SliceStable(members, func(i, j int) bool {
-			return members[i].CreatedAt > members[j].CreatedAt
+		slices.SortStableFunc(members, func(a, b *schema.Memory) int {
+			return cmp.Compare(b.CreatedAt, a.CreatedAt)
 		})
 		if len(members) > bucketMemLimit {
 			members = members[:bucketMemLimit]
@@ -387,7 +388,7 @@ func mergeAliases(store storage.Store, embedder storage.EmbeddingProvider,
 	}
 
 	merged := 0
-	for i := 0; i < len(live); i++ {
+	for i := range live {
 		if IsRetired(live[i]) {
 			continue // merged into an earlier winner this cycle
 		}

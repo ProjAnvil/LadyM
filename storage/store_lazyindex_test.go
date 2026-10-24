@@ -22,7 +22,7 @@ func reopenStore(t *testing.T, n int) (*SQLiteStore, []string) {
 		t.Fatal(err)
 	}
 	ids := make([]string, 0, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		m := schema.NewMemory(schema.LayerEpisodic, schema.TypeEvent)
 		vec := make([]float32, 8)
 		vec[i%8] = 1

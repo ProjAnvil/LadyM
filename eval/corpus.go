@@ -7,7 +7,7 @@ import (
 	"math"
 	"math/rand"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 	"unicode/utf8"
 
@@ -73,7 +73,7 @@ func Seed(size int, dir string, seed int64, workspace string) (string, error) {
 	agents := []string{"claude-code", "codex"}
 	actions := []string{"tool:Read", "tool:Edit", "tool:Bash", "tool:Grep", "prompt_submit"}
 
-	for i := 0; i < size; i++ {
+	for i := range size {
 		name := pool[rng.Intn(len(pool))]
 		res, _, err := operations.ResolveResource(eng.Store, eng.Provider, cfg, workspace, name)
 		if err != nil {
@@ -109,15 +109,12 @@ func linkResource(eng *engine.Engine, episodeID, resourceID string) error {
 // result is sorted so selection stays deterministic even though the names were
 // drawn from the same PRNG stream as the content.
 func resourcePool(rng *rand.Rand, size int) []string {
-	n := size / episodesPerResource
-	if n < minResourcePool {
-		n = minResourcePool
-	}
+	n := max(size/episodesPerResource, minResourcePool)
 	pkgs := []string{"engine", "storage", "operations", "cli", "mcp", "layers", "providers", "config"}
 	exts := []string{".go", ".md", ".toml", ".json"}
 	seen := map[string]bool{}
 	out := make([]string, 0, n)
-	for i := 0; i < n; i++ {
+	for range n {
 		name := fmt.Sprintf("%s_%d%s", pkgs[rng.Intn(len(pkgs))], rng.Intn(1000), exts[rng.Intn(len(exts))])
 		if seen[name] {
 			continue
@@ -128,7 +125,7 @@ func resourcePool(rng *rand.Rand, size int) []string {
 	if len(out) == 0 {
 		out = append(out, "engine_0.go")
 	}
-	sort.Strings(out)
+	slices.Sort(out)
 	return out
 }
 
@@ -136,12 +133,7 @@ func resourcePool(rng *rand.Rand, size int) []string {
 // the spread real captures have, rather than one uniform blob size.
 func sampleObservation(rng *rand.Rand, seq int) string {
 	target := int(math.Exp(math.Log(contentLengthMedian) + contentLengthSigma*rng.NormFloat64()))
-	if target < minContentLength {
-		target = minContentLength
-	}
-	if target > maxContentLength {
-		target = maxContentLength
-	}
+	target = min(max(target, minContentLength), maxContentLength)
 
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("seq=%d ", seq))

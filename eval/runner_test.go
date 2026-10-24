@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
@@ -19,6 +20,68 @@ func repoPath(t *testing.T) string {
 		t.Fatalf("repo root: %v", err)
 	}
 	return root
+}
+
+func TestWriteMarkdownSortsScalesAndPreservesScenarioOrder(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "report.md")
+	rep := Report{Scenarios: []Scenario{
+		{Scale: "small", Fixture: "small-first"},
+		{Scale: "large", Fixture: "large-only"},
+		{Scale: "small", Fixture: "small-second"},
+	}}
+	if err := writeMarkdown(path, rep); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	report := string(data)
+	large := strings.Index(report, "## Scale: large\n")
+	small := strings.Index(report, "## Scale: small\n")
+	if large < 0 || small < 0 || large >= small {
+		t.Errorf("scale sections missing or out of order:\n%s", report)
+	}
+	if strings.Count(report, "## Scale: small\n") != 1 {
+		t.Errorf("repeated scale produced duplicate sections:\n%s", report)
+	}
+	first := strings.Index(report, "small-first")
+	second := strings.Index(report, "small-second")
+	if first < small || second <= first {
+		t.Errorf("scenario rows missing or out of order:\n%s", report)
+	}
+}
+
+func TestRunScenarioCountsTrialsAndSpawns(t *testing.T) {
+	corpus, err := Seed(2, t.TempDir(), 1, evalWorkspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	counter, err := NewCounter(Cl100kBase)
+	if err != nil {
+		t.Fatal(err)
+	}
+	opts := DefaultOptions()
+	opts.Trials = 2
+	opts.Spawns = 3
+	fx := fixtureByName(t, "claude/tool-read")
+	got, err := runScenario(ResolveBinary(t), corpus, fx, Scale{Name: "tiny", Size: 2}, opts, counter)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Trials != 2 || got.SpawnMs.N != 6 || got.NewRows != 2 {
+		t.Errorf("scenario counts: Trials=%d, spawns=%d, rows=%d; want 2, 6, 2",
+			got.Trials, got.SpawnMs.N, got.NewRows)
+	}
+	for name, stats := range map[string]Summary{
+		"persisted": got.PersistedToks, "content": got.ContentToks,
+		"summary": got.SummaryToks, "metadata": got.MetadataToks,
+		"amplification": got.Amplification,
+	} {
+		if stats.N != 2 {
+			t.Errorf("%s sample count = %d, want one per trial, not per spawn", name, stats.N)
+		}
+	}
 }
 
 // TestEval is the entry point invoked by `make eval-hook`. It runs the full

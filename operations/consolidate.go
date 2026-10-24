@@ -2,6 +2,7 @@ package operations
 
 import (
 	"cmp"
+	"maps"
 	"slices"
 
 	"github.com/ProjAnvil/LadyM/config"
@@ -210,18 +211,16 @@ func Consolidate(store storage.Store, embedder storage.EmbeddingProvider, cfg *c
 		switch action {
 		case ActionAdd:
 			meta := map[string]any{}
-			for k, v := range ep.Metadata {
-				meta[k] = v
-			}
+			maps.Copy(meta, ep.Metadata)
 			meta["source_episode"] = ep.ID
 			addedContent := newText
 			addedContent = cmp.Or(addedContent, ep.Content)
-		if fact, err := sem.PutFact(addedContent, ep.Summary, ep.Tags, meta, "consolidate"); err != nil {
-			return nil, err
-		} else if err := projectProvenance(store, fact.ID, ep.ID); err != nil {
-			return nil, err
-		}
-		report.PromotedToSemantic++
+			if fact, err := sem.PutFact(addedContent, ep.Summary, ep.Tags, meta, "consolidate"); err != nil {
+				return nil, err
+			} else if err := projectProvenance(store, fact.ID, ep.ID); err != nil {
+				return nil, err
+			}
+			report.PromotedToSemantic++
 		case ActionUpdate:
 			if len(similar) == 0 {
 				continue

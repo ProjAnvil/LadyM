@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"testing"
 )
 
@@ -58,21 +58,16 @@ func hookEvents(t *testing.T, path string, check func(t *testing.T, ev string, h
 			}
 		}
 	}
-	sort.Strings(events)
+	slices.Sort(events)
 	return events
 }
 
 func wantEvents(t *testing.T, path string, got, want []string) {
 	t.Helper()
-	sorted := append([]string(nil), want...)
-	sort.Strings(sorted)
-	if len(got) != len(sorted) {
+	sorted := slices.Clone(want)
+	slices.Sort(sorted)
+	if !slices.Equal(got, sorted) {
 		t.Fatalf("%s: events = %v, want exactly %v", path, got, sorted)
-	}
-	for i := range got {
-		if got[i] != sorted[i] {
-			t.Fatalf("%s: events = %v, want exactly %v", path, got, sorted)
-		}
 	}
 }
 

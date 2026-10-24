@@ -72,7 +72,9 @@ func TestApplyEnvStore(t *testing.T) {
 	t.Setenv("LADYM_STORE_BACKEND", "postgres")
 	t.Setenv("LADYM_STORE_DSN", "postgres://env/db")
 	cfg := Default()
-	applyEnv(cfg)
+	if err := applyEnv(cfg); err != nil {
+		t.Fatal(err)
+	}
 	if cfg.StoreBackend != "postgres" {
 		t.Errorf("StoreBackend = %q", cfg.StoreBackend)
 	}

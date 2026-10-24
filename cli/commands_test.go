@@ -287,6 +287,45 @@ func TestExecuteConfigErrorMessage(t *testing.T) {
 	}
 }
 
+func TestExecuteInvalidLLMConfig(t *testing.T) {
+	cases := []struct {
+		name, env, field string
+	}{
+		{"tokens-env", "LADYM_LLM_MAX_TOKENS", "max_tokens"},
+		{"temperature-env", "LADYM_LLM_TEMPERATURE", "temperature"},
+		{"timeout-env", "LADYM_LLM_TIMEOUT_S", "timeout_s"},
+		{"unused-op-file", "", "timeout_s"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			db := filepath.Join(t.TempDir(), "must-not-exist.db")
+			args := "remember hello --db " + db
+			env := []string{"LADYM_LLM_MAX_TOKENS=", "LADYM_LLM_TEMPERATURE=", "LADYM_LLM_TIMEOUT_S="}
+			source := tc.env
+			if tc.env != "" {
+				env = append(env, tc.env+"=bad")
+			} else {
+				path := filepath.Join(t.TempDir(), "invalid.toml")
+				if err := os.WriteFile(path, []byte("[agents.unused]\nprovider = \"none\"\ntimeout_s = \"bad\"\n"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				args = "--config " + path + " " + args
+				source = path
+			}
+			out, code := runExecHelper(t, args, env...)
+			if code != 1 || !strings.Contains(out, source) || !strings.Contains(out, tc.field) {
+				t.Fatalf("invalid config: code=%d, output=%q", code, out)
+			}
+			if !strings.HasPrefix(out, "ladym: ") || strings.ContainsAny(strings.TrimSpace(out), "\r\n") {
+				t.Errorf("expected one actionable error line, got %q", out)
+			}
+			if _, err := os.Stat(db); !errors.Is(err, os.ErrNotExist) {
+				t.Errorf("invalid config created a database: %v", err)
+			}
+		})
+	}
+}
+
 // ---- data commands ----
 
 func TestRememberCmd(t *testing.T) {

@@ -110,8 +110,7 @@ func SpawnHook(binPath, dbPath, harness, payload string) (SpawnResult, error) {
 		Stdout:     stdout.String(),
 		Stderr:     stderr.String(),
 	}
-	var exitErr *exec.ExitError
-	if errors.As(runErr, &exitErr) {
+	if exitErr, ok := errors.AsType[*exec.ExitError](runErr); ok {
 		res.ExitCode = exitErr.ExitCode()
 		return res, nil
 	}

@@ -430,14 +430,28 @@ ladym doctor                            # 报告配置 / 存储问题
 | `LADYM_LLM_BASE_URL` | （provider 默认） | 覆盖 LLM API base URL（OpenAI/Ollama 兼容） |
 | `LADYM_LLM_MODEL` | `gpt-4o-mini` | 合并分类器的 LLM 模型名 |
 | `LADYM_LLM_API_KEY_ENV` | （无） | 存放 LLM API key 的环境变量名 |
+| `LADYM_LLM_MAX_TOKENS` | `1024` | 全局 LLM token 数量上限 |
+| `LADYM_LLM_TEMPERATURE` | `0.2` | 全局 LLM temperature |
+| `LADYM_LLM_TIMEOUT_S` | `30` | 全局 LLM 超时秒数 |
 | `LADYM_ENABLE_WAL` | `true` | 开启 SQLite WAL journal 模式(默认开启,便于多进程共享同一个 db;在不支持 WAL 的文件系统上设为 `false`) |
 
 `base_url` 让你能把向量和 LLM 调用指向任意 OpenAI/Ollama 兼容端点（如 vLLM、LiteLLM、本地
 Ollama）；`http` provider 还可以模板化任意 embedding/LLM HTTP API。更细的开关
-（`LADYM_EMBEDDING_TIMEOUT_S`、`LADYM_LLM_MAX_TOKENS`、`LADYM_LLM_TEMPERATURE`、
+（`LADYM_EMBEDDING_TIMEOUT_S`、
 `[agents]` 下的 per-op 覆盖，以及 recall/activation 权重）放在 TOML 或 `config.Config`
 结构体上——见 [config/config.go](config/config.go)。TOML 里的密钥字面值会被拒绝并告警；
 请用 `<name>_env` 间接引用或下面的 secret store。
+
+`[llm]`、对应的扁平 `llm_*` 键及 `[agents.<op>]` 覆盖中的 `max_tokens`、
+`temperature`、`timeout_s` 会在**合并前逐来源严格校验**。即使后续存在高优先级覆盖、
+操作暂未使用或 provider 为 `none`，非法值也会报错。同一来源同时提供某个全局数值的
+扁平与嵌套写法会报错；不同来源之间仍按原有优先级覆盖。
+
+`max_tokens` 接受整数、无小数部分的浮点数和完整十进制整数字符串（如 `" 2048 "`），
+拒绝小数、溢出和 `"2048junk"` 等尾随内容。浮点字段接受有限数值和完整数值字符串
+（包括科学计数法），拒绝 NaN 和无穷大。缺失字段继承默认值；空环境变量视为未设置，
+但 TOML 或程序化覆盖中显式写入的空字符串是错误。0 和负数保留既有行为：这里只做
+转换校验，不新增 provider 参数业务范围限制。错误会指出来源和字段，不输出配置值。
 
 ### Secret store（静态加密的密钥）
 
@@ -599,6 +613,12 @@ TOML 配置、System 2 后台 worker、L5 心智模型 / L6 前瞻意图抽取�
 2. 为任何新行为在 [scenarios/](scenarios/) 下加场景，或在改动包旁加 `*_test.go`——它们就是
    规格说明。
 3. 保持读路径只走启发式；任何 LLM 调用都路由到 System 2 worker。
+4. 遵循 `go.mod` 的 Go 版本：优先用 `slices.Clone`、`slices.Contains`、
+   `slices.SortStableFunc`、`strings.SplitSeq` 等标准库工具替代等价的手写循环，
+   保持排序、nil/空值语义和公共输出不变。
+
+用 `go fix -diff ./...` 检查现代化建议；评估代码另跑
+`go fix -diff -tags eval ./eval`。`-diff` 不会修改文件，便于逐项确认行为兼容性。
 
 任何层级或操作背后的设计理由，请先读 [ARCHITECTURE.md](ARCHITECTURE.md)，大改动请先开 issue
 讨论。

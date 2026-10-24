@@ -91,12 +91,13 @@ func DefaultConfig() *config.Config {
 
 // OpenEngine runs fn with a short-lived Engine, closing it on return. It is the
 // Go equivalent of Python's `open_engine` context manager.
+// Overrides apply to a shallow copy without changing cfg's DBPath or Workspace.
 func OpenEngine(cfg *config.Config, dbPath, workspace string, fn func(*engine.Engine) error) error {
 	if cfg == nil {
 		cfg = config.Default()
 	}
 	if dbPath != "" || workspace != "" {
-		c := cloneConfig(cfg)
+		c := new(*cfg)
 		if dbPath != "" {
 			c.DBPath = dbPath
 		}
@@ -111,11 +112,6 @@ func OpenEngine(cfg *config.Config, dbPath, workspace string, fn func(*engine.En
 	}
 	defer eng.Close()
 	return fn(eng)
-}
-
-func cloneConfig(cfg *config.Config) *config.Config {
-	c := *cfg
-	return &c
 }
 
 // Recall is a one-shot recall. Returns a RecallResponse.

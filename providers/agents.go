@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"fmt"
 	"os"
+	"slices"
 
 	"github.com/ProjAnvil/LadyM/config"
 	"github.com/ProjAnvil/LadyM/secrets"
@@ -47,12 +48,7 @@ type AgentRegistry struct {
 func NewAgentRegistry(cfg *config.Config) *AgentRegistry { return &AgentRegistry{cfg: cfg} }
 
 func knownOp(op string) bool {
-	for _, o := range NAMED_OPS {
-		if o == op {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(NAMED_OPS, op)
 }
 
 // Get resolves the AgentConfig for op.
@@ -73,39 +69,32 @@ func (r *AgentRegistry) Get(op string) (*AgentConfig, error) {
 		}
 		return def
 	}
-	getInt := func(k string, def int) int {
-		if v, ok := overrides[k]; ok {
-			switch t := v.(type) {
-			case int64:
-				return int(t)
-			case int:
-				return t
-			case float64:
-				return int(t)
-			case string:
-				var n int
-				fmt.Sscanf(t, "%d", &n)
-				return n
-			}
-		}
-		return def
+	temperature, err := config.ParseFloatValue("llm.temperature", r.cfg.LLMTemperature)
+	if err != nil {
+		return nil, err
 	}
-	getFloat := func(k string, def float64) float64 {
-		if v, ok := overrides[k]; ok {
-			switch t := v.(type) {
-			case float64:
-				return t
-			case int64:
-				return float64(t)
-			case int:
-				return float64(t)
-			case string:
-				var f float64
-				fmt.Sscanf(t, "%g", &f)
-				return f
-			}
+	timeoutS, err := config.ParseFloatValue("llm.timeout_s", r.cfg.LLMTimeoutS)
+	if err != nil {
+		return nil, err
+	}
+	maxTokens := r.cfg.LLMMaxTokens
+	if v, ok := overrides["max_tokens"]; ok {
+		maxTokens, err = config.ParseIntValue("agents."+op+".max_tokens", v)
+		if err != nil {
+			return nil, err
 		}
-		return def
+	}
+	if v, ok := overrides["temperature"]; ok {
+		temperature, err = config.ParseFloatValue("agents."+op+".temperature", v)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if v, ok := overrides["timeout_s"]; ok {
+		timeoutS, err = config.ParseFloatValue("agents."+op+".timeout_s", v)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	provider := get("provider", r.cfg.LLMProvider)
@@ -118,11 +107,11 @@ func (r *AgentRegistry) Get(op string) (*AgentConfig, error) {
 		APIKey:           get("api_key", r.cfg.LLMAPIKey),
 		APIKeyEnv:        get("api_key_env", r.cfg.LLMAPIKeyEnv),
 		PromptTemplate:   get("prompt_template", ""),
-		MaxTokens:        getInt("max_tokens", r.cfg.LLMMaxTokens),
-		Temperature:      getFloat("temperature", r.cfg.LLMTemperature),
+		MaxTokens:        maxTokens,
+		Temperature:      temperature,
 		StructuredMethod: get("structured_method", r.cfg.LLMStructuredMethod),
 		ReasoningEffort:  get("reasoning_effort", r.cfg.LLMReasoningEffort),
-		TimeoutS:         getFloat("timeout_s", r.cfg.LLMTimeoutS),
+		TimeoutS:         timeoutS,
 	}, nil
 }
 

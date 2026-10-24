@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -46,8 +47,7 @@ func hashBytes(data []byte) string {
 }
 
 func shouldIgnore(path string, ignoreGlobs []string) bool {
-	parts := strings.Split(filepath.ToSlash(path), "/")
-	for _, p := range parts {
+	for p := range strings.SplitSeq(filepath.ToSlash(path), "/") {
 		if skipDirs[p] {
 			return true
 		}
@@ -273,7 +273,7 @@ func fileSummary(rel, lang string, syms []RawSymbol) string {
 	kindKeys := slices.Sorted(maps.Keys(kinds))
 	var kindParts []string
 	for _, k := range kindKeys {
-		kindParts = append(kindParts, itoa(kinds[k])+" "+k)
+		kindParts = append(kindParts, strconv.Itoa(kinds[k])+" "+k)
 	}
 	top := make([]string, 0, 8)
 	for i, s := range syms {
@@ -354,14 +354,11 @@ func chunkFallback(data []byte, moduleName, rel, lang string, chunkLines int) []
 	lines := strings.Split(text, "\n")
 	var out []RawSymbol
 	for i := 0; i < len(lines); i += chunkLines {
-		end := i + chunkLines
-		if end > len(lines) {
-			end = len(lines)
-		}
+		end := min(i+chunkLines, len(lines))
 		chunk := lines[i:end]
 		out = append(out, RawSymbol{
-			Kind: "chunk", Name: "lines_" + itoa(i+1),
-			QualifiedName: moduleName + ".lines_" + itoa(i+1),
+			Kind: "chunk", Name: "lines_" + strconv.Itoa(i+1),
+			QualifiedName: moduleName + ".lines_" + strconv.Itoa(i+1),
 			LineStart:     i + 1, LineEnd: end,
 			Body: strings.Join(chunk, "\n"),
 			// Calls stays nil: Python's `_chunk_fallback` sets calls=[],
@@ -377,26 +374,4 @@ func truncateStr(s string, n int) string {
 		return s
 	}
 	return string(r[:n])
-}
-
-func itoa(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	neg := n < 0
-	if neg {
-		n = -n
-	}
-	var buf [20]byte
-	i := len(buf)
-	for n > 0 {
-		i--
-		buf[i] = byte('0' + n%10)
-		n /= 10
-	}
-	if neg {
-		i--
-		buf[i] = '-'
-	}
-	return string(buf[i:])
 }

@@ -25,7 +25,7 @@ func pipelineEvents(t *testing.T, fx Fixture, n int) []engine.OperationEvent {
 		t.Fatalf("fixture %s maps to no operation", fx.Name)
 	}
 	out := make([]engine.OperationEvent, 0, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		ev := *base
 		ev.Observation = fmt.Sprintf("%s seq=%d", base.Observation, i)
 		out = append(out, ev)

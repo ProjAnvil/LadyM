@@ -522,10 +522,12 @@ func TestApplyTomlNestedSections(t *testing.T) {
 
 func TestApplyDict(t *testing.T) {
 	cfg := Default()
-	applyDict(cfg, map[string]any{
+	if err := applyDict(cfg, map[string]any{
 		"workspace": "cli-ws",
 		"api_key":   "should-be-stripped",
-	})
+	}); err != nil {
+		t.Fatal(err)
+	}
 	if cfg.Workspace != "cli-ws" {
 		t.Errorf("workspace = %q", cfg.Workspace)
 	}
@@ -556,7 +558,9 @@ func TestApplyEnv(t *testing.T) {
 	t.Setenv("LADYM_ENABLE_WAL", "0")
 
 	cfg := Default()
-	applyEnv(cfg)
+	if err := applyEnv(cfg); err != nil {
+		t.Fatal(err)
+	}
 	checks := []struct {
 		name string
 		got  any
@@ -816,7 +820,9 @@ func TestApplyDictDir(t *testing.T) {
 	}
 	overlaid := Default()
 	overlaid.CJKDictDir = "/from-toml"
-	applyEnv(overlaid)
+	if err := applyEnv(overlaid); err != nil {
+		t.Fatal(err)
+	}
 	if overlaid.CJKDictDir != "/vol/dict" {
 		t.Errorf("LADYM_DICT_DIR overlay = %q, want env to win", overlaid.CJKDictDir)
 	}

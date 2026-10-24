@@ -59,6 +59,17 @@ func TestSummarizeDoesNotReorderCallerSlice(t *testing.T) {
 	}
 }
 
+func TestSummarizeNaNSortsFirstWithoutMutatingInput(t *testing.T) {
+	in := []float64{2, math.NaN(), 1}
+	got := Summarize(in)
+	if got.N != 3 || !math.IsNaN(got.Min) || got.Max != 2 || !math.IsNaN(got.Mean) {
+		t.Errorf("NaN sample = %+v, want N=3, Min/Mean=NaN and Max=2", got)
+	}
+	if in[0] != 2 || !math.IsNaN(in[1]) || in[2] != 1 {
+		t.Errorf("caller slice mutated: %v", in)
+	}
+}
+
 func TestSummarizeSingleSample(t *testing.T) {
 	got := Summarize([]float64{7.5})
 	for name, v := range map[string]float64{

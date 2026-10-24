@@ -83,10 +83,7 @@ func Recall(store storage.Store, embedder storage.EmbeddingProvider, query strin
 		queryTypes = InferQueryTypes(query)
 	}
 
-	fetchK := k1 * 3
-	if fetchK < k1 {
-		fetchK = k1
-	}
+	fetchK := max(k1*3, k1)
 	rawHits := store.VectorSearch(queryVec, fetchK)
 	var cand []candidate
 	for _, h := range rawHits {
@@ -173,21 +170,11 @@ func Recall(store storage.Store, embedder storage.EmbeddingProvider, query strin
 }
 
 func layerIn(l schema.Layer, layers []schema.Layer) bool {
-	for _, x := range layers {
-		if l == x {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(layers, l)
 }
 
 func typeIn(t schema.MemoryType, types []schema.MemoryType) bool {
-	for _, x := range types {
-		if t == x {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(types, t)
 }
 
 func resultIDs(results []*schema.RecallResult) []string {
