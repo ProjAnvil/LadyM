@@ -4,15 +4,16 @@ Status: proposal (written by the woca side, 2026-10-24, against LadyM v0.8.3)
 Scope: api/ + client/golang/ + sdk/python/ + sdk/typescript/ (SDK parity optional per release)
 Non-goals: no engine changes — `Scope.RecordOperation` / `Scope.RecallOperations` already exist (v0.7.0); this spec only exposes them over the data plane.
 
+ERRATUM (2026-10-24, after v0.8.4 shipped): §1's claim that "the Go SDK lacks a `List` method" is wrong — `Client.ListMemories(ctx, MemoryFilter) (*MemoryList, error)` has existed in client/golang/crud.go since 56e804f (2026-08-20), with filters, pagination and total. §3's `List` sketch is withdrawn; do NOT add a `List` alias (duplicate capability, drops the page total — API bloat). woca already consumes ListMemories.
+
 ## 1. Why
 
 The recall_ops capability (operation-history retrieval: resource × action pivot,
 L4 `operates_on` graph join, ACT-R ranking) is reachable today via the embedded
 engine, the MCP tool, and the CLI — but not over the HTTP data plane. Consumers
 of the microservice deployment (woca's enterprise worker talks to LadyM purely
-over HTTP via `client/golang`) cannot ask "how did I last operate on X?". The
-Go SDK also lacks a `List` method even though `GET /api/memories` exists
-(since v0.6.x), so callers assemble their own requests.
+over HTTP via `client/golang`) cannot ask "how did I last operate on X?". (ERRATUM: an earlier draft claimed the SDK also lacked a `List`
+method — wrong, see the erratum above.)
 
 ## 2. HTTP surface
 
@@ -62,8 +63,6 @@ type OperationsQuery struct {
 func (c *Client) RecallOperations(ctx context.Context, q OperationsQuery) (*schema.RecallResponse, error)
 func (c *Client) RecordOperation(ctx context.Context, ws string, ev RecordOperationInput) (*RecordResult, error)
 
-// Also close the List gap: GET /api/memories exists but the SDK has no method.
-func (c *Client) List(ctx context.Context, ws string, opts ListOptions) ([]*schema.Memory, error)
 ```
 
 Wire shapes follow the existing `methods.go` conventions (`post`, query
