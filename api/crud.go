@@ -13,6 +13,7 @@ import (
 	"strconv"
 
 	"github.com/ProjAnvil/LadyM/schema"
+	"github.com/ProjAnvil/LadyM/storage"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -63,6 +64,13 @@ func (h *Handler) handleListMemories(w http.ResponseWriter, r *http.Request) {
 		engineError(w, err)
 		return
 	}
+	for i, m := range mems {
+		mems[i], err = storage.PublicMemory(h.eng.Store, m, schema.Now())
+		if err != nil {
+			engineError(w, err)
+			return
+		}
+	}
 	slices.SortFunc(mems, func(a, b *schema.Memory) int { return cmp.Compare(a.ID, b.ID) })
 	total := len(mems)
 	page := make([]*schema.Memory, 0, limit)
@@ -103,6 +111,10 @@ func (h *Handler) handleUpdateMemory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !h.enforceMemoryWorkspace(w, r, id) {
+		return
+	}
+	if schema.ManagedRevisionKey(m) != "" {
+		writeError(w, http.StatusBadRequest, "managed memory requires typed feedback")
 		return
 	}
 

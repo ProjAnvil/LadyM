@@ -105,6 +105,13 @@ func Recall(store storage.Store, embedder storage.EmbeddingProvider, query strin
 		if !eligibleRecallMemory(mem, filter) {
 			continue
 		}
+		fresh, err := storage.IsFresh(store, mem, schema.Now())
+		if err != nil {
+			return nil, err
+		}
+		if !fresh {
+			continue
+		}
 		cand = append(cand, candidate{Memory: mem, Sim: h.Similarity})
 	}
 
@@ -265,6 +272,13 @@ func tier2Expand(store storage.Store, tier1 []*schema.RecallResult, cfg *config.
 					return nil, err
 				}
 				if !eligibleRecallMemory(other, filter) {
+					continue
+				}
+				fresh, err := storage.IsFresh(store, other, schema.Now())
+				if err != nil {
+					return nil, err
+				}
+				if !fresh {
 					continue
 				}
 				memories[otherID] = other

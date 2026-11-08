@@ -8,63 +8,20 @@ package operations
 // LADYM_TEST_PG_DSN; skips cleanly without it.
 
 import (
-	crand "crypto/rand"
-	"encoding/hex"
 	"fmt"
-	"net"
-	"net/url"
 	"os"
 	"path/filepath"
-	"strconv"
 	"testing"
 
 	"github.com/ProjAnvil/LadyM/config"
+	"github.com/ProjAnvil/LadyM/internal/testutil"
 	"github.com/ProjAnvil/LadyM/schema"
 	"github.com/ProjAnvil/LadyM/storage"
-	"github.com/jackc/pgx/v5"
 )
 
-// recallParityPGDSN creates a random per-test database on the server named by
-// dsn and returns a DSN pointing at it (dropped on cleanup). Duplicated from
-// the storage suite helper — Go test helpers do not cross packages.
 func recallParityPGDSN(t *testing.T, dsn string) string {
 	t.Helper()
-	cfg, err := pgx.ParseConfig(dsn)
-	if err != nil {
-		t.Fatalf("parse LADYM_TEST_PG_DSN: %v", err)
-	}
-	var suffix [8]byte
-	if _, err := crand.Read(suffix[:]); err != nil {
-		t.Fatal(err)
-	}
-	dbName := "ladym_test_" + hex.EncodeToString(suffix[:])
-	adminCfg := cfg.Copy()
-	adminCfg.Database = "postgres"
-	ctx := t.Context()
-	admin, err := pgx.ConnectConfig(ctx, adminCfg)
-	if err != nil {
-		t.Fatalf("connect to postgres admin database: %v", err)
-	}
-	if _, err := admin.Exec(ctx, "CREATE DATABASE "+dbName); err != nil {
-		admin.Close(ctx)
-		t.Fatalf("create test database %s: %v", dbName, err)
-	}
-	t.Cleanup(func() {
-		if _, err := admin.Exec(ctx, "DROP DATABASE "+dbName+" WITH (FORCE)"); err != nil {
-			t.Logf("drop test database %s: %v", dbName, err)
-		}
-		admin.Close(ctx)
-	})
-	u := &url.URL{
-		Scheme: "postgres",
-		User:   url.UserPassword(cfg.User, cfg.Password),
-		Host:   net.JoinHostPort(cfg.Host, strconv.Itoa(int(cfg.Port))),
-		Path:   "/" + dbName,
-	}
-	q := u.Query()
-	q.Set("sslmode", "disable")
-	u.RawQuery = q.Encode()
-	return u.String()
+	return testutil.PGDatabase(t, dsn)
 }
 
 func TestRecallParityAcrossBackends(t *testing.T) {

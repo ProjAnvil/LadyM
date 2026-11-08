@@ -207,12 +207,15 @@ Facts, supersession, source IDs/edges and episode stamps publish through
 playbooks also publish atomically with provenance. Automatic decay protects evidence
 referenced by usable direct dependants through active `produced_from`/`abstracts`
 edges or legacy `source_episode`/`source_episodes`. Explicit deletion atomically marks
-direct dependants stale with missing evidence and preserves lost source IDs in
+recursive dependants stale with missing evidence and preserves lost source IDs in
 `source_episodes` before source-edge cascades, including graph-only L5 provenance.
 UPDATE retains legacy IDs already missing at classification start and atomically
 marks its replacement `evidence_missing=true`; surviving sources remain guarded
 and fully projected. A source present at that snapshot but concurrently deleted
-still causes a conflict. This is direct invalidation, not R2's transitive verifier workflow.
+still causes a conflict. Content edits, trust changes, retirement and code-index bulk
+deletion share the transaction's recursive invalidation kernel before edge closures.
+Stale nodes are traversed, cycles are deduplicated, rejected status is preserved, and
+managed revisions advance without changes to access-only bookkeeping.
 
 System 2 persists L5 merge cycles and L6 `(CreatedAt, ID)` cursors per workspace and
 operation. Equal timestamps spanning an episode cap survive later cycles/restarts;
@@ -391,8 +394,15 @@ LongMemEval source-slot `evidence_metrics` alongside unchanged legacy `metrics`.
 See [benchmarks/README.md](benchmarks/README.md) for cutoff and DCG caveats.
 Existing `Engine.List` and HTTP memory listing remain; no new List/bootstrap API.
 
-**Deferred, not implemented by R1:** R2's richer target-aware assertion/evidence/
-validation and feedback loop with transitive invalidation; R3's topic views,
+**R2 core delivered:** workspace-scoped caller-attested evidence and revision-guarded
+claim verify/correct/reject through Engine/Scope. SHA256 content fingerprints,
+rune-safe excerpts, source snapshots and transaction-time freshness checks prevent
+stale evidence publication. `storage.IsFresh` is shared by ordinary recall, Engine
+listing and typed claim reads, including transitive TTL without a worker.
+Store reads remain raw for audits; public stale managed bodies are suppressed.
+There is no autonomous execution or model verification.
+
+**Still deferred:** external claim interfaces and evidence archive; R3's topic views,
 lexical/vector/structural hybrid retrieval and startup knowledge entry; R4's
 change-driven incremental maintenance and measured quality/cost budgeting.
 No wiki, autonomous verifier, new UI or third-party runtime is added. Their

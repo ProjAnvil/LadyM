@@ -48,6 +48,7 @@ type MemoryWrite struct {
 
 type MemoryBatch struct {
 	Guards        []MemoryGuard
+	AbsentIDs     []string
 	Writes        []MemoryWrite
 	Edges         []*schema.Edge
 	CloseEdgesFor []string
@@ -107,6 +108,11 @@ func validateDeleteCutoff(autoBefore float64) error {
 }
 
 func validateBatch(batch MemoryBatch, dim int) error {
+	for _, id := range batch.AbsentIDs {
+		if id == "" {
+			return errors.New("absence guard requires a memory ID")
+		}
+	}
 	for _, g := range batch.Guards {
 		if g.Expected == nil || g.Expected.ID == "" {
 			return errors.New("memory guard requires an expected memory ID")
@@ -231,6 +237,15 @@ func episodeCompleted(m *schema.Memory) bool {
 
 func applyMemoryBatch(tx memoryTransaction, batch MemoryBatch, preserveAccess bool) error {
 	defer tx.rollback()
+	for _, id := range batch.AbsentIDs {
+		current, err := tx.get(id)
+		if err != nil {
+			return err
+		}
+		if current != nil {
+			return fmt.Errorf("%w: absence guard %s", ErrMemoryConflict, id)
+		}
+	}
 	for _, guard := range batch.Guards {
 		current, err := tx.get(guard.Expected.ID)
 		if err != nil {
@@ -245,8 +260,29 @@ func applyMemoryBatch(tx memoryTransaction, batch MemoryBatch, preserveAccess bo
 	// Resolve against the proposed state as well as the locked persisted state,
 	// allowing atomic creation of both endpoints without accepting dangling refs.
 	proposed := map[string]*schema.Memory{}
+	roots := []*schema.Memory{}
 	for _, w := range batch.Writes {
+		current, err := tx.get(w.Memory.ID)
+		if err != nil {
+			return err
+		}
+		if current != nil && current.Workspace != w.Memory.Workspace {
+			return fmt.Errorf("%w: immutable workspace", ErrMemoryConflict)
+		}
+		bumpManagedRevision(current, w.Memory)
+		if current != nil && invalidatingChange(current, w.Memory) {
+			roots = append(roots, current)
+		}
 		proposed[w.Memory.ID] = w.Memory
+	}
+	seen := map[string]bool{}
+	for _, root := range roots {
+		seen[root.ID] = true
+	}
+	for _, root := range roots {
+		if _, err := invalidateDependants(tx, root, seen, proposed); err != nil {
+			return err
+		}
 	}
 	resolve := func(id string) (*schema.Memory, error) {
 		if m, ok := proposed[id]; ok {
@@ -254,7 +290,27 @@ func applyMemoryBatch(tx memoryTransaction, batch MemoryBatch, preserveAccess bo
 		}
 		return tx.get(id)
 	}
+	deps := func(id string) ([]string, error) {
+		edges, err := tx.edges("")
+		if err != nil {
+			return nil, err
+		}
+		edges = slices.DeleteFunc(edges, func(e *schema.Edge) bool {
+			return slices.Contains(batch.CloseEdgesFor, e.SrcID) || slices.Contains(batch.CloseEdgesFor, e.DstID)
+		})
+		edges = append(edges, batch.Edges...)
+		return outgoingSources(id, edges), nil
+	}
 	for _, w := range batch.Writes {
+		if w.Memory.Type == schema.TypeClaim && w.Memory.Meta("claim_data") != nil && schema.IsUsable(w.Memory) {
+			fresh, err := freshMemory(w.Memory, schema.Now(), resolve, deps, map[string]bool{})
+			if err != nil {
+				return err
+			}
+			if !fresh {
+				return fmt.Errorf("%w: stale claim evidence", ErrMemoryConflict)
+			}
+		}
 		if !schema.IsUsable(w.Memory) {
 			continue
 		}
@@ -355,21 +411,9 @@ func deleteMemorySafely(tx memoryTransaction, id string, autoBefore float64) (bo
 		if m.LastAccessAt > autoBefore {
 			return false, false, nil
 		}
-	} else {
-		for _, dependant := range direct {
-			ids := legacySources(dependant)
-			if !slices.Contains(ids, id) {
-				ids = append(ids, id)
-				slices.Sort(ids)
-				dependant.Metadata["source_episodes"] = slices.Compact(ids)
-			}
-			dependant.Metadata["knowledge_status"] = "stale"
-			dependant.Metadata["evidence_missing"] = true
-			dependant.UpdatedAt = schema.Now()
-			if err := tx.put(MemoryWrite{Memory: dependant, PreserveEmbedding: true}, true); err != nil {
-				return false, false, err
-			}
-		}
+	}
+	if _, err := invalidateDependants(tx, m, map[string]bool{id: true}, nil); err != nil {
+		return false, false, err
 	}
 	if err := tx.remove(id); err != nil {
 		return false, false, err

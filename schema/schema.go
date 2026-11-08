@@ -59,16 +59,21 @@ const (
 type MemoryType string
 
 const (
-	TypeNote          MemoryType = "note"           // free-form working/semantic note
-	TypeEvent         MemoryType = "event"          // episodic (agent, action, observation, outcome)
-	TypeFact          MemoryType = "fact"           // consolidated semantic fact
-	TypeCodeFile      MemoryType = "code_file"      // whole-file summary
-	TypeCodeSymbol    MemoryType = "code_symbol"    // function/class/method/doc
-	TypePlaybook      MemoryType = "playbook"       // procedural steps
-	TypeSnippet       MemoryType = "snippet"        // verified reusable code
-	TypeMentalModel   MemoryType = "mental_model"   // L5 mental model
-	TypeForwardIntent MemoryType = "forward_intent" // L6 forward intent
-	TypeResource      MemoryType = "resource"       // L2 resource entity (operated-on target)
+	TypeNote           MemoryType = "note"           // free-form working/semantic note
+	TypeEvent          MemoryType = "event"          // episodic (agent, action, observation, outcome)
+	TypeFact           MemoryType = "fact"           // consolidated semantic fact
+	TypeCodeFile       MemoryType = "code_file"      // whole-file summary
+	TypeCodeSymbol     MemoryType = "code_symbol"    // function/class/method/doc
+	TypePlaybook       MemoryType = "playbook"       // procedural steps
+	TypeSnippet        MemoryType = "snippet"        // verified reusable code
+	TypeMentalModel    MemoryType = "mental_model"   // L5 mental model
+	TypeForwardIntent  MemoryType = "forward_intent" // L6 forward intent
+	TypeResource       MemoryType = "resource"       // L2 resource entity (operated-on target)
+	TypeClaim          MemoryType = "claim"
+	TypeEvidence       MemoryType = "evidence"
+	TypeTopicView      MemoryType = "topic_view"
+	TypeMaintenanceJob MemoryType = "maintenance_job"
+	TypeTaskState      MemoryType = "task_state"
 )
 
 // Memory is a single memory item; it maps to one row in the memories table.

@@ -13,7 +13,6 @@ import (
 	"github.com/ProjAnvil/LadyM/schema"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/pgvector/pgvector-go"
 	vectorpgx "github.com/pgvector/pgvector-go/pgx"
 )
 
@@ -318,18 +317,19 @@ func (s *PostgresStore) UpdateMemoryContent(id, content, summary string, tags []
 		}
 	}
 	now = cmp.Or(now, schema.Now())
-	tagsJSON, _ := json.Marshal(tags)
-	var err error
-	if vector == nil {
-		_, err = s.pool.Exec(context.Background(),
-			"UPDATE memories SET content = $1, summary = $2, tags = $3, updated_at = $4 WHERE id = $5",
-			content, summary, string(tagsJSON), now, id)
-	} else {
-		_, err = s.pool.Exec(context.Background(),
-			"UPDATE memories SET content = $1, summary = $2, tags = $3, updated_at = $4, embedding = $5, content_hash = $6 WHERE id = $7",
-			content, summary, string(tagsJSON), now, pgvector.NewVector(vector), schema.ContentHash(content), id)
+	tx, err := s.beginMemoryTransaction(MemoryBatch{})
+	if err != nil {
+		return err
 	}
-	return err
+	return updateMemoryContent(tx, id, content, summary, tags, vector, now)
+}
+
+func (s *PostgresStore) InvalidateDependants(id string) (int, error) {
+	tx, err := s.beginMemoryTransaction(MemoryBatch{})
+	if err != nil {
+		return 0, err
+	}
+	return invalidateRoot(tx, id)
 }
 
 // TouchMemories bumps access_count / last_access_at for every listed id in a
@@ -670,19 +670,31 @@ func (s *PostgresStore) CountCodeSymbols() (int, error) {
 // DeleteMemoriesByTypeSource deletes memories matching type+source+workspace
 // (code indexer re-index write path).
 func (s *PostgresStore) DeleteMemoriesByTypeSource(typ, source, workspace string) error {
-	_, err := s.pool.Exec(context.Background(),
-		"DELETE FROM memories WHERE type = $1 AND source = $2 AND workspace = $3",
-		typ, source, workspace)
-	return err
+	return s.deleteCodeMemories("SELECT "+memoryColsPG+" FROM memories WHERE type=$1 AND source=$2 AND workspace=$3", typ, source, workspace)
 }
 
 // DeleteSymbolMemories deletes the code_symbol memories projecting the given
 // qualified name (code indexer re-index write path).
 func (s *PostgresStore) DeleteSymbolMemories(qualifiedName, workspace string) error {
-	_, err := s.pool.Exec(context.Background(),
-		"DELETE FROM memories WHERE type = $1 AND workspace = $2 AND id IN (SELECT memory_id FROM code_symbols WHERE qualified_name = $3)",
+	return s.deleteCodeMemories(
+		"SELECT "+memoryColsPG+" FROM memories WHERE type = $1 AND workspace = $2 AND id IN (SELECT memory_id FROM code_symbols WHERE qualified_name = $3)",
 		string(schema.TypeCodeSymbol), workspace, qualifiedName)
-	return err
+}
+
+func (s *PostgresStore) deleteCodeMemories(query string, args ...any) error {
+	tx, err := s.beginMemoryTransaction(MemoryBatch{})
+	if err != nil {
+		return err
+	}
+	defer tx.rollback()
+	memories, err := tx.queryMemories(query, args...)
+	if err != nil {
+		return err
+	}
+	if err := deleteRoots(tx, memories); err != nil {
+		return err
+	}
+	return tx.commit()
 }
 
 // DeleteCodeArtifactsByFile removes every code artifact of one file
@@ -692,21 +704,31 @@ func (s *PostgresStore) DeleteSymbolMemories(qualifiedName, workspace string) er
 // subqueries. No vector index sync is needed: VectorSearch reads the table.
 func (s *PostgresStore) DeleteCodeArtifactsByFile(workspace, filePath string) error {
 	ctx := context.Background()
-	if _, err := s.pool.Exec(ctx,
+	tx, err := s.beginMemoryTransaction(MemoryBatch{})
+	if err != nil {
+		return err
+	}
+	defer tx.rollback()
+	if _, err := tx.tx.Exec(ctx,
 		`DELETE FROM code_refs
 		  WHERE src_symbol IN (SELECT qualified_name FROM code_symbols WHERE file_path = $1)
 		     OR dst_symbol IN (SELECT qualified_name FROM code_symbols WHERE file_path = $1)`,
 		filePath); err != nil {
 		return err
 	}
-	if _, err := s.pool.Exec(ctx,
+	memories, err := tx.queryMemories("SELECT "+memoryColsPG+" FROM memories WHERE type=$1 AND source=$2 AND workspace=$3",
+		string(schema.TypeCodeSymbol), filePath, workspace)
+	if err != nil {
+		return err
+	}
+	if err := deleteRoots(tx, memories); err != nil {
+		return err
+	}
+	if _, err := tx.tx.Exec(ctx,
 		"DELETE FROM code_symbols WHERE file_path = $1", filePath); err != nil {
 		return err
 	}
-	_, err := s.pool.Exec(ctx,
-		"DELETE FROM memories WHERE type = $1 AND source = $2 AND workspace = $3",
-		string(schema.TypeCodeSymbol), filePath, workspace)
-	return err
+	return tx.commit()
 }
 
 // ---- index_state ----

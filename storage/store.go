@@ -20,9 +20,10 @@ type Store interface {
 	GetMemory(id string) (*schema.Memory, error)
 	DeleteMemory(id string) error
 	// DeleteMemorySafely rechecks access and usable direct references atomically.
-	// autoBefore==0 explicitly deletes and invalidates direct dependants.
+	// autoBefore==0 explicitly deletes and invalidates recursive dependants.
 	// A positive cutoff skips newer memories and protects referenced evidence.
 	DeleteMemorySafely(id string, autoBefore float64) (deleted bool, protected bool, err error)
+	InvalidateDependants(id string) (int, error)
 	// ApplyMemoryBatch commits guards, writes, edge closures and new edges
 	// together. Guard conflicts wrap ErrMemoryConflict; no provider work runs here.
 	ApplyMemoryBatch(batch MemoryBatch) error

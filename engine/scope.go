@@ -55,6 +55,9 @@ func (s *Scope) Workspace() string { return s.workspace }
 // unpersisted Memory tagged gated=dedropped when the attention gate drops the
 // content.
 func (s *Scope) Remember(content string, layer schema.Layer, type_ schema.MemoryType, tags []string, metadata map[string]any, source, summary string) (*schema.Memory, error) {
+	if schema.ManagedRevisionKey(&schema.Memory{Type: type_}) != "" || type_ == schema.TypeEvidence || genericTrustMetadata(metadata) {
+		return nil, ErrInvalidClaim
+	}
 	gate, err := operations.AttentionGate(content, s.eng.Config, s.eng.Store, s.eng.getAgent, layer)
 	if err != nil {
 		return nil, err
@@ -147,6 +150,9 @@ func (s *Scope) RecordEvent(agent, action, observation, outcome string, tags []s
 // action_class/action_raw metadata keys are stamped (new API) or the output
 // stays byte-identical to the legacy RecordEvent (old API).
 func (s *Scope) recordOperation(ev OperationEvent, slots bool) (*schema.Memory, error) {
+	if genericClaimMetadata(ev.Metadata) {
+		return nil, ErrInvalidClaim
+	}
 	meta := ev.Metadata
 	if slots {
 		meta = maps.Clone(meta)

@@ -415,29 +415,27 @@ func (s *SQLiteStore) UpdateMemoryContent(id, content, summary string, tags []st
 		}
 	}
 	now = cmp.Or(now, schema.Now())
-	tagsJSON, _ := json.Marshal(tags)
-	var (
-		res sql.Result
-		err error
-	)
-	if vector == nil {
-		res, err = s.db.Exec(
-			"UPDATE memories SET content = ?, summary = ?, tags = ?, updated_at = ? WHERE id = ?",
-			content, summary, string(tagsJSON), now, id)
-	} else {
-		res, err = s.db.Exec(
-			"UPDATE memories SET content = ?, summary = ?, tags = ?, updated_at = ?, embedding = ?, content_hash = ? WHERE id = ?",
-			content, summary, string(tagsJSON), now, encodeVec(vector), schema.ContentHash(content), id)
-	}
+	tx, err := s.beginMemoryTransaction()
 	if err != nil {
 		return err
 	}
+	if err := updateMemoryContent(tx, id, content, summary, tags, vector, now); err != nil {
+		return err
+	}
 	if vector != nil {
-		if n, _ := res.RowsAffected(); n > 0 {
-			return s.updateLocalVector(id, vector)
-		}
+		s.indexMu.Lock()
+		s.indexWarm = false
+		s.indexMu.Unlock()
 	}
 	return nil
+}
+
+func (s *SQLiteStore) InvalidateDependants(id string) (int, error) {
+	tx, err := s.beginMemoryTransaction()
+	if err != nil {
+		return 0, err
+	}
+	return invalidateRoot(tx, id)
 }
 
 // TouchMemories bumps access_count / last_access_at for every listed id in a
@@ -781,19 +779,40 @@ func (s *SQLiteStore) CountCodeSymbols() (int, error) {
 // DeleteMemoriesByTypeSource deletes memories matching type+source+workspace
 // (code indexer re-index write path).
 func (s *SQLiteStore) DeleteMemoriesByTypeSource(typ, source, workspace string) error {
-	_, err := s.db.Exec(
-		"DELETE FROM memories WHERE type = ? AND source = ? AND workspace = ?",
-		typ, source, workspace)
-	return err
+	return s.deleteCodeMemories("SELECT "+memoryReadCols+" FROM memories WHERE type=? AND source=? AND workspace=?", typ, source, workspace)
 }
 
 // DeleteSymbolMemories deletes the code_symbol memories projecting the given
 // qualified name (code indexer re-index write path).
 func (s *SQLiteStore) DeleteSymbolMemories(qualifiedName, workspace string) error {
-	_, err := s.db.Exec(
-		"DELETE FROM memories WHERE type = ? AND workspace = ? AND id IN (SELECT memory_id FROM code_symbols WHERE qualified_name = ?)",
+	return s.deleteCodeMemories(
+		"SELECT "+memoryReadCols+" FROM memories WHERE type = ? AND workspace = ? AND id IN (SELECT memory_id FROM code_symbols WHERE qualified_name = ?)",
 		string(schema.TypeCodeSymbol), workspace, qualifiedName)
-	return err
+}
+
+func (s *SQLiteStore) deleteCodeMemories(query string, args ...any) error {
+	tx, err := s.beginMemoryTransaction()
+	if err != nil {
+		return err
+	}
+	defer tx.rollback()
+	memories, err := tx.queryMemories(query, args...)
+	if err != nil {
+		return err
+	}
+	if err := deleteRoots(tx, memories); err != nil {
+		return err
+	}
+	if err := tx.commit(); err != nil {
+		return err
+	}
+	s.indexMu.Lock()
+	s.indexWarm = false
+	for _, m := range memories {
+		s.vectorIndex.Delete(m.ID)
+	}
+	s.indexMu.Unlock()
+	return nil
 }
 
 // DeleteCodeArtifactsByFile removes every code artifact of one file
@@ -803,7 +822,12 @@ func (s *SQLiteStore) DeleteSymbolMemories(qualifiedName, workspace string) erro
 // memories. The refs delete must run before the code_symbols delete it
 // subqueries.
 func (s *SQLiteStore) DeleteCodeArtifactsByFile(workspace, filePath string) error {
-	if _, err := s.db.Exec(
+	tx, err := s.beginMemoryTransaction()
+	if err != nil {
+		return err
+	}
+	defer tx.rollback()
+	if _, err := tx.tx.Exec(
 		`DELETE FROM code_refs
 		  WHERE src_symbol IN (SELECT qualified_name FROM code_symbols WHERE file_path = ?)
 		     OR dst_symbol IN (SELECT qualified_name FROM code_symbols WHERE file_path = ?)`,
@@ -814,7 +838,7 @@ func (s *SQLiteStore) DeleteCodeArtifactsByFile(workspace, filePath string) erro
 	// them from memories (not code_symbols) keeps the id list scoped to this
 	// workspace, so the vector index never evicts another workspace's
 	// surviving copy of the same file.
-	rows, err := s.db.Query(
+	rows, err := tx.tx.Query(
 		"SELECT id FROM memories WHERE type = ? AND source = ? AND workspace = ?",
 		string(schema.TypeCodeSymbol), filePath, workspace)
 	if err != nil {
@@ -834,12 +858,21 @@ func (s *SQLiteStore) DeleteCodeArtifactsByFile(workspace, filePath string) erro
 		return err
 	}
 	rows.Close()
-	if _, err := s.db.Exec("DELETE FROM code_symbols WHERE file_path = ?", filePath); err != nil {
+	var memories []*schema.Memory
+	for _, id := range ids {
+		m, err := tx.get(id)
+		if err != nil {
+			return err
+		}
+		memories = append(memories, m)
+	}
+	if err := deleteRoots(tx, memories); err != nil {
 		return err
 	}
-	if _, err := s.db.Exec(
-		"DELETE FROM memories WHERE type = ? AND source = ? AND workspace = ?",
-		string(schema.TypeCodeSymbol), filePath, workspace); err != nil {
+	if _, err := tx.tx.Exec("DELETE FROM code_symbols WHERE file_path = ?", filePath); err != nil {
+		return err
+	}
+	if err := tx.commit(); err != nil {
 		return err
 	}
 	s.indexMu.Lock()

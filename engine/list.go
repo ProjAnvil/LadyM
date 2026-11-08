@@ -6,6 +6,7 @@ import (
 
 	"github.com/ProjAnvil/LadyM/operations"
 	"github.com/ProjAnvil/LadyM/schema"
+	"github.com/ProjAnvil/LadyM/storage"
 )
 
 // List returns a workspace's memories newest-first, excluding retired items
@@ -23,7 +24,11 @@ func (e *Engine) List(workspace string, layer *schema.Layer, limit, offset int) 
 	}
 	live := make([]*schema.Memory, 0, len(all))
 	for _, m := range all {
-		if !operations.IsRetired(m) {
+		fresh, err := storage.IsFresh(e.Store, m, schema.Now())
+		if err != nil {
+			return nil, err
+		}
+		if !operations.IsRetired(m) && fresh {
 			live = append(live, m)
 		}
 	}

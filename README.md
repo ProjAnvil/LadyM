@@ -43,8 +43,21 @@ echoing arbitrary metadata. LangGraph retains Q/A as L1 observed and injects
 reference-only context bounded to **4096 UTF-8 bytes**, including prefix/header/IDs.
 LongMemEval emits source-slot `evidence_metrics` alongside unchanged legacy `metrics`.
 
-R2 validation/feedback/transitive invalidation, R3 topic views/hybrid retrieval/startup
-knowledge and R4 change-driven maintenance/quality-cost budgeting are **deferred**.
+**R2 core:** `Engine.Scope(workspace)` now provides `RecordEvidence`, `CreateClaim`,
+`GetClaim`, `ApplyClaimFeedback` and `IsFresh`. Claims begin inferred (or explicitly
+user_asserted); verify/correct requires caller-attested successful test/tool evidence
+or user confirmation, matching SHA256 content fingerprints and rune-safe references.
+Feedback uses positive expected revisions and atomic compare-and-swap. No tools or
+models are called to establish verification. Generic Remember/content CRUD cannot
+forge managed verification; existing explicit task-outcome metadata remains compatible.
+
+Source content/trust changes, retirement and deletion now invalidate descendants
+recursively in the same transaction, including stale intermediaries and code-index
+bulk cleanup. Public recall/list/typed claim reads check transitive TTL immediately;
+raw Store reads remain available for audits. Stale managed bodies are suppressed.
+
+External claim interfaces and evidence archiving, R3 topic views/hybrid retrieval/startup
+knowledge and R4 change-driven maintenance/quality-cost budgeting remain **deferred**.
 No new wiki, verifier, UI or bootstrap/List API is shipped. No QA uplift, token saving
 or production p95 is claimed. Details: [ARCHITECTURE.md](ARCHITECTURE.md#12-delivered-foundation-and-deferred-releases)
 and [benchmark provenance semantics](benchmarks/README.md#two-retrieval-metric-namespaces).

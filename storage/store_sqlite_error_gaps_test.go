@@ -156,19 +156,17 @@ func TestDeleteCodeArtifactsSymbolsDeleteFails(t *testing.T) {
 	}
 }
 
-// TestDeleteCodeArtifactsMemoriesDeleteFails: a view named memories keeps the
-// id-collection query working but rejects the final memories DELETE.
+// TestDeleteCodeArtifactsMemoriesDeleteFails rejects a real source deletion
+// and proves the projection cleanup is rolled back with it.
 func TestDeleteCodeArtifactsMemoriesDeleteFails(t *testing.T) {
 	s := openTestStore(t)
-	if _, err := s.db.Exec("ALTER TABLE memories RENAME TO memories_real"); err != nil {
+	m := schema.NewMemory(schema.LayerSemantic, schema.TypeCodeSymbol)
+	m.Workspace, m.Source = "ws", "svc.py"
+	if err := s.PutMemory(m, nil); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.db.Exec(
-		"CREATE TABLE mem_fake (id TEXT, mtype TEXT, msource TEXT, mworkspace TEXT)"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.db.Exec(
-		"CREATE VIEW memories AS SELECT id, mtype AS type, msource AS source, mworkspace AS workspace FROM mem_fake"); err != nil {
+	if _, err := s.db.Exec(`CREATE TRIGGER fail_source_delete BEFORE DELETE ON memories
+		BEGIN SELECT RAISE(ABORT,'memories delete failure'); END`); err != nil {
 		t.Fatal(err)
 	}
 	err := s.DeleteCodeArtifactsByFile("ws", "svc.py")
