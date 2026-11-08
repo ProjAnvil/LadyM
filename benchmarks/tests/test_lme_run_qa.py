@@ -125,8 +125,9 @@ def test_run_qa_per_instance_fault_tolerance(tmp_path):
 
 
 @contextmanager
-def _answer_server(monkeypatch, modes):
+def _answer_server(monkeypatch, modes, *, trickle_duration_s=0):
     """Loopback only; trickle bytes frequently enough to defeat read timeouts."""
+    trickle_interval_s = 0.025
     stop = Event()
     disconnected = Event()
     requests = []
@@ -148,6 +149,10 @@ def _answer_server(monkeypatch, modes):
                                  "message": {"role": "assistant", "content": " blue "}}],
                 }
             payload = json.dumps(body).encode()
+            if mode == "trickle":
+                # Valid JSON whitespace keeps the declared body incomplete for
+                # longer than the whole wall budget, even with instant startup.
+                payload += b" " * (int(trickle_duration_s / trickle_interval_s) + 1)
             self.send_response(429 if mode == "error" else 200)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(payload)))
@@ -158,7 +163,7 @@ def _answer_server(monkeypatch, modes):
                     for byte in payload:
                         self.wfile.write(bytes([byte]))
                         self.wfile.flush()
-                        if stop.wait(0.025):
+                        if stop.wait(trickle_interval_s):
                             break
                 else:
                     self.wfile.write(payload)
@@ -183,12 +188,16 @@ def _answer_server(monkeypatch, modes):
         assert not thread.is_alive()
 
 
-def _track_answer_processes(monkeypatch):
+def _track_answer_processes(monkeypatch, *, startup_delay_s=0):
     processes = []
     popen = subprocess.Popen
 
-    def tracked(*args, **kwargs):
-        process = popen(*args, **kwargs)
+    def tracked(command, *args, **kwargs):
+        if startup_delay_s:
+            command = list(command)
+            assert command[1] == "-c"
+            command[2] = f"import time; time.sleep({startup_delay_s!r}); " + command[2]
+        process = popen(command, *args, **kwargs)
         processes.append(process)
         return process
 
@@ -203,14 +212,22 @@ def _assert_reaped(processes):
         assert all(pipe.closed for pipe in (process.stdin, process.stdout, process.stderr))
 
 
-def test_live_answer_trickle_obeys_total_deadline_and_closes_socket(tmp_path, monkeypatch):
+@pytest.mark.parametrize("startup_delay_s", [0, 2], ids=["cold-sdk", "delayed-cold-sdk"])
+def test_live_answer_trickle_obeys_total_deadline_and_closes_socket(
+    tmp_path, monkeypatch, startup_delay_s,
+):
     # Removing the outer process deadline must fail even though every socket
     # read receives another byte well before its inactivity timeout.
-    budget = 1.5
+    # Cold imports/client setup can exceed 1.5 s under parallel build/test load.
+    # This allowance is part of the wall budget, not an extension in production.
+    startup_allowance_s = 5
+    budget = startup_allowance_s + 1
     cfg = BenchConfig(base_dir=tmp_path, live_model="explicit-model", limit=1,
                       live_budget_s=budget)
-    processes = _track_answer_processes(monkeypatch)
-    with _answer_server(monkeypatch, ["trickle"]) as (requests, disconnected):
+    processes = _track_answer_processes(monkeypatch, startup_delay_s=startup_delay_s)
+    with _answer_server(
+        monkeypatch, ["trickle"], trickle_duration_s=budget + 1,
+    ) as (requests, disconnected):
         started = time.monotonic()
         answer = run_qa._default_answer_llm(cfg)
         with pytest.raises(TimeoutError, match="wall budget"):
@@ -220,11 +237,32 @@ def test_live_answer_trickle_obeys_total_deadline_and_closes_socket(tmp_path, mo
         assert len(requests) == 1, "deadline must actually interrupt an in-flight request"
         assert disconnected.wait(0.6), "killed answer worker must close its HTTP socket"
         _assert_reaped(processes)
-        print(f"answer wall cap={budget:.3f}s measured={elapsed:.3f}s "
+        print(f"answer startup delay={startup_delay_s:.3f}s "
+              f"wall cap={budget:.3f}s measured={elapsed:.3f}s "
               f"tolerance=0.600s; worker reaped, IPC closed, HTTP peer disconnected")
         with pytest.raises(TimeoutError, match="wall budget"):
             answer("system", "user")
         assert len(processes) == len(requests) == 1
+
+
+def test_live_answer_startup_timeout_does_not_send_or_restart(tmp_path, monkeypatch):
+    budget = 0.5
+    cfg = BenchConfig(base_dir=tmp_path, live_model="explicit-model", limit=1,
+                      live_budget_s=budget)
+    processes = _track_answer_processes(monkeypatch, startup_delay_s=2)
+    with _answer_server(monkeypatch, ["normal"]) as (requests, _):
+        started = time.monotonic()
+        answer = run_qa._default_answer_llm(cfg)
+        with pytest.raises(TimeoutError, match="wall budget"):
+            answer("system", "user")
+        elapsed = time.monotonic() - started
+        assert budget - 0.1 <= elapsed <= budget + 0.6, elapsed
+        assert requests == [], "startup must consume the deadline before any HTTP request"
+        _assert_reaped(processes)
+        with pytest.raises(TimeoutError, match="wall budget"):
+            answer("system", "user")
+        assert len(processes) == 1, "no worker may start after deadline exhaustion"
+        assert requests == []
 
 
 def test_live_answer_normal_and_provider_error_paths_are_preserved(tmp_path, monkeypatch):
