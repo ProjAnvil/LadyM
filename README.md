@@ -53,7 +53,9 @@ forge managed verification; existing explicit task-outcome metadata remains comp
 
 Source content/trust changes, retirement and deletion now invalidate descendants
 recursively in the same transaction, including stale intermediaries and code-index
-bulk cleanup. Public recall/list/typed claim reads check transitive TTL immediately;
+bulk cleanup. Public recall/list/typed claim reads check transitive TTL immediately,
+including tier-2 code-file fallback. Freshness checks deduplicate source IDs and
+memoize node evaluations per call while retaining cycle and evidence guards;
 raw Store reads remain available for audits. Stale managed bodies are suppressed.
 
 External claim interfaces and evidence archiving, R3 topic views/hybrid retrieval/startup

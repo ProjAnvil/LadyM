@@ -8,6 +8,7 @@ import (
 )
 
 // IsFresh checks persisted provenance and transitive TTL without external I/O.
+// Source reads and node evaluations are memoized only within this call.
 // Store.GetMemory deliberately remains a raw audit read.
 func IsFresh(store Store, m *schema.Memory, now float64) (bool, error) {
 	if schema.ManagedRevisionKey(m) != "" {
@@ -40,17 +41,57 @@ func outgoingSources(id string, edges []*schema.Edge) []string {
 }
 
 func freshMemory(m *schema.Memory, now float64, get func(string) (*schema.Memory, error), deps func(string) ([]string, error), visiting map[string]bool) (bool, error) {
+	eval := freshnessEvaluation{
+		now: now, get: get, deps: deps, visiting: visiting,
+		memories: map[string]*schema.Memory{}, evaluated: map[string]bool{},
+	}
+	if m != nil {
+		eval.memories[m.ID] = m
+	}
+	return eval.fresh(m)
+}
+
+type freshnessEvaluation struct {
+	now       float64
+	get       func(string) (*schema.Memory, error)
+	deps      func(string) ([]string, error)
+	visiting  map[string]bool
+	memories  map[string]*schema.Memory
+	evaluated map[string]bool
+}
+
+func (eval *freshnessEvaluation) memory(id string) (*schema.Memory, error) {
+	if m, ok := eval.memories[id]; ok {
+		return m, nil
+	}
+	m, err := eval.get(id)
+	if err == nil {
+		eval.memories[id] = m
+	}
+	return m, err
+}
+
+func (eval *freshnessEvaluation) fresh(m *schema.Memory) (fresh bool, err error) {
+	now := eval.now
 	if !schema.IsUsable(m) || math.IsNaN(now) || math.IsInf(now, 0) {
 		return false, nil
 	}
 	if until, ok := m.MetaFloat("valid_until"); ok && (math.IsNaN(until) || math.IsInf(until, 0) || until < 0 || until > 0 && now >= until) {
 		return false, nil
 	}
-	if visiting[m.ID] {
+	if eval.visiting[m.ID] {
 		return false, nil
 	}
-	visiting[m.ID] = true
-	defer delete(visiting, m.ID)
+	if fresh, ok := eval.evaluated[m.ID]; ok {
+		return fresh, nil
+	}
+	eval.visiting[m.ID] = true
+	defer func() {
+		delete(eval.visiting, m.ID)
+		if err == nil {
+			eval.evaluated[m.ID] = fresh
+		}
+	}()
 	var refs []schema.EvidenceRef
 	if m.Type == schema.TypeClaim {
 		c, err := schema.ClaimFromMemory(m)
@@ -75,7 +116,7 @@ func freshMemory(m *schema.Memory, now float64, get func(string) (*schema.Memory
 	}
 	ids := legacySources(m)
 	if m.Type != schema.TypeForwardIntent && m.Type != schema.TypeMaintenanceJob && m.Type != schema.TypeTaskState {
-		edges, err := deps(m.ID)
+		edges, err := eval.deps(m.ID)
 		if err != nil {
 			return false, err
 		}
@@ -87,8 +128,13 @@ func freshMemory(m *schema.Memory, now float64, get func(string) (*schema.Memory
 	for id := range revisions {
 		ids = append(ids, id)
 	}
+	seen := map[string]bool{}
 	for _, id := range ids {
-		source, err := get(id)
+		if seen[id] {
+			continue
+		}
+		seen[id] = true
+		source, err := eval.memory(id)
 		if err != nil {
 			return false, err
 		}
@@ -103,7 +149,7 @@ func freshMemory(m *schema.Memory, now float64, get func(string) (*schema.Memory
 		if revision, ok := revisions[id]; ok && revision != schema.ManagedRevision(source) {
 			return false, nil
 		}
-		fresh, err := freshMemory(source, now, get, deps, visiting)
+		fresh, err := eval.fresh(source)
 		if err != nil || !fresh {
 			return false, err
 		}

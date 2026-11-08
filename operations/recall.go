@@ -310,7 +310,14 @@ func tier2Expand(store storage.Store, tier1 []*schema.RecallResult, cfg *config.
 			slices.SortFunc(files, func(a, b *schema.Memory) int { return cmp.Compare(a.ID, b.ID) })
 			filesByPath = map[string]*schema.Memory{}
 			for _, m := range files {
-				if eligibleRecallMemory(m, filter) && filesByPath[m.MetaString("file_path")] == nil {
+				if !eligibleRecallMemory(m, filter) || filesByPath[m.MetaString("file_path")] != nil {
+					continue
+				}
+				fresh, err := storage.IsFresh(store, m, schema.Now())
+				if err != nil {
+					return nil, err
+				}
+				if fresh {
 					filesByPath[m.MetaString("file_path")] = m
 				}
 			}
