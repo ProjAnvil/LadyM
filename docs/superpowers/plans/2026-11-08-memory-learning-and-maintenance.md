@@ -81,7 +81,7 @@ No system service start/stop; controller owns this PostgreSQL process.
 - Engine convenience methods take workspace last or reuse Scope; single source of business rules.
 - Typed errors `ErrInvalidClaim`, `ErrMemoryNotFound` and existing ErrMemoryConflict.
 
-- [ ] **Step 1: Red tests**
+- [x] **Step 1: Red tests**
   `TestClaimAttestedVerification`: inferred→verified only success typed evidence matching kind/fingerprint;
   confidence/ordinary hook cannot, rune excerpts invalid boundaries rejected.
   `TestClaimFeedbackCAS`: verify/correct/reject monotonic revision, two competitors one winner,
@@ -91,9 +91,9 @@ No system service start/stop; controller owns this PostgreSQL process.
   `TestBulkIndexInvalidation`: content update, code purge, retire, direct helper deletion all invalidate.
   `TestManagedGenericEditRejected`: HTTP generic content update and generic Remember can't forge verification.
   `TestEvidenceFreshness`: expiry, access-only change, metadata trust/scope revision differences.
-- [ ] **Step 2: Red command**
+- [x] **Step 2: Red command**
   `go test ./schema ./storage ./engine ./api ./code -run 'Test(Claim|Recursive|BulkIndex|Managed|EvidenceFreshness)' -count=1`.
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
   Add typed JSON helpers and pure validation; metadata `claim_revision`/`claim_data` hold managed state.
   Evidence RecordEvidence stamps verification_kind/outcome and observed, single content <=65536bytes.
   Verify checks matching source metadata, scope, live refs and source guards; no model calls.
@@ -104,10 +104,10 @@ No system service start/stop; controller owns this PostgreSQL process.
   Suppress stale managed claim/topic bodies in public read/list views, while Store raw access needed by audits remains.
   Add absent guard for same deterministic creation; prohibit moving existing records between workspace.
   Do not add a general event framework or run tools to “verify”.
-- [ ] **Step 4: Green**
+- [x] **Step 4: Green**
   Red selector, full affected packages then `go test -race ./storage ./engine`.
   Live PG run same selectors using test env, enterprise storage/schema compilation.
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
   `feat(memory): add evidence-backed claims and recursive invalidation`; report red/green and real PG proof.
 
 ### Task 2: Scoped external interfaces and quota-controlled redacted archive
@@ -133,7 +133,7 @@ SDK exports/tests, `ladym/ladym.go` facade if aliases needed, `docs/memory-learn
   count text bytes of all proposed/persisted marked archive entries under writer lock.
 - actor HTTP bound server principal/local, MCP/CLI fixed labels; SDK explicit host attribution.
 
-- [ ] **Step 1: Red tests**
+- [x] **Step 1: Red tests**
   `TestClaimHTTPIsolationAndActor`: forced ws, nonadmin foreign GET/update reject/404,
   body actor forged ignored; auth-off local; conflict409 and invalid400.
   `TestClaimMCPAndCLIContracts`: shared shape, JSON validation, no generic metadata elevation,
@@ -143,20 +143,20 @@ SDK exports/tests, `ladym/ladym.go` facade if aliases needed, `docs/memory-learn
   two concurrent inserts can't exceed8MiB (small injected caps); pinned/expired rows counted;
   explicit source delete propagates descendants; new feedback on expired archive rejected.
   SDK tests numeric revisions/evidence scope and both success/error response decode.
-- [ ] **Step 2: Red**
+- [x] **Step 2: Red**
   `go test ./api ./cli ./engine ./client/golang ./mcp ./config -run 'Test(Claim|Archive)' -count=1`;
   existing Python/TS SDK targeted runner, missing-symbol failure captured.
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
   Existing auth/effectiveWS middleware remains; no endpoint bypass, source refs all scope checked.
   Extract shared redaction of token/password/API key/Authorization fields with explicit limitations.
   Quota insert checks include proposed state and same-tx concurrency, archive marker caller cannot override.
   Status/revision/error schema identical across fronts; exported type safety preserved.
   GET stale topic/claim suppresses invalid body; internal Store remains raw.
   Doc actor attestation, no execution, quotas/retention/pin, no path import and opt-in.
-- [ ] **Step 4: Green**
+- [x] **Step 4: Green**
   affected package tests, full SDK suites using available Python/node tools, live PG archive quota selectors,
   enterprise production compile.
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
   `feat(memory): expose scoped learning and bounded evidence archival`.
 
 ### Task 3: Topic views, hybrid recall and exact-budget bootstrap
@@ -182,7 +182,7 @@ in `operations/recall.go` and shared store filter for system exclusions.
 - new `MemoryFilter.ExcludeSystem bool` excludes job/task/evidence/prediction and optional types;
   scope exclusions before vector limit, normal recall default no job/prediction injection.
 
-- [ ] **Step 1: Red**
+- [x] **Step 1: Red**
   `TestTopicCASAndProvenance`: first expected0 absent guard, 2 concurrent winners1, update rev,
   all64ids present <=16384bytes, inputs allowed/claim verified, no unsupported inference.
   `TestTopicSourceFreshness`: content/status/scope/TTL change/Delete instantly unusable, stalebody withheld.
@@ -192,10 +192,10 @@ in `operations/recall.go` and shared store filter for system exclusions.
   missing/broken/negativecounter error, bytes4096/CJK invalidUTF8, no stale/inferred/foreignscope/prediction.
   `TestTaskStateTTLAndBootstrap`: explicit task goal preserved only valid TTL, never prediction.
   frontend/sdk real loopback tests every new operation, correct unit rejection.
-- [ ] **Step 2: Red commands**
+- [x] **Step 2: Red commands**
   `go test ./engine ./operations ./langgraph ./api ./mcp ./cli -run 'Test(Topic|Hybrid|Bootstrap|TaskState)' -count=1`;
   SDK focused equivalents.
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
   deterministic source summaries/topic links, fixed source IDs not prose hallucinations;
   source fingerprints plus revision snapshots atomicBuild.
   hybrid collect lexical/token/path exact and scoped vectors separately then RRF and bounded evidence expansion;
@@ -203,9 +203,9 @@ in `operations/recall.go` and shared store filter for system exclusions.
   Bootstrap only verified scoped claim and topic index, per-entry exact full count, no additive guesses.
   bytes default explicit and tokens only host injected, header+ID budget/rune valid.
   Use context through channels compatible existing LangGraph node; old recall4096 unchanged.
-- [ ] **Step 4: Green**
+- [x] **Step 4: Green**
   full affected tests+SDK, livePG topic CAS/freshness, race topics/bootstrap.
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
   `feat(memory): add source-grounded topics and budgeted navigation`.
 
 ### Task 4: Durable embedding fingerprint migration and rollback
@@ -231,7 +231,7 @@ if code-local facade needed; update directly related migration docs.
   no same-dim auto equivalence. Old tests fresh injected DB initialization compatible.
 - Context cancellation/finite batch check per staging; Task5 extends store provider context.
 
-- [ ] **Step 1: Red**
+- [x] **Step 1: Red**
   `TestMigrationFingerprintAndResume`: same dim different model fails normally, explicit switch,
   failure after2 staged rows restart resumes only remaining IDs, target mismatch not inheritcursor.
   `TestMigrationAtomicActivateRollback`: faulty activation rollback all vectors/meta/index,
@@ -240,9 +240,9 @@ if code-local facade needed; update directly related migration docs.
   `TestMigrationPathAndLegacyAdopt`: path no vectors/provider calls, missingoldidentity explicit adopt,
   compatibleallowDim automatic path finalizes writes, no wholesale silent lossvectors.
   both backend suites + enterprise compile, errors.CloseDB propagated.
-- [ ] **Step 2: Red**
+- [x] **Step 2: Red**
   `go test ./storage ./engine ./cli -run 'TestMigration' -count=1`.
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
   staged/old vector tables and metadata durable under R1 mutation tx lock;
   stagevector+cursoratomic; DB triggers/gate enforce writefreeze evenrawSQL.
   activation transaction replaces embedding dimension+index+meta and flipsgeneration;
@@ -252,10 +252,10 @@ if code-local facade needed; update directly related migration docs.
   autoallowDim path canFinalize to retain R1 write compatibility.
   distinguish content metadata edits and Touch (Touchallowed); ordinary queries coherent.
   applyrollback restoringidentity not just vectors; backupretained until explicitfinalize.
-- [ ] **Step 4: Green**
+- [x] **Step 4: Green**
   fullstorage/engine/cli, livePG migration failure/resume/activation/rollback,
   concurrentread/race, zero-cgoenterprisebuild.
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
   `feat(storage): make embedding migrations resumable and reversible`.
 
 ### Task 5: Contextual provider calls and fenced budgeted maintenance jobs
@@ -283,7 +283,7 @@ config and observability, API/MCP/CLI/SDK maintenance status/request as needed.
   new low-cardinality observability job/cycle metrics.
 - `Scope.ListMaintenanceJobs(limit int)` and data-plane status seam, no arbitrarycodeexecution.
 
-- [ ] **Step 1: Red**
+- [x] **Step 1: Red**
   `TestMaintenanceDedupAndLease`: jobID args/sources/revisions, repeated unmodifiedcycle zero provider,
   concurrent workers one lease winner, expiredcrash takeover, latepublisher blocked owner token.
   `TestMaintenanceAtomicCheckpoint`: jobdone+output+cursor or none on DBfault;
@@ -295,9 +295,9 @@ config and observability, API/MCP/CLI/SDK maintenance status/request as needed.
   `TestStoredEmbeddingReuse`: content/fingerprintunchanged L5/proc no reEmbed.
   `TestRichExtractionTarget`: structured target_id/action/evidence_ids guard exact valid target,
   no old verified overwrites by inferred; jobs update explicit topicinputs not entirewiki.
-- [ ] **Step 2: Red**
+- [x] **Step 2: Red**
   `go test ./providers ./storage ./engine ./operations ./cli ./config ./observability -run 'Test(Maintenance|StoredEmbedding|RichExtraction)' -count=1`.
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
   jobs backed by memories, deterministic identity includes target+canonicalargs/sortedsources,
   state/ownerCAS uses atomicbatches; same ownerfence checkpointcommit guards.
   schedule backlog/currentstaleviews/expiredclaims incrementally, budgetsstop leavespending.
@@ -309,10 +309,10 @@ config and observability, API/MCP/CLI/SDK maintenance status/request as needed.
   completion atomic with output; no readingjob as evidence; synchronous deletion never delayed.
   store.GetEmbedding reuse lifecycle vector scans; if absent fallback Embed, fingerprint mismatch migration error.
   low-cardinality metrics op/state not workspace/IDs/text; status exposesreportswithunit.
-- [ ] **Step 4: Green**
+- [x] **Step 4: Green**
   full relevantpackages, livePG job race/lease/DBctxcancel, requiredrace, enterprisebuild,
   existinglegacyworkerfailovertestsunchanged.
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
   `feat(worker): add fenced incremental maintenance with explicit budgets`.
 
 ### Task 6: End-to-end evaluation, dual-edition live PG verification and documentation
@@ -327,22 +327,22 @@ SDK docs/fidelity tests/observability reports.
 and pervariant source_coverage/stale_usage/read_elapsed/context_units/unit.
 No fakeQAaccuracy. Existing liveLLM runner model/budget/limit explicit; no implicitnetwork.
 
-- [ ] **Step 1: Red tests**
+- [x] **Step 1: Red tests**
   exact source, cross-file topic, verifiedcorrectionrepeatedtask, recursiveDelete,
   expiry, samewsview/job restart and modelmigration scenario;
   assert fourvariantreportshape and metrics not billingtokens.
   enterprise tests currently SQLite-onlyfail must become correctlybuild-tagged or PG variant;
   tests don't silentlyskip contract covered by livePG alternate.
-- [ ] **Step 2: Red commands**
+- [x] **Step 2: Red commands**
   `go test -count=1 ./scenarios`; `pytest benchmarks/tests/test_learning_variants.py`;
   `go test -tags enterprise ./...` with localtestDSN capture baseline failures before corrections.
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
   fixture eval runs real Engine APIs and source graph, labels timingsobservations not accuracygains.
   document attestationboundary, quotas, scope, tokenprovider, jobslease/ctx,
   backup/migrationadopt/resume/rollback/finalize, optin defaults, downgrade compatibility,
   all remainingfeature surfaces & no newglobalservice. Keep clear limitations if measurementsnotrun.
   Add exact acceptance B01–B14 matrix with commands/livePG counts.
-- [ ] **Step 4: Full gates**
+- [x] **Step 4: Full gates**
   with dedicatedPG DSN:
   `CGO_ENABLED=0 go test -count=1 ./...`;
   `CGO_ENABLED=0 go test -tags enterprise -count=1 ./...`;
@@ -351,7 +351,7 @@ No fakeQAaccuracy. Existing liveLLM runner model/budget/limit explicit; no impli
   `go test -short -tags eval ./eval`;
   fullPython/TS SDK andbenchmarks; `make lint-comments`.
   If docs/testtool missing choose smallest existing runner, no secretreports.
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
   `test(memory): verify learning lifecycle and dual-edition maintenance`;
   report all actual gates, no skips as pass; controller performs wholebranchreview then freshfinalgates.
 
@@ -404,3 +404,18 @@ These override abbreviated signatures above and must be carried into each task b
    Env alone is not PGproof; no t.Context after test cancellation in cleanup.
 
 All seven readiness blockers resolved by these binding corrections; no scope deferral.
+
+## Completed execution
+
+All six tasks passed independent spec/quality review. Task1 freshness, Task2 Python
+null conditions, Task3 domain-separated task identity and Task4 migration intent
+repairs passed scoped re-review. Task6 live-answer deadlines and startup-safe proof
+also passed scoped review. Whole-branch context/Working-memory repair `764f607`
+passed final review; `39d77e9` changes only validated deadline tests.
+
+Final code and tests passed complete personal/enterprise suites against real PG,
+seven-package race, short eval, production builds/dependency checks, enabled
+Python/TS SDK integrations, 69 benchmark tests and comment lint.
+See [actual acceptance and decisions](../../memory-maintenance.md).
+No R2–R4 implementation is deferred; hosted model quality/cost measurement remains
+explicitly unperformed rather than claimed. No merge/push or user DB migration.

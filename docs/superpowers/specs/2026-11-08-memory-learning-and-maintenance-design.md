@@ -1,6 +1,6 @@
 # LadyM R2–R4：可信学习、知识导航与预算维护
 
-状态：T1–T5 逐任务独立审查通过；T6 实施并验证；最终全分支审查待 controller
+状态：R2–R4 全部实施；六个任务审查、全分支审查与修复复审、最终双版本真实 PG 验证通过
 基线：`44f55c0`；沿用 [R1 总体规格](2026-11-08-trusted-agent-memory-design.md)
 
 实现/恢复指南与实际 B01–B14 命令和 live-PG leaf counts：
@@ -289,3 +289,18 @@ B14 全量personal、enterprise、race、SDK、short eval、零cgobuild、commen
 - Job持久化Args/InputRevisions，done不衰减；L5/proc复用stored embedding；
 - 新关键测试必须显式backend-parametrized且报告非零PG病例，
   PG清理使用独立boundedcontext，不以已取消t.Context清理数据库。
+
+## 8. 交付记录
+
+实施任务与修复均在当前会话分支持久化。最终 Go 实现 `764f607`：
+全量个人版/企业版真实 PG 测试、七包 race、short eval、
+三个零 cgo 生产构建与依赖隔离通过。后续 `39d77e9` 仅修复
+硬截止时间测试的启动负载敏感性；生产预算仍包括 SDK 子进程启动。
+最终 benchmark 69/69；Python SDK 34 与 6 个子测试、TypeScript 31/31，
+真实 loopback 集成全部启用，无跳过。
+
+全分支审查的 PG BeginTx 取消与 Engine.WithContext L0 共享遗漏已修复，
+复审无未解决的重要问题。实际 leaf counts、保留的 edition-only/helper skips、
+已完成 B01–B14 验收与全部控制器取舍见
+[交付与决策记录](../../memory-maintenance.md)。
+未执行外部 hosted LLM QA 测量，不声称准确率或账单 token 节省。

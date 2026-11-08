@@ -4,7 +4,8 @@ R2–R4 are implemented on the existing Engine/Scope, memories/edges, atomic
 storage writer and System 2 worker. Personal supports SQLite and PostgreSQL;
 enterprise includes PostgreSQL only. These are explicit interfaces and opt-in
 maintenance, not an autonomous agent, command executor, new queue or service.
-Whole-branch controller review remains the final release gate.
+Whole-branch controller review and scoped repairs passed. Final evidence below
+includes real PostgreSQL, both production editions and enabled SDK integrations.
 
 `Engine.WithContext(ctx)` creates an immutable database-context view: cancellation
 does not mutate the root or sibling views. Default and cached per-workspace L0
@@ -240,7 +241,7 @@ Selectors identify overlapping contract families, not disjoint totals.
 | B10 | Context/raw output/reservation/call/wall budgets and provider rejection in P/E | 32 / 32 |
 | B11 | Migration generation/resume/rollback/finalize/identity and CJK tokenizer tests in P/E | 45 / 45 |
 | B12 | `TestTrustedMemoryVariants` and `pytest benchmarks/tests/test_learning_variants.py` | 1 / 1 |
-| B13 | Both full live-PG editions plus cancelled-context cleanup regression; total labelled PG leaves | 225 / 193 |
+| B13 | Both full live-PG editions plus cancelled-context cleanup regression; total labelled PG leaves | 230 / 198, plus 39 new PG-only context leaves in each edition |
 | B14 | Full editions; race seven packages; zero-CGO production/dependency boundaries; short eval; full SDK/benchmarks; `make lint-comments` | see final gate summary |
 
 SQLite-only CLI init/legacy-file tests are correctly `!enterprise` tagged, not
@@ -250,24 +251,54 @@ Engine migration suites also run enterprise PG, including two simultaneously
 live hashing Engines. Existing excluded-edition subtest skips and helper-process
 skips are listed separately in release evidence; none count as acceptance passes.
 
-Final Task 6 verification, 2026-11-09:
+Final controller verification after whole-branch repairs:
 
 | Gate | Actual result (skips not passes) |
 | --- | --- |
-| P, live PG, zero CGO | 24 tested packages, 1748 passing leaves, 225 labelled PG leaves; one helper-process test skipped; eval package requires its separate tag |
-| E, live PG, zero CGO | 21 tested packages, 707 passing leaves, 193 labelled PG leaves; 15 excluded-SQLite subtests skipped with live PG alternatives; code/eval/langgraph/layers have no enabled default enterprise tests |
-| `go test -race -count=1 ./storage ./engine ./operations ./api ./hook ./langgraph ./providers`, live PG | Seven packages, 1173 passing leaves, 205 labelled PG leaves, zero skips |
+| P, live PG, zero CGO | 24 tested packages, 1797 passing leaves, 230 labelled PG leaves plus 39 new PG-only context leaves; one helper-process test skipped; eval requires its separate tag |
+| E, live PG, zero CGO | 21 tested packages, 751 passing leaves, 198 labelled PG leaves plus 39 new PG-only context leaves; 15 excluded-SQLite subtests skipped with live PG alternatives; code/eval/langgraph/layers have no enabled default enterprise tests |
+| `go test -race -count=1 ./storage ./engine ./operations ./api ./hook ./langgraph ./providers`, live PG | Seven packages, 1222 passing leaves, 210 labelled PG leaves plus 39 new PG-only context leaves, zero skips |
 | `CGO_ENABLED=0 go build` personal CLI, enterprise CLI and enterprise console | All three builds passed; module metadata confirms CGO=0; no runtime/cgo or cgo SQLite dependency; enterprise excludes modernc and CLI console embed; console binary includes its console |
 | `CGO_ENABLED=0 go test -short -tags eval ./eval` | Passed; short mode is not the live/full performance benchmark |
-| Full Python SDK, existing locked dev environment | 32 passed, 2 optional `LADYM_SDK_IT` external integration tests skipped; 6 subtests passed; coverage 97% |
-| Full TypeScript SDK `npm test` | Build passed, 30 passed, 1 optional external integration test skipped |
-| Full benchmark `python -m pytest benchmarks/tests` | 65 passed, zero skips; learning variant/guard file: 16 passed |
+| Full Python SDK, `LADYM_SDK_IT=1` with locked dev environment | 34 passed, 6 subtests passed, zero skips; coverage 100%; real local HTTP server integrations enabled |
+| Full TypeScript SDK `LADYM_SDK_IT=1 npm test` | Build passed, 31 passed, zero skips; real local HTTP server integration enabled |
+| Full benchmark `python -m pytest benchmarks/tests` | 69 passed, zero skips; includes independent startup and in-flight hard-deadline tests |
 | `make lint-comments`, `git diff --check` | Passed; stable linter run performed after scratch-producing tests completed |
 
-The three optional SDK external-process integration tests were not enabled:
-this task does not start services. Existing real Go HTTP/SDK/MCP/CLI pipelines
-ran with live PostgreSQL alternatives. Neither those skips nor the absent live
-LLM measurement count as passed QA/SDK integration evidence. Every reader variant
+All three formerly optional SDK external-process integration tests were enabled
+against self-contained temporary loopback servers; none was counted from a skip.
+No live hosted LLM measurement was performed or claimed as QA evidence. Every reader variant
 was also measured separately on personal SQLite, personal PG and enterprise PG:
 coverage `0/1/1/1`, stale usage `0/0/0/0`, context bytes `49/78/78/704`.
 These fixture values are not expected production costs or accuracy gains.
+
+The final Go implementation was verified at `764f607`; `39d77e9` changes only
+the startup-safe deadline regression. Controller reran complete personal and
+enterprise live-PG suites, race, short eval, all SDK integrations, benchmarks,
+zero-CGO builds and comment lint. Whole-branch review found and repaired
+PostgreSQL BeginTx context propagation and shared L0 buffers. A loaded test
+diagnostic separated cold SDK startup timeout from genuine in-flight trickling;
+production deadlines still include startup. Removing the outer deadline fails
+the regression, even with the larger test-only startup allowance.
+
+## Controller decisions and costs
+
+| Decision | Reason | Cost/trade-off |
+| --- | --- | --- |
+| Verification is caller-attested; no command execution | Traceable evidence, not model confidence | Hosts must provide honest results; no independent experiment proof |
+| Topics are explicit deterministic source views | Preserve every source and avoid hallucinated wiki synthesis | Less automatic cross-document synthesis |
+| Worker reservations are bytes, API token cap separate | No assumed model tokenizer or false billing claims | Conservative call capacity |
+| Explicit delete aborts staging and purges backup rows | Privacy deletion must not wait or resurrect | Migration can need rework |
+| Real PG uses a dedicated password-protected loopback cluster | Do not touch existing databases/services | Missing PostgreSQL/pgvector tooling was installed locally |
+| Stage/activate use a unique generation acquired atomically | Prevent begin/status and restarted-runner races | Additional Store fence methods |
+| Structural/trust metadata writes freeze; Touch/delete remain allowed | Retain valid rollback evidence | Authoring pause until finalize/rollback |
+| Unknown injected vectors require Identity plus adopt/migrate | Same dimension does not prove embedding equivalence | Host version attribution required |
+| Recovery is local standalone Go/CLI | Must open storage even when normal Engine refuses identity | Operator requires local access |
+| Legacy migration provider calls are synchronous with boundary cancellation checks | No fake background cancellation | Legacy in-flight calls may not be interruptible; budget mode requires contextual providers |
+| PG vector searches lock before snapshots during activation | Avoid non-MVCC-safe column rewrite holes | Brief activation/read blocking |
+| In-repository temp fixtures use a Git-discovery boundary | Hook root discovery sanitizes inherited Git controls | Test-only isolation marker |
+| Automatic cutoff deletion cannot use explicit-delete exception | Unattended maintenance must not abort migrations | Cleanup waits for migration completion |
+
+The session branch/worktree is preserved, not merged or pushed. Dedicated test
+servers and named validation scratch are removed after final verification;
+production user databases/configuration are not migrated automatically.
