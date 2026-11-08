@@ -1,6 +1,9 @@
 package operations
 
 import (
+	"crypto/sha256"
+	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/ProjAnvil/LadyM/config"
@@ -10,6 +13,33 @@ import (
 
 // resourceAliasKey is the metadata key holding a resource entity's alias list.
 const resourceAliasKey = "aliases"
+
+// ResolvePathResource resolves only a deterministic, exact structural identity.
+// Paths carry no vector or aliases; even identical embeddings cannot merge them.
+func ResolvePathResource(store storage.Store, _ storage.EmbeddingProvider, ws, name string) (*schema.Memory, error) {
+	if strings.TrimSpace(name) == "" || strings.ContainsRune(name, '\x00') || strings.ContainsRune(ws, '\x00') {
+		return nil, errors.New("path resource requires a nonblank name and NUL-free workspace/name")
+	}
+	id := fmt.Sprintf("path:%x", sha256.Sum256([]byte(ws+"\x00"+name)))
+	m, err := store.GetMemory(id)
+	if err != nil {
+		return nil, err
+	}
+	if m != nil {
+		if !schema.IsUsable(m) || m.Layer != schema.LayerSemantic || m.Type != schema.TypeResource ||
+			m.Workspace != ws || m.Content != name || m.MetaString("resource_identity") != "path" {
+			return nil, fmt.Errorf("path resource %q has an unusable or conflicting identity", id)
+		}
+		return m, nil
+	}
+	m = schema.NewMemory(schema.LayerSemantic, schema.TypeResource)
+	m.ID, m.Workspace, m.Content, m.Summary = id, ws, name, name
+	m.Metadata["resource_identity"] = "path"
+	if err := store.PutMemory(m, nil); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
 
 // resourceAliases extracts the alias list from a resource memory's metadata,
 // tolerating both the fresh []string form and the JSON round-trip []any form.
@@ -64,7 +94,7 @@ func ResolveResource(store storage.Store, embedder storage.EmbeddingProvider,
 	}
 	want := strings.ToLower(name)
 	for _, m := range existing {
-		if !schema.IsUsable(m) {
+		if !schema.IsUsable(m) || m.MetaString("resource_identity") == "path" {
 			continue
 		}
 		if strings.ToLower(m.Content) == want {
@@ -97,7 +127,7 @@ func ResolveResource(store storage.Store, embedder storage.EmbeddingProvider,
 		if err != nil {
 			return nil, false, err
 		}
-		if !schema.IsUsable(m) || m.Type != schema.TypeResource || m.Workspace != ws {
+		if !schema.IsUsable(m) || m.Type != schema.TypeResource || m.Workspace != ws || m.MetaString("resource_identity") == "path" {
 			continue
 		}
 		if appendAlias(m, name) {

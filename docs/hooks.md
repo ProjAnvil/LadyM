@@ -33,13 +33,32 @@ ladym hook uninstall --all
 
 ## db 定址：零配置默认与统一库
 
-零配置（推荐起步）：每个项目目录一个 `ladym.db`。hook 进程继承 harness 的 cwd，所以在哪个项目里跑会话，事件就写进那个项目目录下的 `ladym.db`。项目之间天然隔离。
+零配置（推荐起步）：当前目录下的 `.ladyM/ladym.db`。hook 进程继承 harness 的 cwd；canonical 身份只改变 workspace/资源身份，不改变数据库定址。
 
 想用一个统一的库跨项目沉淀记忆：设置环境变量 `LADYM_DB` 指向同一个 db 文件，或在 `ladym.toml` 里配置。改库不需要重装 hook——hook 每次启动时重新定址。
 
 ## workspace
 
-每次事件到来，`ladym hook` 从 stdin JSON 的 `cwd` 取目录名作为 workspace（如 `/Users/x/proj/ladyM` → `ladyM`）。零配置模式下它就是项目名；统一库场景下它是隔离键——不同项目的记忆互不可见。需要强制指定时用 `-w` flag 覆盖推断值。
+默认 `legacy`：从 stdin JSON 的 `cwd` 取目录名作为 workspace（如 `/Users/x/proj/ladyM` → `ladyM`），文件资源仍取 basename。同名项目/文件可能碰撞，子目录可能产生不同 workspace。未提供 cwd 时使用 hook 进程的实际 cwd。显式 `-w` 始终优先于推断值和配置中的 workspace。
+
+可显式选择 canonical（环境变量优先于 TOML）：
+
+```toml
+[capture]
+identity_mode = "canonical" # 默认 "legacy"
+```
+
+或设置 `LADYM_CAPTURE_IDENTITY_MODE=canonical`。只接受 `legacy` / `canonical`，非法值返回 ConfigError；不会静默降级。
+
+canonical 用清理后的绝对 git 项目根（非 git 用绝对 cwd），workspace 为 `project:` 加根路径 SHA-256 的完整十六进制值。git 查找有超时、使用参数数组而非 shell；不解析 symlink。同一 git 仓库的子目录共享 workspace；不同根目录、移动仓库或不同 symlink 拼写会产生不同身份。
+
+文件资源为根相对路径（如 `engine/main.go`、`cli/main.go`），根外文件保留清理后的绝对路径。路径区分大小写，资源 ID 为 `path:` 加 `SHA256(workspace + NUL + path)`；元数据标记 `resource_identity=path`。它们是无向量、无别名的结构实体，不参加普通资源的 exact alias / fuzzy 匹配或 worker 的 LLM alias merge。读取路径只精确定位；未知路径可显式 fallback 到普通 recall，但不会 fuzzy 定位为另一条路径。
+
+### 旧库迁移：先备份，显式选择，不自动合并
+
+切换前停止使用该库的进程，备份整个数据库（WAL 模式应使用 SQLite backup 或在关闭连接后连同 sidecar 一起备份）。然后由用户显式修改配置/环境变量；不需要重新安装 hook。
+
+不会移动旧记忆、自动合并旧 workspace/资源、读取 transcript 或改写 harness 用户配置。legacy basename 已丢失目录信息，两种模式不能无损推断映射；旧记忆保留在旧 workspace，查询时继续显式 `-w`。统一库存在同名项目时建议 canonical；回退到 legacy 也不会撤销已写入的 canonical 数据。
 
 ## 捕获的事件与去向
 
@@ -48,12 +67,17 @@ ladym hook uninstall --all
 | SessionStart | create | — | source（如 `resume`） |
 | SessionEnd | — | — | — |
 | UserPromptSubmit | — | — | prompt 原文（截断至 2000 runes） |
-| PostToolUse | 由工具名映射（read/write/update/execute/search/query/analyze） | tool_input 中文件路径的 base name | tool_response（截断至 500 runes），outcome=success |
+| Stop（harness 提供时） | — | — | 兼容旧 outcome=success，但不是任务验证 |
+| PostToolUse | 由工具名映射（read/write/update/execute/search/query/analyze） | legacy: base name；canonical: 根相对/根外绝对路径 | tool_response（截断至 500 runes），outcome=success |
 | PostToolUseFailure | 同上 | 同上 | 同上，outcome=fail |
 
 Claude Code 捕获全部五类（PostToolUseFailure 独立成事件）；Codex 捕获前四类（无 PostToolUseFailure）。工具名映射不到受控词表时，raw action 字符串保留，留给 worker 后续回填。
 
 所有事件走 record_event 管线入库：受控词表约束、文件名解析成 resource 实体并建 operates_on 边。
+
+所有普通 hook 事件（包括 Stop）均标 `knowledge_status=observed`。PostToolUse / PostToolUseFailure 额外记录 `tool_outcome=success/fail`，兼容原 `outcome`。工具成功或回合结束不代表任务成功/已验证；tool_response 即使声称 verified 也只作为观察文本保存，不会生成 `verified_at` 或 `task_outcome`。现有程序化提取不会把仅工具成功的 hook 当作成功轨迹；只有可信 Go SDK 调用者显式提交 `knowledge_status=verified` 和 `task_outcome=success` 才满足该验证条件。
+
+MCP recall/search_code/recall_ops 的 memory 保留原字段，并增加 workspace、created_at、updated_at 和白名单 metadata：`session_id`, `source_episode`, `source_episodes`, `knowledge_status`, `evidence_missing`, `verified_at`, `action_class`, `tool_outcome`, `task_outcome`。列表/布尔/时间值不变形。未知元数据、cwd、transcript_path、原始 tool input、密码等不回显；没有新增通用 metadata 输入接口。这不是 content/observation 的脱敏机制。
 
 ## 验证
 
@@ -61,6 +85,8 @@ Claude Code 捕获全部五类（PostToolUseFailure 独立成事件）；Codex �
 ladym recall-ops --resource main.go   # 查某个文件的操作历史
 ladym stats                           # 看库里记了多少
 ```
+
+canonical 模式查询需显式指定 canonical workspace，例如 `ladym recall-ops --resource engine/main.go -w 'project:<完整根路径散列>'`；原 basename 查询仍用于 legacy workspace。
 
 在项目目录里跑一会儿会话后执行，能看到记录即安装成功。
 

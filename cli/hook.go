@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 
+	"github.com/ProjAnvil/LadyM/engine"
 	"github.com/ProjAnvil/LadyM/hook"
 	"github.com/spf13/cobra"
 )
@@ -39,8 +40,39 @@ func hookCmd() *cobra.Command {
 				fmt.Fprintf(c.ErrOrStderr(), "ladym hook: ignored event %q\n", p.HookEventName)
 				return nil
 			}
-			ws := cmp.Or(workspace, hook.WorkspaceFromCwd(p.Cwd))
-			eng, err := newEngine(db, "")
+			cfg, err := loadConfig(db, workspace)
+			if err != nil {
+				fmt.Fprintf(c.ErrOrStderr(), "ladym hook: %v\n", err)
+				return &exitError{1}
+			}
+			cwd := p.Cwd
+			if cwd == "" {
+				cwd, err = os.Getwd()
+				if err != nil {
+					fmt.Fprintf(c.ErrOrStderr(), "ladym hook: cwd: %v\n", err)
+					return &exitError{1}
+				}
+			}
+			ws := hook.WorkspaceFromCwd(cwd)
+			if cfg.CaptureIdentityMode == "canonical" {
+				root, projectWS, err := hook.ProjectIdentity(cwd)
+				if err != nil {
+					fmt.Fprintf(c.ErrOrStderr(), "ladym hook: %v\n", err)
+					return &exitError{1}
+				}
+				p.Cwd = cwd
+				ev, err = p.ToCanonicalOperation(harness, root)
+				if err != nil {
+					fmt.Fprintf(c.ErrOrStderr(), "ladym hook: %v\n", err)
+					return &exitError{1}
+				}
+				ws = projectWS
+			}
+			if c.Flags().Changed("workspace") {
+				ws = workspace
+			}
+			cfg.Workspace = cmp.Or(ws, cfg.Workspace)
+			eng, err := engine.New(cfg)
 			if err != nil {
 				fmt.Fprintf(c.ErrOrStderr(), "ladym hook: %v\n", err)
 				return &exitError{1}

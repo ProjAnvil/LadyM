@@ -170,7 +170,13 @@ func (s *Scope) recordOperation(ev OperationEvent, slots bool) (*schema.Memory, 
 		if strings.TrimSpace(name) == "" {
 			return nil, ErrBlankResource
 		}
-		res, _, err := operations.ResolveResource(s.eng.Store, s.eng.Provider, s.eng.Config, s.workspace, name)
+		var res *schema.Memory
+		var err error
+		if meta["resource_identity"] == "path" {
+			res, err = operations.ResolvePathResource(s.eng.Store, s.eng.Provider, s.workspace, name)
+		} else {
+			res, _, err = operations.ResolveResource(s.eng.Store, s.eng.Provider, s.eng.Config, s.workspace, name)
+		}
 		if err != nil {
 			return nil, err
 		}

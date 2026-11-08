@@ -55,7 +55,7 @@ func WorkspaceFromCwd(cwd string) string {
 var toolActionClass = map[string]string{
 	"Read": "read", "NotebookRead": "read",
 	"Write": "write",
-	"Edit": "update", "NotebookEdit": "update", "TodoWrite": "update",
+	"Edit":  "update", "NotebookEdit": "update", "TodoWrite": "update",
 	"Bash": "execute", "shell": "execute", "Shell": "execute",
 	"Grep": "search", "Glob": "search", "Search": "search",
 	"WebFetch": "query", "WebSearch": "query",
@@ -83,10 +83,11 @@ const (
 // event is outside the V1 set (spec §4.2): the CLI then exits 0 silently.
 func (p *Payload) ToOperation(harness Harness) *engine.OperationEvent {
 	meta := map[string]any{
-		"hook_event_name": p.HookEventName,
-		"session_id":      p.SessionID,
-		"transcript_path": p.TranscriptPath,
-		"cwd":             p.Cwd,
+		"hook_event_name":  p.HookEventName,
+		"session_id":       p.SessionID,
+		"transcript_path":  p.TranscriptPath,
+		"cwd":              p.Cwd,
+		"knowledge_status": "observed",
 	}
 	base := engine.OperationEvent{Agent: harness, Tags: []string{"hook"}, Metadata: meta}
 	switch p.HookEventName {
@@ -111,6 +112,7 @@ func (p *Payload) ToOperation(harness Harness) *engine.OperationEvent {
 		if p.HookEventName == "PostToolUse" {
 			base.Outcome = "success"
 		}
+		meta["tool_outcome"] = base.Outcome
 	default:
 		return nil
 	}

@@ -374,7 +374,7 @@ func mergeAliases(store storage.Store, embedder storage.EmbeddingProvider,
 	}
 	var live []*schema.Memory
 	for _, m := range res {
-		if !IsRetired(m) {
+		if !IsRetired(m) && m.MetaString("resource_identity") != "path" {
 			live = append(live, m)
 		}
 	}

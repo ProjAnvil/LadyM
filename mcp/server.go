@@ -458,8 +458,25 @@ func recallResultsJSON(results []*schema.RecallResult) []map[string]any {
 				"id": r.Memory.ID, "layer": r.Memory.Layer, "type": r.Memory.Type,
 				"summary": r.Memory.Summary, "content": r.Memory.Content,
 				"source": r.Memory.Source, "tags": r.Memory.Tags,
+				"workspace": r.Memory.Workspace, "created_at": r.Memory.CreatedAt,
+				"updated_at": r.Memory.UpdatedAt, "metadata": provenanceMetadata(r.Memory.Metadata),
 			},
 		})
+	}
+
+	return out
+}
+
+// Only the R1-P provenance fields cross the MCP boundary; values keep their shape.
+func provenanceMetadata(meta map[string]any) map[string]any {
+	out := map[string]any{}
+	for _, key := range []string{
+		"session_id", "source_episode", "source_episodes", "knowledge_status",
+		"evidence_missing", "verified_at", "action_class", "tool_outcome", "task_outcome",
+	} {
+		if value, exists := meta[key]; exists {
+			out[key] = value
+		}
 	}
 	return out
 }

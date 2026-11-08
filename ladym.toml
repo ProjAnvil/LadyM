@@ -1,0 +1,6 @@
+# Capture identity example. Existing databases are never migrated automatically.
+# Stop database users and back up the database/WAL before explicitly opting in.
+# Canonical identities cannot recover paths lost by legacy basename capture.
+# Reverting the mode does not move or merge memories between workspaces.
+[capture]
+identity_mode = "legacy" # opt in with "canonical" or LADYM_CAPTURE_IDENTITY_MODE

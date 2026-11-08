@@ -169,10 +169,11 @@ type MaintainConfig struct {
 // source of truth for the provider factories; the nested structs are a
 // convenience mirror populated by the loader.
 type Config struct {
-	DBPath          string
-	Workspace       string
-	PreferSQLiteVec bool
-	EnableWAL       bool
+	DBPath              string
+	Workspace           string
+	CaptureIdentityMode string // "legacy" (default) or opt-in "canonical"
+	PreferSQLiteVec     bool
+	EnableWAL           bool
 
 	// store backend (flat — source of truth for storage.OpenStore)
 	StoreBackend string // "sqlite" (default) or "postgres"
@@ -307,9 +308,10 @@ func envOr(key, def string) string {
 // Default returns a Config with all defaults populated (reading env at call time).
 func Default() *Config {
 	return &Config{
-		DBPath:          defaultDBPath(),
-		Workspace:       envOr("LADYM_WORKSPACE", "default"),
-		PreferSQLiteVec: true,
+		DBPath:              defaultDBPath(),
+		Workspace:           envOr("LADYM_WORKSPACE", "default"),
+		CaptureIdentityMode: "legacy",
+		PreferSQLiteVec:     true,
 		// WAL on by default so MCP serve / worker / one-shot CLI processes can
 		// share a single db. Disable with enable_wal=false or
 		// LADYM_ENABLE_WAL=false on filesystems without WAL support.
@@ -785,6 +787,16 @@ func applyToml(cfg *Config, data map[string]any) {
 					}
 				}
 			}
+		case "capture":
+			if t, ok := v.(map[string]any); ok {
+				for nk, nv := range t {
+					if nk == "identity_mode" {
+						cfg.CaptureIdentityMode = asString(nv)
+					} else {
+						fmt.Fprintf(os.Stderr, "WARNING: ignoring unknown capture.%s\n", nk)
+					}
+				}
+			}
 		case "maintain":
 			if t, ok := v.(map[string]any); ok {
 				for nk, nv := range t {
@@ -856,6 +868,8 @@ func applyFlat(cfg *Config, key string, v any) {
 		cfg.DBPath = asString(v)
 	case "workspace":
 		cfg.Workspace = asString(v)
+	case "capture_identity_mode":
+		cfg.CaptureIdentityMode = asString(v)
 	case "prefer_sqlite_vec":
 		cfg.PreferSQLiteVec = asBool(v)
 	case "enable_wal":
@@ -981,6 +995,9 @@ func applyEnv(cfg *Config) error {
 	if v := os.Getenv("LADYM_WORKSPACE"); v != "" {
 		cfg.Workspace = v
 	}
+	if v, set := os.LookupEnv("LADYM_CAPTURE_IDENTITY_MODE"); set && v != "" {
+		cfg.CaptureIdentityMode = v
+	}
 	if v := os.Getenv("LADYM_EMBEDDING"); v != "" {
 		cfg.EmbeddingProvider = v
 	}
@@ -1078,6 +1095,9 @@ func FromFile(path string) (*Config, error) {
 	cfg := Default()
 	applyToml(cfg, data)
 	syncNested(cfg)
+	if err := validateCaptureIdentity(cfg); err != nil {
+		return nil, err
+	}
 	if cfg.Recall.MaxExpandedNodes < 0 {
 		return nil, fmt.Errorf("recall.max_expanded_nodes must be non-negative")
 	}
@@ -1143,6 +1163,9 @@ func Load(configPath string, cliOverrides map[string]any) (*Config, error) {
 		}
 		syncNested(cfg)
 	}
+	if err := validateCaptureIdentity(cfg); err != nil {
+		return nil, err
+	}
 	if cfg.Recall.MaxExpandedNodes < 0 {
 		return nil, fmt.Errorf("recall.max_expanded_nodes must be non-negative")
 	}
@@ -1152,4 +1175,11 @@ func Load(configPath string, cliOverrides map[string]any) (*Config, error) {
 func fileExists(p string) bool {
 	st, err := os.Stat(p)
 	return err == nil && !st.IsDir()
+}
+
+func validateCaptureIdentity(cfg *Config) error {
+	if cfg.CaptureIdentityMode != "legacy" && cfg.CaptureIdentityMode != "canonical" {
+		return configErrorf("capture.identity_mode (LADYM_CAPTURE_IDENTITY_MODE) must be legacy or canonical, got %q", cfg.CaptureIdentityMode)
+	}
+	return nil
 }

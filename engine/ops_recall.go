@@ -159,9 +159,15 @@ func (s *Scope) resolveResourceForRead(name string) (*schema.Memory, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Path identities take precedence over ordinary resources of the same name.
+	for _, m := range resources {
+		if schema.IsUsable(m) && m.MetaString("resource_identity") == "path" && m.Content == name {
+			return m, nil
+		}
+	}
 	want := strings.ToLower(name)
 	for _, m := range resources {
-		if !schema.IsUsable(m) {
+		if !schema.IsUsable(m) || m.MetaString("resource_identity") == "path" {
 			continue
 		}
 		if strings.ToLower(m.Content) == want {
@@ -195,7 +201,7 @@ func (s *Scope) resolveResourceForRead(name string) (*schema.Memory, error) {
 		if err != nil {
 			return nil, err
 		}
-		if !schema.IsUsable(m) || m.Type != schema.TypeResource || m.Workspace != s.workspace {
+		if !schema.IsUsable(m) || m.Type != schema.TypeResource || m.Workspace != s.workspace || m.MetaString("resource_identity") == "path" {
 			continue
 		}
 		return m, nil
