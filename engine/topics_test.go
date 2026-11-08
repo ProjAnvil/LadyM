@@ -134,3 +134,29 @@ func TestTopicSourceFreshness(t *testing.T) {
 		}
 	})
 }
+
+func TestTopicLegacyIdentity(t *testing.T) {
+	runClaimBackends(t, func(t *testing.T, e *Engine) {
+		s := e.Scope("topic-task-identity")
+		source := topicSource(t, e, s.Workspace(), "legacy topic source")
+		legacy := schema.NewMemory(schema.LayerSemantic, schema.TypeTopicView)
+		legacy.ID = "69e0dda5f62ddb5581ff830c612f885bc5194aaa7095c390c079b0583450af04"
+		legacy.Workspace, legacy.Content = s.Workspace(), "legacy navigation"
+		legacy.Metadata = map[string]any{"topic": "navigation", "topic_revision": 1, "knowledge_status": "usable"}
+		if err := e.Store.PutMemory(legacy, nil); err != nil {
+			t.Fatal(err)
+		}
+		got, err := s.GetTopic("navigation")
+		if err != nil || got.ID != legacy.ID || got.Content != legacy.Content {
+			t.Fatalf("legacy topic lookup: %+v %v", got, err)
+		}
+		updated, err := s.BuildTopic("navigation", []string{source.ID}, 1)
+		if err != nil || updated.ID != legacy.ID || updated.CreatedAt != legacy.CreatedAt || schema.ManagedRevision(updated) != 2 {
+			t.Fatalf("legacy topic update: %+v %v", updated, err)
+		}
+		prefixed, err := s.BuildTopic("task:review", []string{source.ID}, 0)
+		if err != nil || prefixed.ID != "e69f709653fc06bf62511343349fd8841378afec7e7e184fd56af8b58d26e69b" {
+			t.Fatalf("task-prefixed topic identity changed: %+v %v", prefixed, err)
+		}
+	})
+}

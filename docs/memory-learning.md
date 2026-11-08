@@ -196,6 +196,13 @@ condition must be present in caller-attested `conditions`, case-sensitively.
 Generic facts, inferred claims and predictions are not automatically injected.
 Task state persists the provided goal and next step; TTL defaults to 86400
 seconds when omitted/zero. Negative/nonfinite TTL is rejected.
+Task-state storage IDs are `task-state:` followed by the SHA256 of
+`workspace + NUL + task_id`. The prefix is outside the hash, so a topic named
+`task:review` and task `review` can coexist. Existing topic IDs are unchanged.
+This corrects the newly added, unreleased Task 3 task-state identity contract;
+no user database migration or legacy task-ID fallback is introduced. Any
+development-only task states created before this correction must be set again
+through `set_task_state`; their old IDs are not used for bootstrap task lookup.
 
 HTTP/MCP/CLI and remote SDK bootstrap are **bytes only**, default/max 4096.
 Requests for remote tokens fail instead of fabricating counts. Embedded Go

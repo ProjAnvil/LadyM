@@ -3,6 +3,7 @@ package engine
 import (
 	"errors"
 	"math"
+	"slices"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -122,6 +123,105 @@ func TestTaskStateTTLAndBootstrap(t *testing.T) {
 		}
 		if _, err := s.SetTaskState("bad", string([]byte{255}), "next", 60); err == nil {
 			t.Fatal("invalid UTF8")
+		}
+	})
+}
+
+func TestTaskStateTopicIdentity(t *testing.T) {
+	runClaimBackends(t, func(t *testing.T, e *Engine) {
+		for _, order := range []string{"topic-first", "task-first"} {
+			t.Run(order, func(t *testing.T) {
+				s := e.Scope(order)
+				source := topicSource(t, e, s.Workspace(), "topic source")
+				var topic, task *schema.Memory
+				buildTopic := func() {
+					t.Helper()
+					var err error
+					topic, err = s.BuildTopic("task:review", []string{source.ID}, 0)
+					if err != nil {
+						t.Fatalf("create topic: %v", err)
+					}
+				}
+				setTask := func() {
+					t.Helper()
+					var err error
+					task, err = s.SetTaskState("review", "review goal", "review next", 60)
+					if err != nil {
+						t.Fatalf("create task: %v", err)
+					}
+				}
+				if order == "topic-first" {
+					buildTopic()
+					setTask()
+				} else {
+					setTask()
+					buildTopic()
+				}
+				if topic.ID == task.ID {
+					t.Fatal("topic and task share a storage identity")
+				}
+				updatedTask, err := s.SetTaskState("review", "updated goal", "updated next", 120)
+				if err != nil || updatedTask.ID != task.ID || schema.ManagedRevision(updatedTask) != 2 || updatedTask.CreatedAt != task.CreatedAt {
+					t.Fatalf("task update: %+v %v", updatedTask, err)
+				}
+				gotTopic, err := s.GetTopic("task:review")
+				if err != nil || gotTopic.ID != topic.ID || gotTopic.Type != schema.TypeTopicView || gotTopic.Content != topic.Content || schema.ManagedRevision(gotTopic) != 1 {
+					t.Fatalf("task update changed topic: %+v %v", gotTopic, err)
+				}
+				replacement := topicSource(t, e, s.Workspace(), "replacement topic source")
+				updatedTopic, err := s.BuildTopic("task:review", []string{replacement.ID}, 1)
+				if err != nil || updatedTopic.ID != topic.ID || schema.ManagedRevision(updatedTopic) != 2 || updatedTopic.CreatedAt != topic.CreatedAt {
+					t.Fatalf("topic update: %+v %v", updatedTopic, err)
+				}
+				gotTask, err := e.Store.GetMemory(task.ID)
+				if err != nil || gotTask == nil || gotTask.Type != schema.TypeTaskState || gotTask.Content != updatedTask.Content || gotTask.MetaString("task_id") != "review" || schema.ManagedRevision(gotTask) != 2 {
+					t.Fatalf("topic update changed task: %+v %v", gotTask, err)
+				}
+				gotTopic, err = s.GetTopic("task:review")
+				if err != nil || gotTopic.ID != updatedTopic.ID || gotTopic.Content != updatedTopic.Content {
+					t.Fatalf("updated topic lookup: %+v %v", gotTopic, err)
+				}
+				if _, err := s.GetTopic("review"); !errors.Is(err, ErrMemoryNotFound) {
+					t.Fatalf("task name resolved as a topic: %v", err)
+				}
+				for _, tc := range []struct {
+					name string
+					req  BootstrapRequest
+					ids  []string
+				}{
+					{"both", BootstrapRequest{TopicIDs: []string{topic.ID}, TaskID: "review"}, []string{topic.ID, task.ID}},
+					{"topic-only", BootstrapRequest{TopicIDs: []string{topic.ID}}, []string{topic.ID}},
+					{"task-only", BootstrapRequest{TaskID: "review"}, []string{task.ID}},
+					{"task-id-is-not-topic-id", BootstrapRequest{TopicIDs: []string{task.ID}}, nil},
+					{"topic-name-is-not-task-name", BootstrapRequest{TaskID: "task:review"}, nil},
+					{"storage-id-is-not-task-name", BootstrapRequest{TaskID: task.ID}, nil},
+					{"none", BootstrapRequest{}, nil},
+				} {
+					t.Run(tc.name, func(t *testing.T) {
+						b, err := s.Bootstrap(tc.req, nil)
+						if err != nil {
+							t.Fatal(err)
+						}
+						want := slices.Clone(tc.ids)
+						slices.Sort(want)
+						if !slices.Equal(b.SourceIDs, want) || strings.Contains(b.Content, "explicit task: ") != slices.Contains(want, task.ID) || strings.Contains(b.Content, "topic index: ") != slices.Contains(want, topic.ID) {
+							t.Fatalf("cross-resource bootstrap: %+v; want IDs %v", b, want)
+						}
+						if slices.Contains(want, task.ID) && (!strings.Contains(b.Content, "updated goal") || strings.Contains(b.Content, "review goal")) {
+							t.Fatalf("bootstrap used stale task content: %+v", b)
+						}
+					})
+				}
+				foreign := e.Scope("foreign-" + order)
+				foreignTask, err := foreign.SetTaskState("review", "foreign goal", "", 60)
+				if err != nil || foreignTask.ID == task.ID {
+					t.Fatalf("foreign task identity: %+v %v", foreignTask, err)
+				}
+				b, err := foreign.Bootstrap(BootstrapRequest{TopicIDs: []string{topic.ID}, TaskID: "review"}, nil)
+				if err != nil || !slices.Equal(b.SourceIDs, []string{foreignTask.ID}) || strings.Contains(b.Content, "updated goal") {
+					t.Fatalf("cross-workspace bootstrap: %+v %v", b, err)
+				}
+			})
 		}
 	})
 }
