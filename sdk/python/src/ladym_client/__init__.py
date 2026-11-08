@@ -12,6 +12,13 @@ from ladym_client.client import (
     RememberResult,
     Stats,
     User,
+    EvidenceRef,
+    ClaimScope,
+    Verification,
+    Claim,
+    RecordEvidenceRequest,
+    CreateClaimRequest,
+    ClaimFeedbackRequest,
 )
 
 __all__ = [
@@ -26,4 +33,6 @@ __all__ = [
     "Stats",
     "MemoryList",
     "User",
+    "EvidenceRef", "ClaimScope", "Verification", "Claim",
+    "RecordEvidenceRequest", "CreateClaimRequest", "ClaimFeedbackRequest",
 ]

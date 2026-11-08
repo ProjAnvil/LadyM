@@ -402,7 +402,15 @@ listing and typed claim reads, including transitive TTL without a worker.
 Store reads remain raw for audits; public stale managed bodies are suppressed.
 There is no autonomous execution or model verification.
 
-**Still deferred:** external claim interfaces and evidence archive; R3's topic views,
+**R2 interfaces delivered:** HTTP, MCP, local/remote CLI and Go/Python/TypeScript
+SDKs delegate to these same Scope rules. HTTP binds actors to principals; MCP/CLI
+use fixed local attribution. Opt-in evidence archives redact before persistence,
+carry TTL and use `MemoryBatch.Quota` under the existing storage writer lock.
+The 8 MiB workspace quota includes all undeleted archive content, including
+expired/pinned entries; input and persisted entry content are capped at 64 KiB.
+See [memory learning](docs/memory-learning.md) for contracts and limitations.
+
+**Still deferred:** R3's topic views,
 lexical/vector/structural hybrid retrieval and startup knowledge entry; R4's
 change-driven incremental maintenance and measured quality/cost budgeting.
 No wiki, autonomous verifier, new UI or third-party runtime is added. Their

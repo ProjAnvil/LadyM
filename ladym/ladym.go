@@ -22,24 +22,34 @@ const Version = "0.5.2"
 
 // Re-export the public types for a one-import SDK surface.
 type (
-	Config             = config.Config
-	ActivationWeights  = config.ActivationWeights
-	CodeIndexConfig    = config.CodeIndexConfig
-	ConsolidateConfig  = config.ConsolidateConfig
-	RecallConfig       = config.RecallConfig
-	ModelRouting       = adapter.ModelRouting
-	Engine             = engine.Engine
-	Layer              = schema.Layer
-	MemoryType         = schema.MemoryType
-	Memory             = schema.Memory
-	Edge               = schema.Edge
-	CodeSymbol         = schema.CodeSymbol
-	RecallResponse     = schema.RecallResponse
-	RecallResult       = schema.RecallResult
-	OperationEvent     = engine.OperationEvent
-	OperationsQuery    = engine.OperationsQuery
-	OperationsResponse = engine.OperationsResponse
-	Stats              = schema.Stats
+	Config                = config.Config
+	ActivationWeights     = config.ActivationWeights
+	CodeIndexConfig       = config.CodeIndexConfig
+	ConsolidateConfig     = config.ConsolidateConfig
+	RecallConfig          = config.RecallConfig
+	ModelRouting          = adapter.ModelRouting
+	Engine                = engine.Engine
+	Layer                 = schema.Layer
+	MemoryType            = schema.MemoryType
+	Memory                = schema.Memory
+	Edge                  = schema.Edge
+	CodeSymbol            = schema.CodeSymbol
+	RecallResponse        = schema.RecallResponse
+	RecallResult          = schema.RecallResult
+	OperationEvent        = engine.OperationEvent
+	OperationsQuery       = engine.OperationsQuery
+	OperationsResponse    = engine.OperationsResponse
+	Stats                 = schema.Stats
+	Scope                 = engine.Scope
+	ArchiveConfig         = config.ArchiveConfig
+	EvidenceRef           = schema.EvidenceRef
+	ClaimScope            = schema.ClaimScope
+	Verification          = schema.Verification
+	Claim                 = schema.Claim
+	ClaimFeedback         = schema.ClaimFeedback
+	RecordEvidenceRequest = schema.RecordEvidenceRequest
+	CreateClaimRequest    = schema.CreateClaimRequest
+	ClaimFeedbackRequest  = schema.ClaimFeedbackRequest
 )
 
 // Layer constants.
@@ -64,7 +74,11 @@ const (
 	TypeSnippet       = schema.TypeSnippet
 	TypeMentalModel   = schema.TypeMentalModel
 	TypeForwardIntent = schema.TypeForwardIntent
+	TypeClaim         = schema.TypeClaim
+	TypeEvidence      = schema.TypeEvidence
 )
+
+func KnowledgeFingerprint(m *Memory) string { return schema.KnowledgeFingerprint(m) }
 
 // NAMED_OPS mirrors providers.NAMED_OPS (the cognitive operations that can bind
 // an LLM provider). A copy is returned so callers cannot mutate the registry.

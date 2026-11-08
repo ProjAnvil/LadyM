@@ -20,4 +20,12 @@ export type {
   ListMemoriesOptions,
   MemoryPatch,
   User,
+  EvidenceKind,
+  EvidenceRef,
+  ClaimScope,
+  Verification,
+  Claim,
+  RecordEvidenceRequest,
+  CreateClaimRequest,
+  ClaimFeedbackRequest,
 } from "./client.js";

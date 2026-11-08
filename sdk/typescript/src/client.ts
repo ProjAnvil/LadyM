@@ -98,6 +98,66 @@ export interface User {
   created_at: number;
 }
 
+export type EvidenceKind = "observation" | "test_result" | "tool_result" | "user_confirmation";
+
+export interface EvidenceRef {
+  memory_id: string;
+  fingerprint: string;
+  kind: EvidenceKind;
+  start_rune: number;
+  end_rune: number;
+}
+
+export interface ClaimScope {
+  environment: string;
+  code_version: string;
+  conditions: string[] | null;
+}
+
+export interface Verification {
+  method: string;
+  actor: string;
+  checked_at: number;
+  evidence_refs: EvidenceRef[] | null;
+}
+
+export interface Claim {
+  memory?: Memory;
+  revision: number;
+  status: "observed" | "user_asserted" | "inferred" | "verified" | "stale" | "rejected";
+  evidence_refs: EvidenceRef[] | null;
+  counter_evidence: EvidenceRef[] | null;
+  scope: ClaimScope;
+  verification?: Verification;
+  valid_until: number;
+}
+
+export interface RecordEvidenceRequest {
+  kind: EvidenceKind;
+  content: string;
+  outcome?: string;
+  workspace?: string;
+}
+
+export interface CreateClaimRequest {
+  content: string;
+  evidence_refs?: EvidenceRef[];
+  scope?: ClaimScope;
+  status?: "inferred" | "user_asserted";
+  valid_until?: number;
+  workspace?: string;
+}
+
+export interface ClaimFeedbackRequest {
+  expected_revision: number;
+  action: "verify" | "correct" | "reject";
+  replacement?: string;
+  method?: string;
+  reason?: string;
+  evidence_refs?: EvidenceRef[] | null;
+  workspace?: string;
+}
+
 export interface RememberOptions {
   tags?: string[];
   workspace?: string;
@@ -153,6 +213,8 @@ export interface LadymClientOptions {
   /** Applied via AbortSignal.timeout; 0 disables. Default 30000. */
   timeoutMs?: number;
   fetch?: FetchFn;
+  /** Host attribution only; HTTP binds trusted actor to the principal or local. */
+  actor?: string;
 }
 
 function basicAuthHeader(user: string, password: string): string {
@@ -173,6 +235,7 @@ export class LadymClient {
   private readonly password: string;
   private readonly timeoutMs: number;
   private readonly fetchFn: FetchFn;
+  private readonly actor: string;
 
   constructor(baseUrl: string, opts: LadymClientOptions = {}) {
     this.base = baseUrl.replace(/\/+$/, "");
@@ -180,6 +243,7 @@ export class LadymClient {
     this.password = opts.password ?? "";
     this.timeoutMs = opts.timeoutMs ?? 30_000;
     this.fetchFn = opts.fetch ?? fetch;
+    this.actor = opts.actor ?? "";
   }
 
   private async do(
@@ -220,6 +284,27 @@ export class LadymClient {
       throw new LadymError(resp.status, msg);
     }
     return payload;
+  }
+
+  /** Record a provided result; never executes tools or independently verifies it. */
+  async recordEvidence(request: RecordEvidenceRequest): Promise<Memory> {
+    return await this.do("POST", "/api/evidence", undefined, {...request, actor: this.actor}) as unknown as Memory;
+  }
+
+  async archiveEvidence(request: RecordEvidenceRequest): Promise<Memory> {
+    return await this.do("POST", "/api/evidence/archive", undefined, {...request, actor: this.actor}) as unknown as Memory;
+  }
+
+  async createClaim(request: CreateClaimRequest): Promise<Claim> {
+    return await this.do("POST", "/api/claims", undefined, request) as unknown as Claim;
+  }
+
+  async getClaim(memoryId: string, workspace = ""): Promise<Claim> {
+    return await this.do("GET", "/api/claims/" + encodeURIComponent(memoryId), {workspace}) as unknown as Claim;
+  }
+
+  async applyClaimFeedback(memoryId: string, request: ClaimFeedbackRequest): Promise<Claim> {
+    return await this.do("POST", "/api/claims/" + encodeURIComponent(memoryId) + "/feedback", undefined, {...request, actor: this.actor}) as unknown as Claim;
   }
 
   /** Probe /healthz (auth-exempt); resolves when healthy. */

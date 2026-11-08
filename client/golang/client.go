@@ -18,10 +18,17 @@ type Client struct {
 	user     string // Basic-auth username; "" = no-auth deployment
 	password string // Basic-auth password (may be "" for passwordless users)
 	hc       *http.Client
+	actor    string
 }
 
 // Option customizes a Client.
 type Option func(*Client)
+
+// WithActor supplies host attribution only. HTTP always binds the trusted actor
+// to the authenticated principal (or local), ignoring body attribution.
+func WithActor(actor string) Option {
+	return func(c *Client) { c.actor = actor }
+}
 
 // WithAuth sets the Basic-auth credentials. A username with an empty
 // password is valid — it matches a passwordless server account. With no

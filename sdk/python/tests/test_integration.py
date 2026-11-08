@@ -8,6 +8,7 @@ without it every test here skips. Requires a Go toolchain on PATH to build
 from __future__ import annotations
 
 import os
+import hashlib
 import socket
 import subprocess
 import time
@@ -16,7 +17,7 @@ from pathlib import Path
 
 import pytest
 
-from ladym_client import Client, LadymError
+from ladym_client import Client, ClaimFeedbackRequest, CreateClaimRequest, EvidenceRef, LadymError, RecordEvidenceRequest
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
@@ -41,8 +42,10 @@ def server(tmp_path_factory):
         cwd=REPO_ROOT, check=True, capture_output=True, text=True,
     )
     port = _free_port()
+    config_path = tmp / "archive.toml"
+    config_path.write_text("[archive]\nenabled=true\n", encoding="utf-8")
     proc = subprocess.Popen(
-        [str(binary), "serve", "--db", str(tmp / "it.db"), "--http", f"127.0.0.1:{port}"],
+        [str(binary), "--config", str(config_path), "serve", "--db", str(tmp / "it.db"), "--http", f"127.0.0.1:{port}"],
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
     )
     base = f"http://127.0.0.1:{port}"
@@ -96,3 +99,18 @@ def test_full_chain(server):
     with pytest.raises(LadymError) as ei:
         c.delete_memory(r.id)
     assert ei.value.status == 404
+
+    evidence = c.record_evidence(RecordEvidenceRequest(kind="test_result", content="passed", outcome="success", workspace="sdk-it"))
+    refs = [EvidenceRef(memory_id=evidence.id, fingerprint=hashlib.sha256(b"passed").hexdigest(), kind="test_result")]
+    claim = c.create_claim(CreateClaimRequest(content="works", evidence_refs=refs, workspace="sdk-it"))
+    verified = c.apply_claim_feedback(claim.memory.id, ClaimFeedbackRequest(expected_revision=1, action="verify", method="attested", evidence_refs=refs, workspace="sdk-it"))
+    assert verified.revision == 2 and verified.verification.actor == "local"
+    assert c.get_claim(claim.memory.id, "sdk-it").status == "verified"
+    with pytest.raises(LadymError) as conflict:
+        c.apply_claim_feedback(claim.memory.id, ClaimFeedbackRequest(expected_revision=1, action="reject", reason="bad", workspace="sdk-it"))
+    assert conflict.value.status == 409
+    archived = c.archive_evidence(RecordEvidenceRequest(kind="observation", content='{"token":"synthetic-secret"}', workspace="sdk-it"))
+    assert "synthetic-secret" not in archived.content
+    assert archived.metadata["archive_marker"] == "ladym.archive.v1"
+    c.forget(evidence.id)
+    assert c.get_claim(claim.memory.id, "sdk-it").memory.content == ""

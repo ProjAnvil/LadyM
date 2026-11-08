@@ -46,6 +46,38 @@ type Claim struct {
 	ValidUntil      float64       `json:"valid_until"`
 }
 
+type RecordEvidenceRequest struct {
+	Kind      string `json:"kind"`
+	Content   string `json:"content"`
+	Outcome   string `json:"outcome"`
+	Actor     string `json:"actor"`
+	Workspace string `json:"workspace"`
+}
+
+type CreateClaimRequest struct {
+	Content    string        `json:"content"`
+	Evidence   []EvidenceRef `json:"evidence_refs"`
+	Scope      ClaimScope    `json:"scope"`
+	Status     string        `json:"status"`
+	ValidUntil float64       `json:"valid_until"`
+	Workspace  string        `json:"workspace"`
+}
+
+type ClaimFeedback struct {
+	ExpectedRevision int64         `json:"expected_revision"`
+	Action           string        `json:"action"`
+	Replacement      string        `json:"replacement"`
+	Method           string        `json:"method"`
+	Reason           string        `json:"reason"`
+	Actor            string        `json:"actor"`
+	Evidence         []EvidenceRef `json:"evidence_refs"`
+}
+
+type ClaimFeedbackRequest struct {
+	ClaimFeedback
+	Workspace string `json:"workspace"`
+}
+
 func KnowledgeFingerprint(m *Memory) string {
 	if m == nil {
 		return ""

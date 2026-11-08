@@ -52,9 +52,19 @@ type MemoryBatch struct {
 	Writes        []MemoryWrite
 	Edges         []*schema.Edge
 	CloseEdgesFor []string
+	Quota         *MemoryQuota
 }
 
 var ErrMemoryConflict = errors.New("memory snapshot conflict")
+var ErrMemoryQuota = errors.New("memory quota exceeded")
+
+// MemoryQuota counts content bytes of all marked rows, including expired,
+// retired and pinned rows, against the locked proposed workspace state.
+type MemoryQuota struct {
+	Workspace string
+	MaxBytes  int
+	Marker    string
+}
 
 func memoryUpsertSQL(postgres, preserveEmbedding, preserveAccess bool) string {
 	params := make([]string, 16)
@@ -108,6 +118,9 @@ func validateDeleteCutoff(autoBefore float64) error {
 }
 
 func validateBatch(batch MemoryBatch, dim int) error {
+	if q := batch.Quota; q != nil && (q.Workspace == "" || q.Marker == "" || q.MaxBytes <= 0) {
+		return errors.New("memory quota requires workspace, marker and positive max bytes")
+	}
 	for _, id := range batch.AbsentIDs {
 		if id == "" {
 			return errors.New("absence guard requires a memory ID")
@@ -274,6 +287,29 @@ func applyMemoryBatch(tx memoryTransaction, batch MemoryBatch, preserveAccess bo
 			roots = append(roots, current)
 		}
 		proposed[w.Memory.ID] = w.Memory
+	}
+	if q := batch.Quota; q != nil {
+		rows, err := tx.memories(q.Workspace)
+		if err != nil {
+			return err
+		}
+		state := map[string]*schema.Memory{}
+		for _, m := range rows {
+			state[m.ID] = m
+		}
+		for id, m := range proposed {
+			state[id] = m
+		}
+		remaining := q.MaxBytes
+		for _, m := range state {
+			if m.Workspace != q.Workspace || m.MetaString("archive_marker") != q.Marker {
+				continue
+			}
+			if len(m.Content) > remaining {
+				return fmt.Errorf("%w: archive workspace byte limit", ErrMemoryQuota)
+			}
+			remaining -= len(m.Content)
+		}
 	}
 	seen := map[string]bool{}
 	for _, root := range roots {

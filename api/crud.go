@@ -113,7 +113,7 @@ func (h *Handler) handleUpdateMemory(w http.ResponseWriter, r *http.Request) {
 	if !h.enforceMemoryWorkspace(w, r, id) {
 		return
 	}
-	if schema.ManagedRevisionKey(m) != "" {
+	if schema.ManagedRevisionKey(m) != "" || m.MetaString("archive_marker") != "" {
 		writeError(w, http.StatusBadRequest, "managed memory requires typed feedback")
 		return
 	}

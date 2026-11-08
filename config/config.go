@@ -22,6 +22,7 @@ import (
 	"cmp"
 	"fmt"
 	"maps"
+	"math"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -121,6 +122,22 @@ type AuthConfig struct {
 	Enabled bool
 }
 
+type ArchiveConfig struct {
+	Enabled           bool
+	MaxEntryBytes     int
+	MaxWorkspaceBytes int
+	RetentionS        float64
+}
+
+func (a ArchiveConfig) Validate() error {
+	if a.MaxEntryBytes <= 0 || a.MaxEntryBytes > 65536 ||
+		a.MaxWorkspaceBytes <= 0 || a.MaxWorkspaceBytes > 8388608 ||
+		a.RetentionS <= 0 || math.IsNaN(a.RetentionS) || math.IsInf(a.RetentionS, 0) {
+		return configErrorf("archive limits must be positive (entry <=65536 bytes, workspace <=8388608 bytes), retention_s finite")
+	}
+	return nil
+}
+
 // System2Config holds background reflection cycle knobs.
 type System2Config struct {
 	Enabled              bool
@@ -184,6 +201,7 @@ type Config struct {
 	// HTTP server auth (flat — source of truth for api.NewHandler)
 	AuthEnabled bool // [auth] enabled: users-table Basic auth; default false = allow all
 	Auth        AuthConfig
+	Archive     ArchiveConfig
 
 	// embedding (flat — source of truth for make_provider)
 	EmbeddingProvider         string
@@ -308,6 +326,7 @@ func envOr(key, def string) string {
 // Default returns a Config with all defaults populated (reading env at call time).
 func Default() *Config {
 	return &Config{
+		Archive:             ArchiveConfig{MaxEntryBytes: 65536, MaxWorkspaceBytes: 8388608, RetentionS: 2592000},
 		DBPath:              defaultDBPath(),
 		Workspace:           envOr("LADYM_WORKSPACE", "default"),
 		CaptureIdentityMode: "legacy",
@@ -635,6 +654,23 @@ func applyToml(cfg *Config, data map[string]any) {
 						if !isSecret(ak) {
 							fmt.Fprintf(os.Stderr, "WARNING: ignoring unknown auth key %q\n", ak)
 						}
+					}
+				}
+			}
+		case "archive":
+			if t, ok := v.(map[string]any); ok {
+				for key, value := range t {
+					switch key {
+					case "enabled":
+						cfg.Archive.Enabled = asBool(value)
+					case "max_entry_bytes":
+						cfg.Archive.MaxEntryBytes = asInt(value)
+					case "max_workspace_bytes":
+						cfg.Archive.MaxWorkspaceBytes = asInt(value)
+					case "retention_s":
+						cfg.Archive.RetentionS = asFloat(value)
+					default:
+						fmt.Fprintf(os.Stderr, "WARNING: ignoring unknown archive key %q\n", key)
 					}
 				}
 			}
@@ -1092,9 +1128,15 @@ func FromFile(path string) (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := validateArchiveSource(data); err != nil {
+		return nil, err
+	}
 	cfg := Default()
 	applyToml(cfg, data)
 	syncNested(cfg)
+	if err := cfg.Archive.Validate(); err != nil {
+		return nil, err
+	}
 	if err := validateCaptureIdentity(cfg); err != nil {
 		return nil, err
 	}
@@ -1145,6 +1187,9 @@ func Load(configPath string, cliOverrides map[string]any) (*Config, error) {
 		if err != nil {
 			return nil, err
 		}
+		if err := validateArchiveSource(normalized); err != nil {
+			return nil, err
+		}
 		merged = deepMerge(merged, normalized)
 	}
 
@@ -1166,6 +1211,9 @@ func Load(configPath string, cliOverrides map[string]any) (*Config, error) {
 	if err := validateCaptureIdentity(cfg); err != nil {
 		return nil, err
 	}
+	if err := cfg.Archive.Validate(); err != nil {
+		return nil, err
+	}
 	if cfg.Recall.MaxExpandedNodes < 0 {
 		return nil, fmt.Errorf("recall.max_expanded_nodes must be non-negative")
 	}
@@ -1180,6 +1228,37 @@ func fileExists(p string) bool {
 func validateCaptureIdentity(cfg *Config) error {
 	if cfg.CaptureIdentityMode != "legacy" && cfg.CaptureIdentityMode != "canonical" {
 		return configErrorf("capture.identity_mode (LADYM_CAPTURE_IDENTITY_MODE) must be legacy or canonical, got %q", cfg.CaptureIdentityMode)
+	}
+
+	return nil
+}
+
+func validateArchiveSource(data map[string]any) error {
+	raw, exists := data["archive"]
+	if !exists {
+		return nil
+	}
+	table, ok := raw.(map[string]any)
+	if !ok {
+		return configErrorf("archive must be a TOML table")
+	}
+	for key, value := range table {
+		switch key {
+		case "enabled":
+			if _, ok := value.(bool); !ok {
+				return configErrorf("archive.enabled must be boolean")
+			}
+		case "max_entry_bytes", "max_workspace_bytes":
+			if _, ok := value.(int64); !ok {
+				return configErrorf("archive.%s must be an integer", key)
+			}
+		case "retention_s":
+			switch value.(type) {
+			case float64, int64:
+			default:
+				return configErrorf("archive.retention_s must be numeric")
+			}
+		}
 	}
 	return nil
 }

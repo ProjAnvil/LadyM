@@ -92,6 +92,11 @@ func NewMuxWithRegistry(eng *engine.Engine, cfg *config.Config, reg *observabili
 	mux.HandleFunc("POST /api/recall", h.instrument("/api/recall", h.handleRecall))
 	mux.HandleFunc("POST /api/remember", h.instrument("/api/remember", h.handleRemember))
 	mux.HandleFunc("POST /api/record_event", h.instrument("/api/record_event", h.handleRecordEvent))
+	mux.HandleFunc("POST /api/evidence", h.instrument("/api/evidence", h.handleRecordEvidence))
+	mux.HandleFunc("POST /api/evidence/archive", h.instrument("/api/evidence/archive", h.handleArchiveEvidence))
+	mux.HandleFunc("POST /api/claims", h.instrument("/api/claims", h.handleCreateClaim))
+	mux.HandleFunc("GET /api/claims/{id}", h.instrument("/api/claims/{id}", h.handleGetClaim))
+	mux.HandleFunc("POST /api/claims/{id}/feedback", h.instrument("/api/claims/{id}/feedback", h.handleClaimFeedback))
 	// recall_ops mirrors the MCP tool of the same name (spec
 	// 2026-10-24-recall-ops-http-design.md §2); record_operation has no MCP
 	// counterpart — engine/CLI front-ends only.

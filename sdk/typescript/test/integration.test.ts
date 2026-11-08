@@ -8,7 +8,8 @@
 
 import assert from "node:assert/strict";
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -54,7 +55,9 @@ test("full chain against a real ladym serve --http", { skip: !RUN_IT && "set LAD
   execFileSync("go", ["build", "-o", binary, "./cmd/ladym"], { cwd: REPO_ROOT });
 
   const port = await freePort();
-  const proc = spawn(binary, ["serve", "--db", path.join(tmp, "it.db"), "--http", `127.0.0.1:${port}`], {
+  const configPath = path.join(tmp, "archive.toml");
+  writeFileSync(configPath, "[archive]\nenabled=true\n");
+  const proc = spawn(binary, ["--config", configPath, "serve", "--db", path.join(tmp, "it.db"), "--http", `127.0.0.1:${port}`], {
     stdio: "ignore",
   });
   t.after(() => proc.kill());
@@ -95,4 +98,19 @@ test("full chain against a real ladym serve --http", { skip: !RUN_IT && "set LAD
     assert.equal((err as LadymError).status, 404);
     return true;
   });
+
+  const evidence = await c.recordEvidence({kind:"test_result", content:"passed", outcome:"success", workspace:"sdk-it"});
+  const refs = [{memory_id:evidence.id, fingerprint:createHash("sha256").update("passed").digest("hex"), kind:"test_result" as const, start_rune:0, end_rune:0}];
+  const claim = await c.createClaim({content:"works", evidence_refs:refs, workspace:"sdk-it"});
+  assert.ok(claim.memory);
+  const verified = await c.applyClaimFeedback(claim.memory.id, {expected_revision:1, action:"verify", method:"attested", evidence_refs:refs, workspace:"sdk-it"});
+  assert.equal(verified.revision,2);
+  assert.equal(verified.verification?.actor,"local");
+  assert.equal((await c.getClaim(claim.memory.id,"sdk-it")).status,"verified");
+  await assert.rejects(c.applyClaimFeedback(claim.memory.id,{expected_revision:1,action:"reject",reason:"bad",workspace:"sdk-it"}), (e:unknown) => e instanceof LadymError && e.status === 409);
+  const archived = await c.archiveEvidence({kind:"observation",content:'{"token":"synthetic-secret"}',workspace:"sdk-it"});
+  assert.ok(!archived.content.includes("synthetic-secret"));
+  assert.equal(archived.metadata?.archive_marker,"ladym.archive.v1");
+  await c.forget(evidence.id);
+  assert.equal((await c.getClaim(claim.memory.id,"sdk-it")).memory?.content,"");
 });

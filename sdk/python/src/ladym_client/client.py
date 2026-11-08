@@ -11,7 +11,7 @@ import json
 import urllib.error
 import urllib.parse
 import urllib.request
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from typing import Any, Callable, Optional
 
 __all__ = [
@@ -26,6 +26,8 @@ __all__ = [
     "Stats",
     "MemoryList",
     "User",
+    "EvidenceRef", "ClaimScope", "Verification", "Claim",
+    "RecordEvidenceRequest", "CreateClaimRequest", "ClaimFeedbackRequest",
 ]
 
 # Transport takes (method, path, query, body) and returns (status, parsed JSON
@@ -143,6 +145,90 @@ class User:
     created_at: float = 0.0
 
 
+@dataclass
+class EvidenceRef:
+    memory_id: str = ""
+    fingerprint: str = ""
+    kind: str = ""
+    start_rune: int = 0
+    end_rune: int = 0
+
+
+@dataclass
+class ClaimScope:
+    environment: str = ""
+    code_version: str = ""
+    conditions: list[str] = field(default_factory=list)
+
+
+@dataclass
+class Verification:
+    method: str = ""
+    actor: str = ""
+    checked_at: float = 0.0
+    evidence_refs: list[EvidenceRef] = field(default_factory=list)
+
+
+@dataclass
+class Claim:
+    memory: Optional[Memory] = None
+    revision: int = 0
+    status: str = ""
+    evidence_refs: list[EvidenceRef] = field(default_factory=list)
+    counter_evidence: list[EvidenceRef] = field(default_factory=list)
+    scope: ClaimScope = field(default_factory=ClaimScope)
+    verification: Optional[Verification] = None
+    valid_until: float = 0.0
+
+    @classmethod
+    def from_json(cls, d: dict) -> "Claim":
+        v = d.get("verification")
+        verification = None
+        if v is not None:
+            verification = Verification(
+                method=v.get("method", ""), actor=v.get("actor", ""),
+                checked_at=v.get("checked_at", 0),
+                evidence_refs=[EvidenceRef(**r) for r in v.get("evidence_refs") or []],
+            )
+        return cls(
+            memory=Memory.from_json(d["memory"]) if d.get("memory") else None,
+            revision=d.get("revision", 0), status=d.get("status", ""),
+            evidence_refs=[EvidenceRef(**r) for r in d.get("evidence_refs") or []],
+            counter_evidence=[EvidenceRef(**r) for r in d.get("counter_evidence") or []],
+            scope=ClaimScope(**(d.get("scope") or {})), verification=verification,
+            valid_until=d.get("valid_until", 0),
+        )
+
+
+@dataclass
+class RecordEvidenceRequest:
+    kind: str = ""
+    content: str = ""
+    outcome: str = ""
+    workspace: str = ""
+
+
+@dataclass
+class CreateClaimRequest:
+    content: str = ""
+    evidence_refs: list[EvidenceRef] = field(default_factory=list)
+    scope: ClaimScope = field(default_factory=ClaimScope)
+    status: str = "inferred"
+    valid_until: float = 0.0
+    workspace: str = ""
+
+
+@dataclass
+class ClaimFeedbackRequest:
+    expected_revision: int = 0
+    action: str = ""
+    replacement: str = ""
+    method: str = ""
+    reason: str = ""
+    evidence_refs: list[EvidenceRef] = field(default_factory=list)
+    workspace: str = ""
+
+
 class Client:
     """Client for one `ladym serve --http` data-plane.
 
@@ -159,12 +245,14 @@ class Client:
         password: Optional[str] = None,
         timeout: float = 30.0,
         transport: Optional[Transport] = None,
+        actor: str = "",
     ):
         self._base = base_url.rstrip("/")
         self._user = username
         self._password = password or ""
         self._timeout = timeout
         self._transport = transport or self._urllib_transport
+        self._actor = actor
 
     # ---- transport ----
 
@@ -200,6 +288,23 @@ class Client:
         return {k: v for k, v in d.items() if v is not None}
 
     # ---- endpoints (one per /api/* tool, mirroring client/golang) ----
+
+    def record_evidence(self, request: RecordEvidenceRequest) -> Memory:
+        """Caller-attested short evidence; host attribution is not server authentication."""
+        return Memory.from_json(self._do("POST", "/api/evidence", body={**asdict(request), "actor": self._actor}))
+
+    def archive_evidence(self, request: RecordEvidenceRequest) -> Memory:
+        """Opt-in bounded, best-effort redacted archive; content strings only."""
+        return Memory.from_json(self._do("POST", "/api/evidence/archive", body={**asdict(request), "actor": self._actor}))
+
+    def create_claim(self, request: CreateClaimRequest) -> Claim:
+        return Claim.from_json(self._do("POST", "/api/claims", body=asdict(request)))
+
+    def get_claim(self, memory_id: str, workspace: str = "") -> Claim:
+        return Claim.from_json(self._do("GET", "/api/claims/" + urllib.parse.quote(memory_id, safe=""), query={"workspace": workspace}))
+
+    def apply_claim_feedback(self, memory_id: str, request: ClaimFeedbackRequest) -> Claim:
+        return Claim.from_json(self._do("POST", "/api/claims/" + urllib.parse.quote(memory_id, safe="") + "/feedback", body={**asdict(request), "actor": self._actor}))
 
     def ping(self) -> None:
         """Probe /healthz (auth-exempt); returns None when healthy."""

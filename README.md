@@ -43,7 +43,7 @@ echoing arbitrary metadata. LangGraph retains Q/A as L1 observed and injects
 reference-only context bounded to **4096 UTF-8 bytes**, including prefix/header/IDs.
 LongMemEval emits source-slot `evidence_metrics` alongside unchanged legacy `metrics`.
 
-**R2 core:** `Engine.Scope(workspace)` now provides `RecordEvidence`, `CreateClaim`,
+**R2:** `Engine.Scope(workspace)` now provides `RecordEvidence`, `ArchiveEvidence`, `CreateClaim`,
 `GetClaim`, `ApplyClaimFeedback` and `IsFresh`. Claims begin inferred (or explicitly
 user_asserted); verify/correct requires caller-attested successful test/tool evidence
 or user confirmation, matching SHA256 content fingerprints and rune-safe references.
@@ -58,8 +58,12 @@ including tier-2 code-file fallback. Freshness checks deduplicate source IDs and
 memoize node evaluations per call while retaining cycle and evidence guards;
 raw Store reads remain available for audits. Stale managed bodies are suppressed.
 
-External claim interfaces and evidence archiving, R3 topic views/hybrid retrieval/startup
-knowledge and R4 change-driven maintenance/quality-cost budgeting remain **deferred**.
+HTTP/MCP/CLI and Go/Python/TypeScript SDKs expose typed evidence and claim feedback.
+Evidence archiving is opt-in, best-effort redacted and bounded to 64 KiB per entry
+and 8 MiB persisted text per workspace, checked atomically across writers.
+See [memory learning](docs/memory-learning.md) for actor attribution, quotas and retention.
+R3 topic views/hybrid retrieval/startup knowledge and R4 change-driven
+maintenance/quality-cost budgeting remain **deferred**.
 No new wiki, verifier, UI or bootstrap/List API is shipped. No QA uplift, token saving
 or production p95 is claimed. Details: [ARCHITECTURE.md](ARCHITECTURE.md#12-delivered-foundation-and-deferred-releases)
 and [benchmark provenance semantics](benchmarks/README.md#two-retrieval-metric-namespaces).

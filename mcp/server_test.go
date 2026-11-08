@@ -110,11 +110,11 @@ func TestToolsListSchemas(t *testing.T) {
 		"record_event": {[]string{"agent", "action"}, map[string]propSpec{
 			"agent":        {typ: "string"},
 			"action":       {typ: "string"},
-			"observation":   {typ: "string", hasDef: true, def: ""},
-			"outcome":       {typ: "string", hasDef: true, def: ""},
-			"tags":          {typ: "array", itemsTyp: "string"},
-			"workspace":     {typ: "string"},
-			"resources":     {typ: "array", itemsTyp: "string"},
+			"observation":  {typ: "string", hasDef: true, def: ""},
+			"outcome":      {typ: "string", hasDef: true, def: ""},
+			"tags":         {typ: "array", itemsTyp: "string"},
+			"workspace":    {typ: "string"},
+			"resources":    {typ: "array", itemsTyp: "string"},
 			"action_class": {typ: "string"},
 		}},
 		"search_code": {[]string{"query"}, map[string]propSpec{
@@ -146,8 +146,31 @@ func TestToolsListSchemas(t *testing.T) {
 			"action":   {typ: "string"},
 			"since":    {typ: "number", hasDef: true, def: float64(0)},
 			"until":    {typ: "number", hasDef: true, def: float64(0)},
-			"outcome":   {typ: "string"},
+			"outcome":  {typ: "string"},
 			"limit":    {typ: "integer", hasDef: true, def: 10},
+		}},
+		"record_evidence": {[]string{"kind", "content"}, map[string]propSpec{
+			"kind": {typ: "string"}, "content": {typ: "string"},
+			"outcome": {typ: "string"}, "workspace": {typ: "string"},
+		}},
+		"archive_evidence": {[]string{"kind", "content"}, map[string]propSpec{
+			"kind": {typ: "string"}, "content": {typ: "string"},
+			"outcome": {typ: "string"}, "workspace": {typ: "string"},
+		}},
+		"create_claim": {[]string{"content"}, map[string]propSpec{
+			"content": {typ: "string"}, "evidence_refs": {typ: "array"},
+			"scope": {typ: "object"}, "workspace": {typ: "string"},
+			"status":      {typ: "string", hasDef: true, def: "inferred"},
+			"valid_until": {typ: "number"},
+		}},
+		"get_claim": {[]string{"memory_id"}, map[string]propSpec{
+			"memory_id": {typ: "string"}, "workspace": {typ: "string"},
+		}},
+		"claim_feedback": {[]string{"memory_id", "expected_revision", "action"}, map[string]propSpec{
+			"memory_id": {typ: "string"}, "workspace": {typ: "string"},
+			"expected_revision": {typ: "integer"}, "action": {typ: "string"},
+			"replacement": {typ: "string"}, "method": {typ: "string"},
+			"reason": {typ: "string"}, "evidence_refs": {typ: "array"},
 		}},
 	}
 

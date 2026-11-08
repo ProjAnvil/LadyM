@@ -175,7 +175,7 @@ func strListProp() map[string]any {
 }
 
 func (s *server) tools() []toolDef {
-	return []toolDef{
+	return append(s.claimTools(), []toolDef{
 		{
 			Name: "recall",
 			Description: "Recall memories matching a natural-language query.\n\n" +
@@ -270,10 +270,14 @@ func (s *server) tools() []toolDef {
 				"outcome": strProp(), "limit": intProp(10),
 			}, "resource"),
 		},
-	}
+	}...)
 }
 
 func (s *server) call(name string, args map[string]any) (string, error) {
+	switch name {
+	case "record_evidence", "archive_evidence", "create_claim", "get_claim", "claim_feedback":
+		return s.callClaim(name, args)
+	}
 	getStr := func(k, def string) string {
 		if v, ok := args[k].(string); ok {
 			return v

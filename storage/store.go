@@ -26,6 +26,8 @@ type Store interface {
 	InvalidateDependants(id string) (int, error)
 	// ApplyMemoryBatch commits guards, writes, edge closures and new edges
 	// together. Guard conflicts wrap ErrMemoryConflict; no provider work runs here.
+	// Optional Quota counts marked persisted/proposed workspace content bytes
+	// under the same writer lock; capacity errors wrap ErrMemoryQuota.
 	ApplyMemoryBatch(batch MemoryBatch) error
 	// EvidenceReferences returns the same direct dependency protection used by
 	// safe deletion, scoped to workspace (empty means all workspaces).

@@ -15,18 +15,21 @@ var ErrInvalidClaim = schema.ErrInvalidClaim
 var ErrMemoryNotFound = schema.ErrMemoryNotFound
 var ErrMemoryConflict = storage.ErrMemoryConflict
 
-type ClaimFeedback struct {
-	ExpectedRevision int64                `json:"expected_revision"`
-	Action           string               `json:"action"`
-	Replacement      string               `json:"replacement"`
-	Method           string               `json:"method"`
-	Reason           string               `json:"reason"`
-	Actor            string               `json:"actor"`
-	Evidence         []schema.EvidenceRef `json:"evidence_refs"`
-}
+type ClaimFeedback = schema.ClaimFeedback
 
 // RecordEvidence records caller-attested results, never runs or verifies tools.
 func (s *Scope) RecordEvidence(kind, content, outcome, actor string) (*schema.Memory, error) {
+	m, err := s.newEvidence(kind, content, outcome, actor)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.eng.Store.ApplyMemoryBatch(storage.MemoryBatch{AbsentIDs: []string{m.ID}, Writes: []storage.MemoryWrite{{Memory: m}}}); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
+func (s *Scope) newEvidence(kind, content, outcome, actor string) (*schema.Memory, error) {
 	if !schema.EvidenceKind(kind) || strings.TrimSpace(content) == "" || len(content) > 65536 ||
 		!utf8.ValidString(content) || strings.TrimSpace(actor) == "" {
 		return nil, ErrInvalidClaim
@@ -35,9 +38,6 @@ func (s *Scope) RecordEvidence(kind, content, outcome, actor string) (*schema.Me
 	m.Workspace, m.Content, m.Source = s.workspace, content, actor
 	m.ContentHash = schema.ContentHash(content)
 	m.Metadata = map[string]any{"verification_kind": kind, "outcome": outcome, "actor": actor, "knowledge_status": "observed"}
-	if err := s.eng.Store.ApplyMemoryBatch(storage.MemoryBatch{AbsentIDs: []string{m.ID}, Writes: []storage.MemoryWrite{{Memory: m}}}); err != nil {
-		return nil, err
-	}
 	return m, nil
 }
 
@@ -250,7 +250,7 @@ func genericTrustMetadata(metadata map[string]any) bool {
 }
 
 func genericClaimMetadata(metadata map[string]any) bool {
-	for _, key := range []string{"verification_kind", "verification", "claim_data", "claim_revision", "topic_revision", "job_revision", "task_revision"} {
+	for _, key := range []string{"verification_kind", "verification", "claim_data", "claim_revision", "topic_revision", "job_revision", "task_revision", "archive_marker"} {
 		if _, ok := metadata[key]; ok {
 			return true
 		}
