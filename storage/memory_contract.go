@@ -2,6 +2,7 @@ package storage
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -51,12 +52,20 @@ type MemoryWrite struct {
 }
 
 type MemoryBatch struct {
-	Guards        []MemoryGuard
-	AbsentIDs     []string
-	Writes        []MemoryWrite
-	Edges         []*schema.Edge
-	CloseEdgesFor []string
-	Quota         *MemoryQuota
+	MaintenanceFence *MaintenanceFence
+	Guards           []MemoryGuard
+	AbsentIDs        []string
+	Writes           []MemoryWrite
+	Edges            []*schema.Edge
+	CloseEdgesFor    []string
+	Quota            *MemoryQuota
+}
+
+type MaintenanceFence struct {
+	Context                               context.Context
+	JobID, Owner, Generation, Fingerprint string
+	Revision                              int64
+	LeaseUntil                            float64
 }
 
 var ErrMemoryConflict = errors.New("memory snapshot conflict")
@@ -122,6 +131,9 @@ func validateDeleteCutoff(autoBefore float64) error {
 }
 
 func validateBatch(batch MemoryBatch, dim int) error {
+	if f := batch.MaintenanceFence; f != nil && (f.Context == nil || f.JobID == "" || f.Owner == "" || f.Revision < 1 || f.LeaseUntil <= 0 || math.IsNaN(f.LeaseUntil) || math.IsInf(f.LeaseUntil, 0)) {
+		return errors.New("maintenance fence requires active context, job, owner, revision and finite lease")
+	}
 	if q := batch.Quota; q != nil && (q.Workspace == "" || q.Marker == "" || q.MaxBytes <= 0) {
 		return errors.New("memory quota requires workspace, marker and positive max bytes")
 	}
@@ -232,6 +244,7 @@ func directlyDepends(m *schema.Memory, source string, edges []*schema.Edge) bool
 // memoryTransaction is private storage plumbing, not a public transaction API.
 // Both implementations acquire a writer lock before any eligibility reads.
 type memoryTransaction interface {
+	now() (float64, error)
 	get(string) (*schema.Memory, error)
 	memories(string) ([]*schema.Memory, error)
 	dependants(string, string) ([]*schema.Memory, error)
@@ -255,6 +268,9 @@ func episodeCompleted(m *schema.Memory) bool {
 func applyMemoryBatch(tx memoryTransaction, batch MemoryBatch, preserveAccess bool) error {
 	defer tx.rollback()
 	if err := tx.(migrationTransaction).checkIdentity(); err != nil {
+		return err
+	}
+	if err := maintenanceFence(tx, batch.MaintenanceFence); err != nil {
 		return err
 	}
 	for _, id := range batch.AbsentIDs {
@@ -398,6 +414,18 @@ func applyMemoryBatch(tx memoryTransaction, batch MemoryBatch, preserveAccess bo
 	for _, e := range batch.Edges {
 		if err := tx.putEdge(e); err != nil {
 			return err
+		}
+	}
+	if f := batch.MaintenanceFence; f != nil {
+		if err := f.Context.Err(); err != nil {
+			return err
+		}
+		now, err := tx.now()
+		if err != nil {
+			return err
+		}
+		if f.LeaseUntil <= now {
+			return ErrMaintenanceLease
 		}
 	}
 	return tx.commit()

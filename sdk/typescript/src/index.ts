@@ -3,6 +3,9 @@ export {
   LadymError,
 } from "./client.js";
 export type {
+  ScheduleMaintenanceRequest,
+  MaintenanceJob,
+  MaintenanceReport,
   BuildTopicRequest,
   HybridRecallRequest,
   BootstrapRequest,

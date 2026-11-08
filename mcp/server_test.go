@@ -95,6 +95,14 @@ func TestToolsListSchemas(t *testing.T) {
 		required []string
 		props    map[string]propSpec
 	}{
+		"schedule_maintenance": {[]string{"operation", "target_id"}, map[string]propSpec{
+			"operation": {typ: "string"}, "target_id": {typ: "string"}, "input_ids": {typ: "array", itemsTyp: "string"},
+			"args": {typ: "object"}, "workspace": {typ: "string"},
+		}},
+		"list_maintenance_jobs": {nil, map[string]propSpec{
+			"workspace": {typ: "string"}, "limit": {typ: "integer", hasDef: true, def: 100},
+		}},
+		"maintenance_status": {nil, map[string]propSpec{"workspace": {typ: "string"}}},
 		"recall": {[]string{"query"}, map[string]propSpec{
 			"query":     {typ: "string"},
 			"top_k":     {typ: "integer", hasDef: true, def: 8},

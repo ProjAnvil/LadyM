@@ -12,6 +12,7 @@ import (
 
 	"github.com/ProjAnvil/LadyM/schema"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	vectorpgx "github.com/pgvector/pgvector-go/pgx"
 )
@@ -24,7 +25,7 @@ import (
 type PostgresStore struct {
 	*embeddingMigrations
 	dim  int
-	pool *pgxpool.Pool
+	pool *contextPool
 }
 
 var _ Store = (*PostgresStore)(nil)
@@ -171,7 +172,7 @@ func NewPostgresStore(dsn string, dim int) (*PostgresStore, error) {
 		pool.Close()
 		return nil, err
 	}
-	s := &PostgresStore{dim: dim, pool: pool}
+	s := &PostgresStore{dim: dim, pool: &contextPool{Pool: pool}}
 	s.embeddingMigrations = &embeddingMigrations{begin: s.beginMigration}
 	return s, nil
 }
@@ -179,7 +180,10 @@ func NewPostgresStore(dsn string, dim int) (*PostgresStore, error) {
 // applyPGSchema runs the idempotent schema statements under an exclusive
 // session-level advisory lock, so two processes opening a fresh database at
 // the same time cannot race the CREATE ... IF NOT EXISTS sequence.
-func applyPGSchema(ctx context.Context, pool *pgxpool.Pool, dim int) error {
+func applyPGSchema(ctx context.Context, pool interface {
+	Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
+	Acquire(context.Context) (*pgxpool.Conn, error)
+}, dim int) error {
 	conn, err := pool.Acquire(ctx)
 	if err != nil {
 		return fmt.Errorf("postgres schema setup failed: %w", err)
@@ -218,7 +222,7 @@ func ph(n int) string { return "$" + strconv.Itoa(n) }
 // recreates the index — one transaction. Mirrors SQLiteStore's reset of the
 // in-memory index; the interface returns no error, so failures are warned.
 func (s *PostgresStore) RebuildVectorIndex(newDim int) {
-	ctx := context.Background()
+	ctx := s.pool.context(context.Background())
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "WARNING: RebuildVectorIndex: begin tx: %v\n", err)
@@ -602,7 +606,7 @@ func (s *PostgresStore) PutCodeRefs(refs []*schema.CodeRef) error {
 	if len(refs) == 0 {
 		return nil
 	}
-	ctx := context.Background()
+	ctx := s.pool.context(context.Background())
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return err
@@ -641,7 +645,7 @@ func (s *PostgresStore) SymbolsForFile(filePath string) ([]*schema.CodeSymbol, e
 
 // RefsForSymbol returns cross references for a qualified name.
 func (s *PostgresStore) RefsForSymbol(qualifiedName, direction string) ([]*schema.CodeRef, error) {
-	ctx := context.Background()
+	ctx := s.pool.context(context.Background())
 	var out []*schema.CodeRef
 	if direction == "out" || direction == "both" {
 		rows, err := s.pool.Query(ctx, "SELECT src_symbol, dst_symbol, ref_kind FROM code_refs WHERE src_symbol = $1", qualifiedName)
@@ -719,7 +723,7 @@ func (s *PostgresStore) deleteCodeMemories(query string, args ...any) error {
 // memories. The refs delete must run before the code_symbols delete it
 // subqueries. No vector index sync is needed: VectorSearch reads the table.
 func (s *PostgresStore) DeleteCodeArtifactsByFile(workspace, filePath string) error {
-	ctx := context.Background()
+	ctx := s.pool.context(context.Background())
 	tx, err := s.beginMemoryTransaction(MemoryBatch{})
 	if err != nil {
 		return err
@@ -884,7 +888,7 @@ func (s *PostgresStore) TryAcquireWorkerLock() (func(), error) {
 // held until the returned release function runs (pg_advisory_unlock +
 // conn.Release); a crashed process drops its session and the lock with it.
 func (s *PostgresStore) tryAdvisoryLock(key int64, held error) (func(), error) {
-	ctx := context.Background()
+	ctx := s.pool.context(context.Background())
 	conn, err := s.pool.Acquire(ctx)
 	if err != nil {
 		return nil, err

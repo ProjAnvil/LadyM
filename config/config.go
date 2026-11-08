@@ -140,6 +140,14 @@ func (a ArchiveConfig) Validate() error {
 
 // System2Config holds background reflection cycle knobs.
 type System2Config struct {
+	BudgetedEnabled      bool
+	MaxCandidates        int
+	MaxCalls             int
+	MaxReservedBytes     int
+	MaxWallS             float64
+	Concurrency          int
+	LeaseS               float64
+	MaxAttempts          int
 	Enabled              bool
 	IntervalS            int
 	MinEpisodesToRun     int
@@ -384,6 +392,8 @@ func Default() *Config {
 			ExtraIgnoreGlobs:      []string{"**/.venv/**", "**/node_modules/**", "**/__pycache__/**"},
 		},
 		System2: System2Config{
+			MaxCandidates: 50, MaxCalls: 8, MaxReservedBytes: 8192,
+			MaxWallS: 30, Concurrency: 1, LeaseS: 60, MaxAttempts: 3,
 			Enabled: false, IntervalS: 300, MinEpisodesToRun: 3,
 			MaxConsecutiveErrors: 10,
 			L5ClusterSimilarity:  0.65, L5MinClusterSize: 3, L5MergeSimilarity: 0.80,
@@ -770,6 +780,22 @@ func applyToml(cfg *Config, data map[string]any) {
 					switch nk {
 					case "enabled":
 						cfg.System2.Enabled = asBool(nv)
+					case "budgeted_enabled":
+						cfg.System2.BudgetedEnabled = asBool(nv)
+					case "max_candidates":
+						cfg.System2.MaxCandidates = asInt(nv)
+					case "max_calls":
+						cfg.System2.MaxCalls = asInt(nv)
+					case "max_reserved_bytes":
+						cfg.System2.MaxReservedBytes = asInt(nv)
+					case "max_wall_s":
+						cfg.System2.MaxWallS = asFloat(nv)
+					case "concurrency":
+						cfg.System2.Concurrency = asInt(nv)
+					case "lease_s":
+						cfg.System2.LeaseS = asFloat(nv)
+					case "max_attempts":
+						cfg.System2.MaxAttempts = asInt(nv)
 					case "interval_s":
 						cfg.System2.IntervalS = asInt(nv)
 					case "min_episodes_to_run":

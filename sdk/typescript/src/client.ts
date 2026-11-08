@@ -23,6 +23,45 @@ export interface BuildTopicRequest {
   expected_revision: number;
   workspace?: string;
 }
+export interface ScheduleMaintenanceRequest {
+  operation: "new_episode" | "refresh_topic" | "expire_claim";
+  target_id: string;
+  input_ids: string[];
+  args?: {mode: "literal"};
+  workspace?: string;
+}
+export interface MaintenanceJob {
+  id: string;
+  workspace: string;
+  operation: ScheduleMaintenanceRequest["operation"];
+  target_id: string;
+  state: "pending" | "running" | "done" | "failed" | "superseded";
+  priority?: number;
+  owner?: string;
+  error_code?: string;
+  input_ids: string[];
+  fingerprints: Record<string, string>;
+  input_revisions: Record<string, number>;
+  args: Record<string, unknown> | null;
+  revision: number;
+  attempt: number;
+  not_before: number;
+  lease_until: number;
+  checkpoint?: Record<string, unknown>;
+}
+export interface MaintenanceReport {
+  candidate_count: number;
+  calls: number;
+  reserved_bytes: number;
+  measured_input_bytes: number;
+  measured_output_bytes: number;
+  completed_jobs: number;
+  pending_jobs: number;
+  failed_jobs: number;
+  elapsed_ms: number;
+  stop_reason: string;
+  unit: "bytes";
+}
 export interface HybridRecallRequest {
   query: string;
   limit: number;
@@ -341,6 +380,19 @@ export class LadymClient {
 
   async buildTopic(request: BuildTopicRequest): Promise<Memory> {
     return await this.do("POST", "/api/topics", undefined, request) as unknown as Memory;
+  }
+
+  async scheduleMaintenance(request: ScheduleMaintenanceRequest): Promise<Memory> {
+    return await this.do("POST", "/api/maintenance/jobs", undefined, request) as unknown as Memory;
+  }
+
+  async listMaintenanceJobs(workspace = "", limit = 100): Promise<MaintenanceJob[]> {
+    const out = await this.do("GET", "/api/maintenance/jobs", {workspace, limit: String(limit)});
+    return (out.jobs ?? []) as MaintenanceJob[];
+  }
+
+  async maintenanceStatus(workspace = ""): Promise<MaintenanceReport> {
+    return await this.do("GET", "/api/maintenance/status", {workspace}) as unknown as MaintenanceReport;
   }
 
   async getTopic(topic: string, workspace = ""): Promise<Memory> {

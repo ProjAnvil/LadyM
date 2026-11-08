@@ -15,6 +15,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any, Callable, Optional
 
 __all__ = [
+    "ScheduleMaintenanceRequest", "MaintenanceJob", "MaintenanceReport",
     "Client",
     "LadymError",
     "RememberResult",
@@ -30,6 +31,51 @@ __all__ = [
     "RecordEvidenceRequest", "CreateClaimRequest", "ClaimFeedbackRequest",
     "BuildTopicRequest", "HybridRecallRequest", "BootstrapRequest", "BootstrapResponse", "SetTaskStateRequest",
 ]
+
+@dataclass
+class ScheduleMaintenanceRequest:
+    operation: str
+    target_id: str
+    input_ids: list[str] = field(default_factory=list)
+    args: dict[str, Any] = field(default_factory=dict)
+    workspace: str = ""
+
+
+@dataclass
+class MaintenanceJob:
+    id: str
+    workspace: str
+    operation: str
+    target_id: str
+    state: str
+    input_ids: list[str]
+    fingerprints: dict[str, str]
+    input_revisions: dict[str, int]
+    args: Optional[dict[str, Any]]
+    revision: int
+    attempt: int
+    not_before: float
+    lease_until: float
+    owner: str = ""
+    error_code: str = ""
+    checkpoint: dict[str, Any] = field(default_factory=dict)
+    priority: int = 0
+
+
+@dataclass
+class MaintenanceReport:
+    candidate_count: int = 0
+    calls: int = 0
+    reserved_bytes: int = 0
+    measured_input_bytes: int = 0
+    measured_output_bytes: int = 0
+    completed_jobs: int = 0
+    pending_jobs: int = 0
+    failed_jobs: int = 0
+    elapsed_ms: float = 0
+    stop_reason: str = ""
+    unit: str = "bytes"
+
 
 @dataclass
 class BuildTopicRequest:
@@ -358,6 +404,16 @@ class Client:
     def ping(self) -> None:
         """Probe /healthz (auth-exempt); returns None when healthy."""
         self._do("GET", "/healthz")
+
+    def schedule_maintenance(self, request: ScheduleMaintenanceRequest) -> Memory:
+        return Memory.from_json(self._do("POST", "/api/maintenance/jobs", body=asdict(request)))
+
+    def list_maintenance_jobs(self, workspace: str = "", limit: int = 100) -> list[MaintenanceJob]:
+        return [MaintenanceJob(**job) for job in self._do("GET", "/api/maintenance/jobs",
+                query={"workspace": workspace, "limit": limit}).get("jobs", [])]
+
+    def maintenance_status(self, workspace: str = "") -> MaintenanceReport:
+        return MaintenanceReport(**self._do("GET", "/api/maintenance/status", query={"workspace": workspace}))
 
     def build_topic(self, request: BuildTopicRequest) -> Memory:
         return Memory.from_json(self._do("POST", "/api/topics", body=asdict(request)))

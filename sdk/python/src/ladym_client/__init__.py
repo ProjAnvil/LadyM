@@ -24,9 +24,13 @@ from ladym_client.client import (
     BootstrapRequest,
     BootstrapResponse,
     SetTaskStateRequest,
+    ScheduleMaintenanceRequest,
+    MaintenanceJob,
+    MaintenanceReport,
 )
 
 __all__ = [
+    "ScheduleMaintenanceRequest", "MaintenanceJob", "MaintenanceReport",
     "BuildTopicRequest", "HybridRecallRequest", "BootstrapRequest", "BootstrapResponse", "SetTaskStateRequest",
     "Client",
     "LadymError",

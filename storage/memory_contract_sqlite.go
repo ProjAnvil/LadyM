@@ -97,8 +97,14 @@ func installLegacyEvidenceIndex(db *sql.DB) error {
 
 type sqliteMemoryTransaction struct {
 	store               *SQLiteStore
-	tx                  *sql.Tx
+	tx                  *contextSQLTx
 	migrationAuthorized bool
+}
+
+func (tx *sqliteMemoryTransaction) now() (float64, error) {
+	var now float64
+	err := tx.tx.QueryRow("SELECT (julianday('now')-2440587.5)*86400.0").Scan(&now)
+	return now, err
 }
 
 func (s *SQLiteStore) beginMemoryTransaction() (*sqliteMemoryTransaction, error) {

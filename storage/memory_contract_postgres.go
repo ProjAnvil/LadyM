@@ -18,6 +18,12 @@ type postgresMemoryTransaction struct {
 	migrationAuthorized bool
 }
 
+func (tx *postgresMemoryTransaction) now() (float64, error) {
+	var now float64
+	err := tx.tx.QueryRow(context.Background(), "SELECT EXTRACT(EPOCH FROM clock_timestamp())::double precision").Scan(&now)
+	return now, err
+}
+
 func (s *PostgresStore) beginMemoryTransaction(batch MemoryBatch) (*postgresMemoryTransaction, error) {
 	ctx := context.Background()
 	tx, err := s.pool.Begin(ctx)

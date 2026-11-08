@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"context"
 	"github.com/ProjAnvil/LadyM/schema"
 )
 
@@ -8,6 +9,7 @@ import (
 // code. SQLiteStore is the reference implementation; the interface exists so
 // no package outside storage depends on the concrete type or the raw *sql.DB.
 type Store interface {
+	WithContext(context.Context) Store
 	// lifecycle
 	Close() error
 	BeginEmbeddingMigration(schema.EmbeddingIdentity) error

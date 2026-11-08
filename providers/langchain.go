@@ -23,6 +23,7 @@ import (
 
 // LangChainLLM wraps a langchain-golang ChatModel as an LLMProvider.
 type LangChainLLM struct {
+	contextHTTP      *HTTPLLM
 	cm               language.ChatModel
 	structuredMethod string
 }

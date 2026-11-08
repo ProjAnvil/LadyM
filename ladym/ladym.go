@@ -15,6 +15,7 @@ import (
 	"github.com/ProjAnvil/LadyM/engine"
 	"github.com/ProjAnvil/LadyM/providers"
 	"github.com/ProjAnvil/LadyM/schema"
+	"github.com/ProjAnvil/LadyM/storage"
 )
 
 // Version is the LadyM version.
@@ -22,40 +23,48 @@ const Version = "0.5.2"
 
 // Re-export the public types for a one-import SDK surface.
 type (
-	Config                = config.Config
-	ActivationWeights     = config.ActivationWeights
-	CodeIndexConfig       = config.CodeIndexConfig
-	ConsolidateConfig     = config.ConsolidateConfig
-	RecallConfig          = config.RecallConfig
-	ModelRouting          = adapter.ModelRouting
-	Engine                = engine.Engine
-	Layer                 = schema.Layer
-	MemoryType            = schema.MemoryType
-	Memory                = schema.Memory
-	Edge                  = schema.Edge
-	CodeSymbol            = schema.CodeSymbol
-	RecallResponse        = schema.RecallResponse
-	RecallResult          = schema.RecallResult
-	OperationEvent        = engine.OperationEvent
-	OperationsQuery       = engine.OperationsQuery
-	OperationsResponse    = engine.OperationsResponse
-	Stats                 = schema.Stats
-	Scope                 = engine.Scope
-	ArchiveConfig         = config.ArchiveConfig
-	EvidenceRef           = schema.EvidenceRef
-	ClaimScope            = schema.ClaimScope
-	Verification          = schema.Verification
-	Claim                 = schema.Claim
-	ClaimFeedback         = schema.ClaimFeedback
-	RecordEvidenceRequest = schema.RecordEvidenceRequest
-	CreateClaimRequest    = schema.CreateClaimRequest
-	ClaimFeedbackRequest  = schema.ClaimFeedbackRequest
-	BuildTopicRequest     = schema.BuildTopicRequest
-	HybridRecallRequest   = schema.HybridRecallRequest
-	BootstrapRequest      = schema.BootstrapRequest
-	BootstrapResponse     = schema.BootstrapResponse
-	SetTaskStateRequest   = schema.SetTaskStateRequest
-	TokenCounter          = engine.TokenCounter
+	Config                     = config.Config
+	ActivationWeights          = config.ActivationWeights
+	CodeIndexConfig            = config.CodeIndexConfig
+	ConsolidateConfig          = config.ConsolidateConfig
+	RecallConfig               = config.RecallConfig
+	ModelRouting               = adapter.ModelRouting
+	Engine                     = engine.Engine
+	Layer                      = schema.Layer
+	MemoryType                 = schema.MemoryType
+	Memory                     = schema.Memory
+	Edge                       = schema.Edge
+	CodeSymbol                 = schema.CodeSymbol
+	RecallResponse             = schema.RecallResponse
+	RecallResult               = schema.RecallResult
+	OperationEvent             = engine.OperationEvent
+	OperationsQuery            = engine.OperationsQuery
+	OperationsResponse         = engine.OperationsResponse
+	Stats                      = schema.Stats
+	Scope                      = engine.Scope
+	ArchiveConfig              = config.ArchiveConfig
+	EvidenceRef                = schema.EvidenceRef
+	ClaimScope                 = schema.ClaimScope
+	Verification               = schema.Verification
+	Claim                      = schema.Claim
+	ClaimFeedback              = schema.ClaimFeedback
+	RecordEvidenceRequest      = schema.RecordEvidenceRequest
+	CreateClaimRequest         = schema.CreateClaimRequest
+	ClaimFeedbackRequest       = schema.ClaimFeedbackRequest
+	BuildTopicRequest          = schema.BuildTopicRequest
+	HybridRecallRequest        = schema.HybridRecallRequest
+	BootstrapRequest           = schema.BootstrapRequest
+	BootstrapResponse          = schema.BootstrapResponse
+	SetTaskStateRequest        = schema.SetTaskStateRequest
+	TokenCounter               = engine.TokenCounter
+	System2Config              = config.System2Config
+	MaintenanceJob             = schema.MaintenanceJob
+	MaintenanceReport          = schema.MaintenanceReport
+	ScheduleMaintenanceRequest = schema.ScheduleMaintenanceRequest
+	ContextLLMProvider         = providers.ContextLLMProvider
+	StructuredResult           = providers.StructuredResult
+	CallOptions                = providers.CallOptions
+	ContextEmbeddingProvider   = storage.ContextEmbeddingProvider
 )
 
 // Layer constants.
@@ -71,19 +80,20 @@ const (
 
 // MemoryType constants.
 const (
-	TypeNote          = schema.TypeNote
-	TypeEvent         = schema.TypeEvent
-	TypeFact          = schema.TypeFact
-	TypeCodeFile      = schema.TypeCodeFile
-	TypeCodeSymbol    = schema.TypeCodeSymbol
-	TypePlaybook      = schema.TypePlaybook
-	TypeSnippet       = schema.TypeSnippet
-	TypeMentalModel   = schema.TypeMentalModel
-	TypeForwardIntent = schema.TypeForwardIntent
-	TypeClaim         = schema.TypeClaim
-	TypeEvidence      = schema.TypeEvidence
-	TypeTopicView     = schema.TypeTopicView
-	TypeTaskState     = schema.TypeTaskState
+	TypeNote           = schema.TypeNote
+	TypeEvent          = schema.TypeEvent
+	TypeFact           = schema.TypeFact
+	TypeCodeFile       = schema.TypeCodeFile
+	TypeCodeSymbol     = schema.TypeCodeSymbol
+	TypePlaybook       = schema.TypePlaybook
+	TypeSnippet        = schema.TypeSnippet
+	TypeMentalModel    = schema.TypeMentalModel
+	TypeForwardIntent  = schema.TypeForwardIntent
+	TypeClaim          = schema.TypeClaim
+	TypeEvidence       = schema.TypeEvidence
+	TypeTopicView      = schema.TypeTopicView
+	TypeTaskState      = schema.TypeTaskState
+	TypeMaintenanceJob = schema.TypeMaintenanceJob
 )
 
 func KnowledgeFingerprint(m *Memory) string { return schema.KnowledgeFingerprint(m) }

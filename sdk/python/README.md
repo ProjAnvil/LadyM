@@ -4,6 +4,16 @@ Python client for the LadyM HTTP data-plane (`ladym serve --http`), mirroring
 `client/golang`. Zero runtime dependencies — stdlib `urllib` only; Python ≥
 3.10.
 
+## Persisted maintenance
+
+Use `client.schedule_maintenance(ScheduleMaintenanceRequest("new_episode",
+episode_id, workspace="repo"))`, `client.list_maintenance_jobs("repo")`, and
+`client.maintenance_status("repo")`. Import the request/job/report dataclasses
+from `ladym_client`. Requests only enqueue allowlisted operations
+(`new_episode`, `refresh_topic`, `expire_claim`); an opt-in worker processes them.
+Status counters are bytes, not billing tokens. Verified knowledge is not
+overwritten by inferred extraction, and deletion is synchronous.
+
 ## Install
 
 ```bash

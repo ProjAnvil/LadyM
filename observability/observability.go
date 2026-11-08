@@ -27,6 +27,16 @@ type Registry struct {
 	durations *prometheus.HistogramVec
 	inFlight  prometheus.Gauge
 	cycles    *prometheus.CounterVec
+	jobs      *prometheus.CounterVec
+	budget    *prometheus.CounterVec
+	stops     *prometheus.CounterVec
+	pending   prometheus.Gauge
+	attempts  *prometheus.CounterVec
+	callCount prometheus.Counter
+	elapsed   prometheus.Histogram
+	sources   prometheus.Counter
+	staleJobs prometheus.Counter
+	topicSize prometheus.Histogram
 }
 
 // New returns a registry with all ladym_* metrics registered.
@@ -34,7 +44,17 @@ func New() *Registry {
 	reg := prometheus.NewRegistry()
 	factory := promauto.With(reg)
 	r := &Registry{
-		reg: reg,
+		reg:       reg,
+		sources:   factory.NewCounter(prometheus.CounterOpts{Name: "ladym_maintenance_source_references_total", Help: "Captured input and target references in committed jobs."}),
+		staleJobs: factory.NewCounter(prometheus.CounterOpts{Name: "ladym_maintenance_stale_rejections_total", Help: "Jobs rejected for stale input snapshots, excluding expired owner leases."}),
+		topicSize: factory.NewHistogram(prometheus.HistogramOpts{Name: "ladym_maintenance_topic_expansion_ratio", Help: "Committed topic content bytes divided by input source content bytes.", Buckets: []float64{0.25, 0.5, 1, 2, 4, 8, 16, 64}}),
+		attempts:  factory.NewCounterVec(prometheus.CounterOpts{Name: "ladym_maintenance_attempts_total", Help: "Lease acquisition attempts by allowlisted operation."}, []string{"operation"}),
+		callCount: factory.NewCounter(prometheus.CounterOpts{Name: "ladym_maintenance_calls_total", Help: "Reserved structured provider calls, not billing tokens."}),
+		elapsed:   factory.NewHistogram(prometheus.HistogramOpts{Name: "ladym_maintenance_cycle_duration_seconds", Help: "Budgeted cycle wall duration."}),
+		jobs:      factory.NewCounterVec(prometheus.CounterOpts{Name: "ladym_maintenance_jobs_total", Help: "Fenced jobs by operation and outcome."}, []string{"operation", "state"}),
+		budget:    factory.NewCounterVec(prometheus.CounterOpts{Name: "ladym_maintenance_units_total", Help: "Reserved and measured maintenance bytes."}, []string{"kind", "unit"}),
+		stops:     factory.NewCounterVec(prometheus.CounterOpts{Name: "ladym_maintenance_cycles_total", Help: "Maintenance cycles by stop reason."}, []string{"reason"}),
+		pending:   factory.NewGauge(prometheus.GaugeOpts{Name: "ladym_maintenance_pending_jobs", Help: "Pending jobs observed in the last cycle."}),
 		requests: factory.NewCounterVec(prometheus.CounterOpts{
 			Name: "ladym_http_requests_total",
 			Help: "Total /api/* requests by endpoint and status class.",

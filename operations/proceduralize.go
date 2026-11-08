@@ -108,7 +108,7 @@ func Proceduralize(store storage.Store, embedder storage.EmbeddingProvider, cfg 
 	for i, e := range succ {
 		contents[i] = e.Content
 	}
-	vecs, err := embedder.EmbedBatch(contents)
+	vecs, err := storage.StoredEmbeddings(store, embedder, succ)
 	if err != nil {
 		return nil, err
 	}

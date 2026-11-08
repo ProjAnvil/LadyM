@@ -44,6 +44,9 @@ func Decay(store storage.Store, workspace string, weights *config.ActivationWeig
 		return nil, err
 	}
 	for _, mem := range episodes {
+		if schema.IsSystemType(mem.Type) {
+			continue
+		}
 		report.Examined++
 		age := now - mem.LastAccessAt
 		if age < maxAgeS {

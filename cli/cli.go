@@ -61,6 +61,7 @@ func newRootCmd() *cobra.Command {
 		hookCmd(), doctorCmd(),
 		evidenceCmd(), claimCmd(),
 		topicCmd(), hybridRecallCmd(), bootstrapCmd(), taskStateCmd(),
+		maintenanceCmd(),
 		migrateCmd(),
 	)
 	return root

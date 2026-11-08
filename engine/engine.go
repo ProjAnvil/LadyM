@@ -54,6 +54,9 @@ type Engine struct {
 	llmClassify         operations.LLMClassifier
 	llmClassifyResolved bool
 	agents              map[string]providers.LLMProvider
+	workerWG            sync.WaitGroup
+	workerCancels       []context.CancelFunc
+	closing             bool
 }
 
 // New builds an Engine from cfg (defaults to config.Default() when nil).
@@ -124,6 +127,13 @@ func NewWithModels(cfg *config.Config, models *adapter.ModelRouting) (*Engine, e
 
 // Close releases the store.
 func (e *Engine) Close() error {
+	e.mu.Lock()
+	e.closing = true
+	for _, cancel := range e.workerCancels {
+		cancel()
+	}
+	e.mu.Unlock()
+	e.workerWG.Wait()
 	return e.Store.Close()
 }
 
@@ -455,6 +465,9 @@ func (e *Engine) MaintainL4(workspace string) (*operations.MaintainReport, error
 // StartSystem2 launches a daemon goroutine running System2 cycles. Closing the
 // returned channel asks the worker to stop after its current cycle.
 func (e *Engine) StartSystem2(intervalS int, workspace string) chan struct{} {
+	if e.Config.System2.BudgetedEnabled {
+		return e.startBudgetedWorker(intervalS, workspace)
+	}
 	stop := make(chan struct{})
 	interval := intervalS
 	interval = cmp.Or(interval, e.Config.System2.IntervalS)

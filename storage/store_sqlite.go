@@ -131,9 +131,13 @@ func decodeVec(b []byte) []float32 {
 // call, so an eager O(n) warm is an O(n) tax on every event.
 type SQLiteStore struct {
 	*embeddingMigrations
-	DBPath      string
-	Dim         int
-	db          *sql.DB
+	DBPath string
+	Dim    int
+	db     *contextDB
+	*sqliteIndexState
+}
+
+type sqliteIndexState struct {
 	vectorIndex VectorIndex
 	usingVec    bool
 
@@ -161,7 +165,7 @@ func NewStore(dbPath string, dim int, preferSQLiteVec bool, enableWAL bool) (*SQ
 	if err := os.MkdirAll(filepath.Dir(dbPath), 0o755); err != nil {
 		return nil, err
 	}
-	db, err := sql.Open("sqlite", dbPath)
+	db, err := sql.Open("sqlite", sqliteContextDSN(dbPath))
 	if err != nil {
 		return nil, err
 	}
@@ -223,7 +227,7 @@ func NewStore(dbPath string, dim int, preferSQLiteVec bool, enableWAL bool) (*SQ
 		return nil, err
 	}
 
-	s := &SQLiteStore{DBPath: dbPath, Dim: dim, db: db, vectorIndex: NewInMemoryVectorIndex(dim)}
+	s := &SQLiteStore{DBPath: dbPath, Dim: dim, db: &contextDB{DB: db}, sqliteIndexState: &sqliteIndexState{vectorIndex: NewInMemoryVectorIndex(dim)}}
 	s.embeddingMigrations = &embeddingMigrations{begin: s.beginMigration}
 	return s, nil
 }
@@ -256,7 +260,7 @@ func (s *SQLiteStore) warmIndexFromBlobs() error {
 	return tx.Commit()
 }
 
-func (s *SQLiteStore) refreshIndex(tx *sql.Tx, generation int64) error {
+func (s *SQLiteStore) refreshIndex(tx *contextSQLTx, generation int64) error {
 	if s.indexWarm && s.indexGeneration == generation {
 		return nil
 	}
@@ -370,7 +374,7 @@ func (s *SQLiteStore) PutMemory(mem *schema.Memory, vector []float32) error {
 	return s.updateLocalVector(mem.ID, vector)
 }
 
-func (s *SQLiteStore) scanMemory(row *sql.Rows) (*schema.Memory, error) {
+func (s *SQLiteStore) scanMemory(row interface{ Scan(...any) error }) (*schema.Memory, error) {
 	var (
 		id, layer, typ, content, summary, tagsJSON, metaJSON, source, workspace string
 		createdAt, updatedAt, lastAccessAt, activation                          float64
@@ -593,7 +597,7 @@ func (s *SQLiteStore) PutEdge(e *schema.Edge) error {
 	return s.ApplyMemoryBatch(MemoryBatch{Edges: []*schema.Edge{e}})
 }
 
-func (s *SQLiteStore) scanEdge(row *sql.Rows) (*schema.Edge, error) {
+func (s *SQLiteStore) scanEdge(row interface{ Scan(...any) error }) (*schema.Edge, error) {
 	var (
 		id, srcID, relation, dstID string
 		weight, validFrom          float64

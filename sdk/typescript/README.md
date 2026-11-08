@@ -4,6 +4,16 @@ TypeScript client for the LadyM HTTP data-plane (`ladym serve --http`),
 mirroring `client/golang` and `sdk/python`. Zero runtime dependencies — global
 `fetch` only; Node ≥ 20 or browsers. ESM build with `.d.ts`.
 
+## Persisted maintenance
+
+`scheduleMaintenance({operation: "new_episode", target_id: episodeId,
+input_ids: [episodeId], workspace: "repo"})`, `listMaintenanceJobs("repo")`, and
+`maintenanceStatus("repo")` mirror the scoped HTTP endpoints. Request, job and
+report types are exported. Only `new_episode`, `refresh_topic`, and `expire_claim`
+are allowed; requests enqueue work for the opt-in worker. Report reservations
+and measurements are **bytes**, separate from the provider API token cap.
+Inferred extraction cannot overwrite verified knowledge; deletion remains synchronous.
+
 ## Install
 
 ```bash

@@ -47,6 +47,11 @@ func TestTopicCLIContracts(t *testing.T) {
 			if err := e.Store.PutMemory(m, nil); err != nil {
 				t.Fatal(err)
 			}
+			episode := schema.NewMemory(schema.LayerEpisodic, schema.TypeEvent)
+			episode.Workspace, episode.Content = "cli-topics", "maintenance event"
+			if err := e.Store.PutMemory(episode, nil); err != nil {
+				t.Fatal(err)
+			}
 			server := httptest.NewServer(api.NewHandler(e, cfg))
 			t.Cleanup(server.Close)
 			for _, mode := range []string{"local", "remote"} {
@@ -82,6 +87,18 @@ func TestTopicCLIContracts(t *testing.T) {
 					}
 					if _, err := run("bootstrap", "--unit", "tokens"); err == nil {
 						t.Fatal("CLI tokens accepted")
+					}
+					for _, args := range [][]string{
+						{"maintenance", "request", "new_episode", episode.ID, "--input-ids", episode.ID},
+						{"maintenance", "jobs", "--limit", "10"},
+						{"maintenance", "status"},
+					} {
+						if _, err := run(args...); err != nil {
+							t.Fatalf("maintenance %v: %v", args, err)
+						}
+					}
+					if _, err := run("maintenance", "request", "exec", episode.ID); err == nil {
+						t.Fatal("CLI arbitrary operation")
 					}
 				})
 			}

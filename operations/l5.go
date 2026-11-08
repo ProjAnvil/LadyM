@@ -210,7 +210,7 @@ func mergeL5(store storage.Store, embedder storage.EmbeddingProvider, cfg *confi
 		ids = append(ids, m.ID)
 		contents = append(contents, m.Content)
 	}
-	vecs, err = embedder.EmbedBatch(contents)
+	vecs, err = storage.StoredEmbeddings(store, embedder, models)
 	if err != nil {
 		return nil, err
 	}
@@ -325,7 +325,7 @@ func ExtractL5(store storage.Store, embedder storage.EmbeddingProvider, cfg *con
 	}
 	var vecs [][]float32
 	if len(contents) > 0 {
-		vecs, err = embedder.EmbedBatch(contents)
+		vecs, err = storage.StoredEmbeddings(store, embedder, candidates)
 		if err != nil {
 			return nil, err
 		}

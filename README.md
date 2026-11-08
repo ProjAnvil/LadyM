@@ -427,6 +427,40 @@ for (const hit of (await c.recall("how do we deploy?")).results) {
 
 See [`sdk/typescript/README.md`](sdk/typescript/README.md) for install and testing.
 
+### Opt-in persisted maintenance
+
+`[system2].budgeted_enabled = true` switches `ladym worker` and
+`Engine.StartSystem2` to fenced jobs; the legacy worker remains the default.
+Use `ladym maintenance request new_episode <id> --workspace <workspace>`,
+`ladym maintenance jobs`, and `ladym maintenance status` for explicit requests
+and persisted state. Other allowed operations are `refresh_topic` and
+`expire_claim`; requests never execute source commands. Deletion remains
+synchronous, and inferred extraction cannot overwrite verified knowledge.
+
+Defaults: 50 execution candidates, 8 structured LLM calls, **8192 reserved
+bytes**, 30 seconds, concurrency 1 (maximum 4), 60-second owner leases and
+3 attempts (including crashes). Each LLM call reserves the complete serialized
+messages/schema plus **1024 raw output bytes**. The provider API's **1024 token**
+output cap is separate; these byte counters are not billing tokens.
+Oversized raw text/tool input is rejected before parsing. Unchanged inputs
+consume no repeated provider calls; durable jobs are excluded from recall and decay.
+
+Publication checks owner/revision, unexpired lease, input/target snapshots,
+active migration generation and cancellation inside one database transaction.
+Derived memories/edges, input stamps and the done checkpoint commit together.
+Expired owners cannot publish, even without a takeover. Migration freezes still
+apply. Worker shutdown cancels real I/O and joins its budgeted workers.
+
+HTTP exposes `POST /api/maintenance/jobs`, `GET /api/maintenance/jobs`
+(`{"jobs":[...]}`) and `GET /api/maintenance/status`; authentication binds the
+workspace. MCP provides `schedule_maintenance`, `list_maintenance_jobs` and
+`maintenance_status`. Go, Python and TypeScript SDKs mirror these scoped seams.
+Host LLMs must implement `ContextLLMProvider`, returning `StructuredResult.Data`
+and actual `RawOutputBytes`; `CallOptions` carries separate byte/token caps.
+Wrapped models without raw measurement and token-cap support are rejected, not
+cancelled with leaking goroutines. Embeddings require `ContextEmbeddingProvider`
+when new vectors are needed; contextual store views do not mutate shared context.
+
 ### Injecting your own langchain-golang models
 
 If your app already configures langchain-golang chat / embedding models

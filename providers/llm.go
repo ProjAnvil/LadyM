@@ -5,6 +5,7 @@ package providers
 import (
 	"bytes"
 	"cmp"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -64,6 +65,11 @@ func (f *FakeLLMProvider) Close() error { return nil }
 // HTTPLLM is a net/http-backed provider supporting OpenAI-compatible,
 // Anthropic, and Ollama chat endpoints.
 type HTTPLLM struct {
+	ctx              context.Context
+	maxOutputBytes   int
+	rawOutputBytes   int
+	rawToolInput     string
+	reasoningEffort  string
 	name             string
 	baseURL          string
 	apiKey           string
@@ -105,7 +111,11 @@ func (h *HTTPLLM) post(url string, payload map[string]any, headers map[string]st
 	if err != nil {
 		return nil, err
 	}
-	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
+	ctx := h.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return nil, err
 	}
@@ -124,6 +134,15 @@ func (h *HTTPLLM) post(url string, payload map[string]any, headers map[string]st
 	}
 	if resp.StatusCode >= 400 {
 		return nil, fmt.Errorf("llm endpoint returned %s: %s", resp.Status, string(respBody))
+	}
+	if h.ctx != nil {
+		h.rawOutputBytes, h.rawToolInput, err = measureRawCompletion(respBody, h.kind)
+		if err != nil {
+			return nil, err
+		}
+		if h.rawOutputBytes > h.maxOutputBytes {
+			return nil, ErrOutputTooLarge
+		}
 	}
 	var out map[string]any
 	if err := json.Unmarshal(respBody, &out); err != nil {
@@ -228,6 +247,9 @@ func (h *HTTPLLM) openAIComplete(messages []Message, structured bool, schema JSO
 		"messages":    msgs,
 		"max_tokens":  h.maxTokens,
 		"temperature": h.temperature,
+	}
+	if h.reasoningEffort != "" {
+		payload["reasoning_effort"] = h.reasoningEffort
 	}
 	if structured {
 		sys := "Reply ONLY with JSON matching this JSON schema: " + schemaPromptText(schema)
@@ -338,6 +360,12 @@ func (h *HTTPLLM) anthropicComplete(messages []Message, structured bool, schema 
 	for _, block := range content {
 		b, _ := block.(map[string]any)
 		if b["type"] == "tool_use" {
+			if h.ctx != nil {
+				if h.rawToolInput == "" {
+					return "", ErrContextUnsupported
+				}
+				return h.rawToolInput, nil
+			}
 			if input, ok := b["input"]; ok {
 				raw, err := json.Marshal(input)
 				if err != nil {
@@ -360,6 +388,9 @@ func (h *HTTPLLM) ollamaComplete(messages []Message, structured bool, schema JSO
 		"stream":   false,
 		// Python: ChatOllama(..., temperature=temperature) — see providers/llm.py.
 		"options": map[string]any{"temperature": h.temperature},
+	}
+	if h.ctx != nil {
+		payload["options"].(map[string]any)["num_predict"] = h.maxTokens
 	}
 	if structured {
 		sys := "Reply ONLY with JSON matching this JSON schema: " + schemaPromptText(schema)
@@ -402,7 +433,10 @@ func MakeLLMProvider(kind, baseURL, model, apiKey, structuredMethod, reasoningEf
 		if err != nil {
 			return nil, err
 		}
-		return WrapChatModel(cm, structuredMethod), nil
+		provider := WrapChatModel(cm, structuredMethod)
+		provider.contextHTTP = newHTTPLLM(k, baseURL, model, apiKey, maxTokens, temperature, timeoutS, structuredMethod)
+		provider.contextHTTP.reasoningEffort = effort
+		return provider, nil
 	default:
 		return nil, fmt.Errorf("unknown llm provider: %s", kind)
 	}

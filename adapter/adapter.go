@@ -70,6 +70,26 @@ func (a *langchainEmbedding) EmbedBatch(texts []string) ([][]float32, error) {
 
 func (a *langchainEmbedding) Dim() int { return a.dim }
 
+func (a *langchainEmbedding) EmbedContext(ctx context.Context, text string) ([]float32, error) {
+	vec, err := a.lc.EmbedQuery(ctx, text)
+	if err != nil {
+		return nil, err
+	}
+	return toFloat32s(vec), ctx.Err()
+}
+
+func (a *langchainEmbedding) EmbedBatchContext(ctx context.Context, texts []string) ([][]float32, error) {
+	vecs, err := a.lc.EmbedDocuments(ctx, texts)
+	if err != nil {
+		return nil, err
+	}
+	out := make([][]float32, len(vecs))
+	for i, vec := range vecs {
+		out[i] = toFloat32s(vec)
+	}
+	return out, ctx.Err()
+}
+
 func (a *langchainEmbedding) HealthCheck() (bool, string) {
 	if _, err := a.lc.EmbedQuery(context.Background(), "ping"); err != nil {
 		return false, err.Error()

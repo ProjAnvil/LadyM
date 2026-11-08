@@ -1,11 +1,14 @@
 package cli
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/ProjAnvil/LadyM/engine"
@@ -20,6 +23,9 @@ import (
 // cycle twice; a held lock means this replica is standby and skips the cycle
 // (not a failure). Every outcome increments ladym_system2_cycles_total.
 func runWorkerLoop(eng *engine.Engine, once bool, interval int, workspace string) error {
+	if eng.Config.System2.BudgetedEnabled {
+		return runBudgetedWorkerLoop(eng, once, interval, workspace)
+	}
 	for {
 		release, err := eng.Store.TryAcquireWorkerLock()
 		switch {
@@ -29,6 +35,7 @@ func runWorkerLoop(eng *engine.Engine, once bool, interval int, workspace string
 			if once {
 				return nil
 			}
+
 			time.Sleep(time.Duration(interval) * time.Second)
 			continue
 		case err != nil:
@@ -54,6 +61,25 @@ func runWorkerLoop(eng *engine.Engine, once bool, interval int, workspace string
 			fmt.Fprintf(os.Stderr, "system2 CLI worker cycle failed; continuing: %v\n", err)
 		}
 		time.Sleep(time.Duration(interval) * time.Second)
+	}
+}
+
+func runBudgetedWorkerLoop(eng *engine.Engine, once bool, interval int, workspace string) error {
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+	for {
+		_, err := eng.RunBudgetedCycle(ctx, workspace)
+		if once {
+			return err
+		}
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "budgeted maintenance cycle failed")
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(time.Duration(interval) * time.Second):
+		}
 	}
 }
 

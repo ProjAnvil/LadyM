@@ -3,6 +3,7 @@ package storage
 import (
 	"bytes"
 	"cmp"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -29,11 +30,15 @@ func NewRealHTTPPoster(timeoutS float64) *RealHTTPPoster {
 }
 
 func (c *RealHTTPPoster) Post(url string, payload any, headers map[string]string) (any, error) {
+	return c.PostContext(context.Background(), url, payload, headers)
+}
+
+func (c *RealHTTPPoster) PostContext(ctx context.Context, url string, payload any, headers map[string]string) (any, error) {
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return nil, err
 	}
-	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return nil, err
 	}
