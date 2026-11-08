@@ -331,3 +331,179 @@ Docker startup, database provisioning, or skipped-as-passed PG claim was made.
    not arbitrary observation/content text.
 5. Task 4 is untouched. Its consumption of the nine-field provenance contract
    can proceed independently after its prerequisite gates.
+
+## fix1 — reviewed Important issues (round 1/5)
+
+- Base: `06b710b` (`feat(capture): add canonical identities and trustworthy provenance`).
+- Scope: only the two reviewed Important issues, their regression tests, and
+  directly related capture documentation. No subagents, Task 4, dependencies,
+  user configuration, database changes, or automatic identity migration.
+- `hook/identity.go`: bounded Git discovery removes inherited repository-local
+  selection variables (including `GIT_DIR`, `GIT_WORK_TREE`, `GIT_COMMON_DIR`,
+  `GIT_INDEX_FILE`, object/alternate paths) and the entire `GIT_CONFIG*` family.
+  Normal executable lookup/PATH, lexical symlink spelling, timeout, and errors
+  remain unchanged.
+- `engine/ops_recall.go`: blank validation no longer rewrites the resource query.
+  Structural path matching sees its original bytes; only the subsequent ordinary
+  legacy resolution trims whitespace. Existing marked recall fallback is retained.
+- `hook/identity_test.go`: real Git fixtures cover nested/root identity and
+  non-Git fallback with work-tree, foreign repository, common-dir, index, object,
+  alternate, counted/parameter/global/system/config selection pollution.
+- `engine/canonical_resource_test.go`: `main.go`, ` main.go`, and `main.go ` retain
+  separate identities and return only their own operations. Unknown spaced paths
+  do not pivot to another path; ordinary padded queries still resolve without
+  embedding, and blank queries still return `ErrResourceRequired`.
+- `docs/hooks.md`: documents environment isolation and whitespace-exact paths.
+- The already-tracked report is under ignored `.superpowers`; staging used
+  `git add -f` only for this explicitly requested report's fix1 append. No other
+  ignored files are staged.
+
+### Modern Go / command environment
+
+Both commands ran before Go edits; exit 0, complete unfiltered output read:
+
+```sh
+sh '/Users/yuhaochen/Library/Application Support/Code/agentPlugins/file-Users-yuhaochen-vscode-agent-plugins-github-com-JetBrains-go-modern-guidelines-plugin/1a1685ebdb9/skills/use-modern-go/scripts/run-tool.sh' list --file-path hook/identity.go
+sh '/Users/yuhaochen/Library/Application Support/Code/agentPlugins/file-Users-yuhaochen-vscode-agent-plugins-github-com-JetBrains-go-modern-guidelines-plugin/1a1685ebdb9/skills/use-modern-go/scripts/run-tool.sh' list --file-path engine/ops_recall.go
+```
+
+Changes use `slices.DeleteFunc`, `strings.Cut`, and `errors.Is` idioms. All edits
+used `apply_patch`; formatting used `gofmt`. Go validation ran from this worktree:
+
+```sh
+mkdir -p .task3-fix1-data/home
+export CGO_ENABLED=0 TMPDIR="$PWD/.task3-fix1-data"
+export GOCACHE="$(go env GOCACHE)" GOPATH="$(go env GOPATH)"
+export HOME="$PWD/.task3-fix1-data/home"
+```
+
+Scratch test inputs/logs stayed inside this worktree and were removed after
+verification. No dependencies were installed.
+
+### Red → green
+
+Before production edits:
+
+```sh
+gofmt -w hook/identity_test.go engine/canonical_resource_test.go
+go test ./hook ./engine \
+  -run 'TestCanonical(IdentityPollutedGitEnv|ResourceNoFuzzyMergeRecall|RecallPreservesLegacyWhitespace)$' \
+  -count=1
+```
+
+Exit 1. Output excerpts (long Git fixture paths/root mismatch details omitted):
+
+```text
+--- FAIL: TestCanonicalIdentityPollutedGitEnv (0.33s)
+    --- FAIL: TestCanonicalIdentityPollutedGitEnv/work-tree (0.03s)
+    --- FAIL: TestCanonicalIdentityPollutedGitEnv/foreign-repository (0.03s)
+    --- FAIL: TestCanonicalIdentityPollutedGitEnv/objects (0.03s)
+FAIL github.com/ProjAnvil/LadyM/hook 1.055s
+--- FAIL: TestCanonicalResourceNoFuzzyMergeRecall (0.01s)
+    --- FAIL: TestCanonicalResourceNoFuzzyMergeRecall/_main.go (0.00s)
+    --- FAIL: TestCanonicalResourceNoFuzzyMergeRecall/main.go_ (0.00s)
+    --- FAIL: TestCanonicalResourceNoFuzzyMergeRecall/_main.go_ (0.00s)
+    --- FAIL: TestCanonicalResourceNoFuzzyMergeRecall/main.go__ (0.00s)
+    --- FAIL: TestCanonicalResourceNoFuzzyMergeRecall/__main.go (0.00s)
+--- FAIL: TestCanonicalRecallPreservesLegacyWhitespace (0.00s)
+    canonical_resource_test.go:87: ordinary resolution must trim after path lookup: <nil> embed boom
+FAIL github.com/ProjAnvil/LadyM/engine 0.650s
+```
+
+The Git failures showed inherited selection producing incorrect root/workspace
+values, including non-Git fallback. The path failures showed padded filenames
+returning `main.go` operations and unknown padded paths incorrectly reporting
+`Fallback:false`. The ordinary direct-lookup test exposed the need to trim only
+after structural matching.
+
+After production edits and `gofmt -w hook/identity.go engine/ops_recall.go`,
+the identical focused command exited 0:
+
+```text
+ok github.com/ProjAnvil/LadyM/hook   0.793s
+ok github.com/ProjAnvil/LadyM/engine 0.514s
+```
+
+### Related suites and caller regression gate
+
+```sh
+go test ./config ./hook ./cli ./operations ./engine ./mcp -count=1
+```
+
+Exit 0:
+
+```text
+ok github.com/ProjAnvil/LadyM/config     0.302s
+ok github.com/ProjAnvil/LadyM/hook       0.651s
+ok github.com/ProjAnvil/LadyM/cli        2.551s
+ok github.com/ProjAnvil/LadyM/operations 2.817s
+ok github.com/ProjAnvil/LadyM/engine     6.876s
+ok github.com/ProjAnvil/LadyM/mcp        0.640s
+```
+
+```sh
+go test ./... -count=1
+```
+
+Exit 0; all personal-edition package suites passed:
+
+```text
+ok github.com/ProjAnvil/LadyM/adapter          0.633s
+ok github.com/ProjAnvil/LadyM/api              2.363s
+ok github.com/ProjAnvil/LadyM/cli              3.013s
+ok github.com/ProjAnvil/LadyM/client/golang    1.819s
+ok github.com/ProjAnvil/LadyM/cmd/ladym        0.543s
+ok github.com/ProjAnvil/LadyM/cmd/ladymconsole 0.345s
+ok github.com/ProjAnvil/LadyM/code             1.291s
+ok github.com/ProjAnvil/LadyM/config           0.147s
+ok github.com/ProjAnvil/LadyM/console          0.382s
+ok github.com/ProjAnvil/LadyM/engine           7.393s
+?  github.com/ProjAnvil/LadyM/eval             [no test files]
+ok github.com/ProjAnvil/LadyM/hook             1.174s
+ok github.com/ProjAnvil/LadyM/ladym            0.680s
+ok github.com/ProjAnvil/LadyM/langgraph        1.266s
+ok github.com/ProjAnvil/LadyM/layers           1.344s
+ok github.com/ProjAnvil/LadyM/mcp              0.535s
+ok github.com/ProjAnvil/LadyM/observability    0.369s
+ok github.com/ProjAnvil/LadyM/operations       3.995s
+ok github.com/ProjAnvil/LadyM/providers        1.031s
+ok github.com/ProjAnvil/LadyM/schema           0.948s
+ok github.com/ProjAnvil/LadyM/secrets          1.010s
+ok github.com/ProjAnvil/LadyM/storage          2.421s
+ok github.com/ProjAnvil/LadyM/storage/fulldict 3.526s
+```
+
+### Enterprise and lint
+
+```sh
+go test -tags enterprise ./config ./hook ./cli ./mcp -run '^$'
+```
+
+Exit 1; unchanged pre-existing CLI test compilation blocker:
+
+```text
+ok github.com/ProjAnvil/LadyM/config (cached) [no tests to run]
+# github.com/ProjAnvil/LadyM/cli [github.com/ProjAnvil/LadyM/cli.test]
+cli/initcmd_test.go:15:2: undefined: isolateEnv
+cli/initcmd_test.go:54:24: undefined: storage.NewStore
+ok github.com/ProjAnvil/LadyM/hook 0.434s [no tests to run]
+FAIL github.com/ProjAnvil/LadyM/cli [build failed]
+ok github.com/ProjAnvil/LadyM/mcp (cached) [no tests to run]
+FAIL
+```
+
+```sh
+go test -tags enterprise ./hook -run '^TestCanonicalIdentity' -count=1
+go build -tags enterprise ./hook ./engine
+go vet ./hook ./engine
+git diff --check
+```
+
+All exit 0. Hook behavior output:
+
+```text
+ok github.com/ProjAnvil/LadyM/hook 0.942s
+```
+
+Build, vet, and diff check produced no diagnostics. Live PostgreSQL and race
+validation are not claimed; the existing enterprise CLI blocker is not fixed.

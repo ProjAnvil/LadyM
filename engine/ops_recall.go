@@ -50,8 +50,7 @@ const recallOpsDefaultLimit = 10
 func (s *Scope) RecallOperations(q OperationsQuery) (*OperationsResponse, error) {
 	// A whitespace-only resource carries no value (the pivot has no default),
 	// so every front-end — MCP, CLI, HTTP — sees the same error for it.
-	q.Resource = strings.TrimSpace(q.Resource)
-	if q.Resource == "" {
+	if strings.TrimSpace(q.Resource) == "" {
 		return nil, ErrResourceRequired
 	}
 	res, err := s.resolveResourceForRead(q.Resource)
@@ -165,6 +164,8 @@ func (s *Scope) resolveResourceForRead(name string) (*schema.Memory, error) {
 			return m, nil
 		}
 	}
+	// Preserve path bytes above; whitespace normalization is only for legacy resources.
+	name = strings.TrimSpace(name)
 	want := strings.ToLower(name)
 	for _, m := range resources {
 		if !schema.IsUsable(m) || m.MetaString("resource_identity") == "path" {

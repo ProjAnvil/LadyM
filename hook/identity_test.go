@@ -98,6 +98,63 @@ func TestCanonicalIdentitySymlinkAndErrors(t *testing.T) {
 	}
 }
 
+func TestCanonicalIdentityPollutedGitEnv(t *testing.T) {
+	base := t.TempDir()
+	t.Setenv("GIT_CEILING_DIRECTORIES", base)
+	root := filepath.Join(base, "repo")
+	nested := filepath.Join(root, "nested", "deeper")
+	other := filepath.Join(base, "other")
+	nonGit := filepath.Join(base, "non-git")
+	for _, dir := range []string{nested, other, nonGit} {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, dir := range []string{root, other} {
+		if out, err := exec.Command("git", "init", "-q", dir).CombinedOutput(); err != nil {
+			t.Fatalf("git init: %v: %s", err, out)
+		}
+	}
+	config := filepath.Join(base, "gitconfig")
+	if err := os.WriteFile(config, []byte("[core]\n\tworktree = "+other+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct {
+		name string
+		env  map[string]string
+	}{
+		{"work-tree", map[string]string{"GIT_DIR": filepath.Join(root, ".git"), "GIT_WORK_TREE": root}},
+		{"foreign-repository", map[string]string{"GIT_DIR": filepath.Join(other, ".git"), "GIT_WORK_TREE": other}},
+		{"common-dir", map[string]string{"GIT_COMMON_DIR": filepath.Join(other, ".git")}},
+		{"index", map[string]string{"GIT_INDEX_FILE": filepath.Join(base, "missing-index")}},
+		{"objects", map[string]string{"GIT_OBJECT_DIRECTORY": filepath.Join(base, "missing-objects")}},
+		{"alternates", map[string]string{"GIT_ALTERNATE_OBJECT_DIRECTORIES": filepath.Join(other, ".git", "objects")}},
+		{"config-count", map[string]string{"GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "core.worktree", "GIT_CONFIG_VALUE_0": other}},
+		{"config-parameters", map[string]string{"GIT_CONFIG_PARAMETERS": "'core.worktree'='" + other + "'"}},
+		{"config", map[string]string{"GIT_CONFIG": config}},
+		{"global-config", map[string]string{"GIT_CONFIG_GLOBAL": config}},
+		{"system-config", map[string]string{"GIT_CONFIG_SYSTEM": config}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			for key, value := range tc.env {
+				t.Setenv(key, value)
+			}
+			for _, cwd := range []string{root, nested, nonGit} {
+				wantRoot := root
+				if cwd == nonGit {
+					wantRoot = nonGit
+				}
+				gotRoot, ws, err := ProjectIdentity(cwd)
+				wantWS := fmt.Sprintf("project:%x", sha256.Sum256([]byte(wantRoot)))
+				if err != nil || gotRoot != wantRoot || ws != wantWS {
+					t.Errorf("identity for %q: %q %q %v, want %q %q", cwd, gotRoot, ws, err, wantRoot, wantWS)
+				}
+			}
+		})
+	}
+}
+
 func TestHookObservedToolOutcome(t *testing.T) {
 	for _, event := range []string{"SessionStart", "SessionEnd", "UserPromptSubmit", "Stop", "PostToolUse", "PostToolUseFailure"} {
 		t.Run(event, func(t *testing.T) {
