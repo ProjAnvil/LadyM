@@ -40,8 +40,8 @@ func PlaybookContent(name string, steps []string) string {
 	return sb.String()
 }
 
-// PutPlaybook writes a playbook.
-func (p *ProceduralMemory) PutPlaybook(name string, steps []string, preconditions []string, expectedOutcome string, tags []string) (*schema.Memory, error) {
+// BuildPlaybook constructs a playbook without provider or persistence work.
+func BuildPlaybook(workspace, name string, steps []string, preconditions []string, expectedOutcome string, tags []string) *schema.Memory {
 	if preconditions == nil {
 		preconditions = []string{}
 	}
@@ -61,10 +61,15 @@ func (p *ProceduralMemory) PutPlaybook(name string, steps []string, precondition
 	m.Tags = append(slices.Clone(tags), "playbook")
 	m.Metadata = body
 	m.Source = "proceduralize"
-	m.Workspace = p.Workspace
+	m.Workspace = workspace
 	m.ContentHash = schema.ContentHash(content)
+	return m
+}
 
-	vec, err := p.Embedder.Embed(content)
+// PutPlaybook writes a playbook.
+func (p *ProceduralMemory) PutPlaybook(name string, steps []string, preconditions []string, expectedOutcome string, tags []string) (*schema.Memory, error) {
+	m := BuildPlaybook(p.Workspace, name, steps, preconditions, expectedOutcome, tags)
+	vec, err := p.Embedder.Embed(m.Content)
 	if err != nil {
 		return nil, err
 	}

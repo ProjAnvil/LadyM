@@ -77,13 +77,14 @@ func TestConsolidateAddProjectsProvenance(t *testing.T) {
 func TestConsolidateUpdateProjectsProvenance(t *testing.T) {
 	store, emb := newParityStore(t)
 	cfg := config.ForTesting(t.TempDir())
-	cfg.Consolidate.DedupSimilarityThreshold = 0.0 // any surviving neighbour triggers UPDATE
 	fact := newCustomMem(schema.LayerSemantic, schema.TypeFact, "auth uses jwt tokens for sessions", "test")
 	fact.ContentHash = schema.ContentHash(fact.Content)
 	putCustomMem(t, store, emb, fact)
 	ep, res := putEpisodeWithResource(t, store, emb, cfg, "test", "auth uses jwt tokens for session", "ladym.db")
 
-	rep, err := Consolidate(store, emb, cfg, "test", nil, 0)
+	rep, err := Consolidate(store, emb, cfg, "test", func(string, []string) (Action, string, error) {
+		return ActionUpdate, "auth uses jwt tokens for sessions", nil
+	}, 0)
 	if err != nil {
 		t.Fatal(err)
 	}

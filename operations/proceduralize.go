@@ -2,6 +2,7 @@ package operations
 
 import (
 	"cmp"
+	"fmt"
 	"slices"
 	"strconv"
 
@@ -26,7 +27,13 @@ func newProceduralizeReport() *ProceduralizeReport {
 }
 
 func retrieveExistingPlaybooks(store storage.Store, candidateVec []float32, ws string, topK int) ([]similarFact, error) {
-	raw := store.VectorSearch(candidateVec, topK)
+	raw, err := store.SearchMemories(candidateVec, topK, storage.MemoryFilter{
+		Workspace: ws, Layers: []schema.Layer{schema.LayerProcedural},
+		Types: []schema.MemoryType{schema.TypePlaybook}, ExcludeUnusable: true,
+	})
+	if err != nil {
+		return nil, err
+	}
 	var similar []similarFact
 	for _, h := range raw {
 		if h.Similarity < 0.1 {
@@ -36,18 +43,17 @@ func retrieveExistingPlaybooks(store storage.Store, candidateVec []float32, ws s
 		if err != nil {
 			return nil, err
 		}
-		if m == nil || m.Workspace != ws {
+		if !schema.IsUsable(m) || m.Workspace != ws {
 			continue
 		}
 		if m.Layer != schema.LayerProcedural || m.Type != schema.TypePlaybook {
 			continue
 		}
-		if IsRetired(m) {
-			continue
-		}
 		similar = append(similar, similarFact{Memory: m, Sim: h.Similarity})
 	}
-	slices.SortStableFunc(similar, func(a, b similarFact) int { return cmp.Compare(b.Sim, a.Sim) })
+	slices.SortFunc(similar, func(a, b similarFact) int {
+		return cmp.Or(cmp.Compare(b.Sim, a.Sim), cmp.Compare(a.Memory.ID, b.Memory.ID))
+	})
 	return similar, nil
 }
 
@@ -69,19 +75,28 @@ func Proceduralize(store storage.Store, embedder storage.EmbeddingProvider, cfg 
 	ws = cmp.Or(ws, cfg.Workspace)
 	minClusterSize = cmp.Or(minClusterSize, 3)
 	similarityThreshold = cmp.Or(similarityThreshold, 0.55)
-	proc := layers.NewProceduralMemory(store, embedder, ws)
 	report := newProceduralizeReport()
 
 	episodes, err := store.IterMemories(ws, string(schema.LayerEpisodic), "")
 	if err != nil {
 		return nil, err
 	}
-	slices.SortStableFunc(episodes, func(a, b *schema.Memory) int { return cmp.Compare(a.CreatedAt, b.CreatedAt) })
+	slices.SortFunc(episodes, func(a, b *schema.Memory) int {
+		return cmp.Or(cmp.Compare(a.CreatedAt, b.CreatedAt), cmp.Compare(a.ID, b.ID))
+	})
 
 	var succ []*schema.Memory
 	for _, e := range episodes {
+		if !schema.IsUsable(e) {
+			continue
+		}
+		hook := slices.Contains(e.Tags, "hook") || e.MetaString("hook_event_name") != ""
+		verifiedTask := e.MetaString("task_outcome") == "success" && e.MetaString("knowledge_status") == "verified"
+		if hook && !verifiedTask {
+			continue
+		}
 		outcome := e.MetaString("outcome")
-		if outcome == "success" || outcome == "ok" || outcome == "done" {
+		if verifiedTask || outcome == "success" || outcome == "ok" || outcome == "done" {
 			succ = append(succ, e)
 		}
 	}
@@ -96,6 +111,9 @@ func Proceduralize(store storage.Store, embedder storage.EmbeddingProvider, cfg 
 	vecs, err := embedder.EmbedBatch(contents)
 	if err != nil {
 		return nil, err
+	}
+	if len(vecs) != len(contents) {
+		return nil, fmt.Errorf("proceduralize: embedding batch returned %d vectors for %d episodes", len(vecs), len(contents))
 	}
 	assigned := make([]bool, len(succ))
 
@@ -149,7 +167,14 @@ func Proceduralize(store storage.Store, embedder storage.EmbeddingProvider, cfg 
 				return nil, err
 			}
 			action := classifyPlaybook(candidateHash, similar, similarityThreshold)
-			report.Actions[string(action)]++
+			if action == ActionNoop {
+				for j, existing := range similar {
+					if existing.Memory.ContentHash == candidateHash {
+						similar[0], similar[j] = similar[j], similar[0]
+						break
+					}
+				}
+			}
 
 			preconditions := []string{}
 			seenAgents := map[string]bool{}
@@ -162,19 +187,42 @@ func Proceduralize(store storage.Store, embedder storage.EmbeddingProvider, cfg 
 				}
 			}
 
+			batch := storage.MemoryBatch{}
+			if action == ActionNoop {
+				guardMemory(&batch, similar[0].Memory)
+				for _, source := range cluster {
+					guardMemory(&batch, source)
+				}
+			} else {
+				m := layers.BuildPlaybook(ws, name, steps, preconditions, "success", []string{topAction})
+				sources := slices.Clone(cluster)
+				if action == ActionUpdate {
+					previous, err := sourceSnapshots(store, similar[0].Memory)
+					if err != nil {
+						return nil, err
+					}
+					sources = append(sources, previous...)
+					stageRetirement(&batch, similar[0].Memory, m.ID)
+				}
+				status := "verified"
+				for _, source := range sources {
+					if source.MetaString("task_outcome") != "success" || source.MetaString("knowledge_status") != "verified" {
+						status = "inferred"
+						break
+					}
+				}
+				m.Metadata["knowledge_status"] = status
+				if err := stageProvenance(store, &batch, m, sources, "produced_from"); err != nil {
+					return nil, err
+				}
+				batch.Writes = append(batch.Writes, storage.MemoryWrite{Memory: m, Vector: candidateVec})
+			}
+			if err := store.ApplyMemoryBatch(batch); err != nil {
+				return nil, err
+			}
+			report.Actions[string(action)]++
 			if action == ActionAdd {
-				if _, err := proc.PutPlaybook(name, steps, preconditions, "success", []string{topAction}); err != nil {
-					return nil, err
-				}
 				report.PlaybooksCreated++
-			} else if action == ActionUpdate && len(similar) > 0 {
-				newMem, err := proc.PutPlaybook(name, steps, preconditions, "success", []string{topAction})
-				if err != nil {
-					return nil, err
-				}
-				if err := Retire(store, similar[0].Memory, newMem.ID); err != nil {
-					return nil, err
-				}
 			}
 			report.Details = append(report.Details, map[string]any{
 				"action": string(action), "action_verb": topAction, "size": len(cluster),

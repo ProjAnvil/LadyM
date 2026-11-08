@@ -48,9 +48,8 @@ func appendAlias(m *schema.Memory, name string) bool {
 //
 //  1. Exact alias/content match over the workspace's resource memories
 //     (case-insensitive) — zero vector work.
-//  2. Vector nearest neighbor: embed the name, VectorSearch top-50, then
-//     filter in Go for type=resource in this workspace (VectorSearch has no
-//     type filter). A hit with sim >= cfg.Resource.ResolveThreshold wins and
+//  2. Filtered vector nearest neighbor over usable workspace resources.
+//     A hit with sim >= cfg.Resource.ResolveThreshold wins and
 //     the queried name is appended to its aliases (lazy alias growth).
 //  3. Otherwise create a new resource entity.
 //
@@ -65,6 +64,9 @@ func ResolveResource(store storage.Store, embedder storage.EmbeddingProvider,
 	}
 	want := strings.ToLower(name)
 	for _, m := range existing {
+		if !schema.IsUsable(m) {
+			continue
+		}
 		if strings.ToLower(m.Content) == want {
 			return m, false, nil
 		}
@@ -75,12 +77,19 @@ func ResolveResource(store storage.Store, embedder storage.EmbeddingProvider,
 		}
 	}
 
-	// Stage 2: vector nearest neighbor, Go-side type/workspace filter.
+	// Stage 2: filter before truncating vector neighbors.
 	queryVec, err := embedder.Embed(name)
 	if err != nil {
 		return nil, false, err
 	}
-	for _, hit := range store.VectorSearch(queryVec, 50) {
+	hits, err := store.SearchMemories(queryVec, 50, storage.MemoryFilter{
+		Workspace: ws, Layers: []schema.Layer{schema.LayerSemantic},
+		Types: []schema.MemoryType{schema.TypeResource}, ExcludeUnusable: true,
+	})
+	if err != nil {
+		return nil, false, err
+	}
+	for _, hit := range hits {
 		if hit.Similarity < cfg.Resource.ResolveThreshold {
 			continue
 		}
@@ -88,7 +97,7 @@ func ResolveResource(store storage.Store, embedder storage.EmbeddingProvider,
 		if err != nil {
 			return nil, false, err
 		}
-		if m == nil || m.Type != schema.TypeResource || m.Workspace != ws {
+		if !schema.IsUsable(m) || m.Type != schema.TypeResource || m.Workspace != ws {
 			continue
 		}
 		if appendAlias(m, name) {

@@ -8,6 +8,7 @@ import (
 
 	"github.com/ProjAnvil/LadyM/operations"
 	"github.com/ProjAnvil/LadyM/schema"
+	"github.com/ProjAnvil/LadyM/storage"
 )
 
 // ErrResourceRequired is returned when a recall_ops query omits the
@@ -82,7 +83,7 @@ func (s *Scope) RecallOperations(q OperationsQuery) (*OperationsResponse, error)
 		if err != nil {
 			return nil, err
 		}
-		if m == nil || m.Workspace != s.workspace || operations.IsRetired(m) {
+		if !schema.IsUsable(m) || m.Workspace != s.workspace {
 			continue
 		}
 		if actionClass != "" && m.MetaString("action_class") != actionClass {
@@ -160,6 +161,9 @@ func (s *Scope) resolveResourceForRead(name string) (*schema.Memory, error) {
 	}
 	want := strings.ToLower(name)
 	for _, m := range resources {
+		if !schema.IsUsable(m) {
+			continue
+		}
 		if strings.ToLower(m.Content) == want {
 			return m, nil
 		}
@@ -170,13 +174,20 @@ func (s *Scope) resolveResourceForRead(name string) (*schema.Memory, error) {
 		}
 	}
 
-	// Stage 1b: vector nearest neighbour, Go-side type/workspace filter,
+	// Stage 1b: filtered vector nearest neighbour,
 	// read threshold (0.75 default, below the write side's 0.85).
 	queryVec, err := s.eng.Provider.Embed(name)
 	if err != nil {
 		return nil, err
 	}
-	for _, hit := range s.eng.Store.VectorSearch(queryVec, 50) {
+	hits, err := s.eng.Store.SearchMemories(queryVec, 50, storage.MemoryFilter{
+		Workspace: s.workspace, Layers: []schema.Layer{schema.LayerSemantic},
+		Types: []schema.MemoryType{schema.TypeResource}, ExcludeUnusable: true,
+	})
+	if err != nil {
+		return nil, err
+	}
+	for _, hit := range hits {
 		if hit.Similarity < s.eng.Config.Resource.ReadThreshold {
 			continue
 		}
@@ -184,7 +195,7 @@ func (s *Scope) resolveResourceForRead(name string) (*schema.Memory, error) {
 		if err != nil {
 			return nil, err
 		}
-		if m == nil || m.Type != schema.TypeResource || m.Workspace != s.workspace {
+		if !schema.IsUsable(m) || m.Type != schema.TypeResource || m.Workspace != s.workspace {
 			continue
 		}
 		return m, nil

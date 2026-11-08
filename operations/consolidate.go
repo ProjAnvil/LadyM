@@ -2,11 +2,11 @@ package operations
 
 import (
 	"cmp"
+	"fmt"
 	"maps"
 	"slices"
 
 	"github.com/ProjAnvil/LadyM/config"
-	"github.com/ProjAnvil/LadyM/layers"
 	"github.com/ProjAnvil/LadyM/schema"
 	"github.com/ProjAnvil/LadyM/storage"
 )
@@ -61,32 +61,119 @@ func IsConsolidated(m *schema.Memory) bool {
 	return ok && v > 0
 }
 
-// markConsolidated stamps the pass time back onto the episode, reusing the
-// candidate vector so the embedding never drifts. UpdatedAt is deliberately
-// left alone: the stamp is bookkeeping, not a content change, and must not
-// refresh the episode's recency in activation scoring.
-func markConsolidated(store storage.Store, ep *schema.Memory, vec []float32) error {
-	if ep.Metadata == nil {
-		ep.Metadata = map[string]any{}
-	}
-	ep.Metadata[consolidatedAtKey] = schema.Now()
-	return store.PutMemory(ep, vec)
-}
-
-// offlineClassify compares a candidate against similar facts without an LLM.
-func offlineClassify(candidate, candidateHash string, similar []similarFact, threshold float64) (Action, string) {
+// Similarity is not authority to mutate evidence. Offline consolidation only
+// suppresses exact live duplicates; every unequal candidate is additive.
+func offlineClassify(candidate string, similar []similarFact) (Action, string) {
 	for _, s := range similar {
-		if s.Memory.ContentHash != "" && s.Memory.ContentHash == candidateHash {
+		if schema.IsUsable(s.Memory) && s.Memory.Layer == schema.LayerSemantic &&
+			(s.Memory.Type == schema.TypeFact || s.Memory.Type == schema.TypeNote) &&
+			s.Memory.Content == candidate {
 			return ActionNoop, ""
 		}
-		// dead Python-parity check removed: superseded_by holds a memory id,
-		// never a content hash; NOOP replay protection is the content_hash
-		// equality above
-	}
-	if len(similar) > 0 && similar[0].Sim >= threshold {
-		return ActionUpdate, candidate
 	}
 	return ActionAdd, ""
+}
+
+func guardMemory(batch *storage.MemoryBatch, m *schema.Memory) {
+	for _, guard := range batch.Guards {
+		if guard.Expected.ID == m.ID {
+			return
+		}
+	}
+	batch.Guards = append(batch.Guards, storage.MemoryGuard{Expected: m})
+}
+
+func sourceSnapshots(store storage.Store, m *schema.Memory) ([]*schema.Memory, error) {
+	ids := map[string]bool{}
+	if id := m.MetaString("source_episode"); id != "" {
+		ids[id] = true
+	}
+	switch values := m.Meta("source_episodes").(type) {
+	case []string:
+		for _, id := range values {
+			ids[id] = true
+		}
+	case []any:
+		for _, value := range values {
+			if id, ok := value.(string); ok {
+				ids[id] = true
+			}
+		}
+	}
+	edges, err := store.Neighbors(m.ID, "produced_from")
+	if err != nil {
+		return nil, err
+	}
+	for _, edge := range edges {
+		if edge.SrcID == m.ID && edge.ValidTo == nil {
+			ids[edge.DstID] = true
+		}
+	}
+	var sources []*schema.Memory
+	for _, id := range slices.Sorted(maps.Keys(ids)) {
+		source, err := store.GetMemory(id)
+		if err != nil {
+			return nil, err
+		}
+		if !schema.IsUsable(source) || source.Workspace != m.Workspace {
+			return nil, fmt.Errorf("%w: unavailable source %s", storage.ErrMemoryConflict, id)
+		}
+		sources = append(sources, source)
+	}
+	return sources, nil
+}
+
+// stageProvenance snapshots every source and resource before the transaction.
+// Metadata and deterministic projections are committed with the derived item.
+func stageProvenance(store storage.Store, batch *storage.MemoryBatch, derived *schema.Memory, sources []*schema.Memory, relation string) error {
+	seen := map[string]bool{}
+	var ids []string
+	for _, source := range sources {
+		if !schema.IsUsable(source) || source.Workspace != derived.Workspace {
+			return fmt.Errorf("%w: unavailable source", storage.ErrMemoryConflict)
+		}
+		if seen[source.ID] {
+			continue
+		}
+		seen[source.ID] = true
+		ids = append(ids, source.ID)
+		guardMemory(batch, source)
+		edge := schema.NewEdge(derived.ID, relation, source.ID)
+		edge.ID = schema.ProjectedEdgeID(derived.ID, relation, source.ID)
+		batch.Edges = append(batch.Edges, edge)
+		if relation != "produced_from" {
+			continue
+		}
+		neighbors, err := store.Neighbors(source.ID, "operates_on")
+		if err != nil {
+			return err
+		}
+		for _, neighbor := range neighbors {
+			if neighbor.ValidTo != nil {
+				continue
+			}
+			id := neighbor.DstID
+			if neighbor.SrcID != source.ID {
+				id = neighbor.SrcID
+			}
+			resource, err := store.GetMemory(id)
+			if err != nil {
+				return err
+			}
+			if !schema.IsUsable(resource) || resource.Workspace != derived.Workspace {
+				return fmt.Errorf("%w: unavailable resource %s", storage.ErrMemoryConflict, id)
+			}
+			guardMemory(batch, resource)
+			projected := schema.NewEdge(derived.ID, "operates_on", id)
+			projected.ID = schema.ProjectedEdgeID(derived.ID, "operates_on", id)
+			batch.Edges = append(batch.Edges, projected)
+		}
+	}
+	slices.Sort(ids)
+	if relation == "produced_from" {
+		derived.Metadata["source_episodes"] = ids
+	}
+	return nil
 }
 
 // projectProvenance writes the L4 provenance projections for a newly produced
@@ -130,8 +217,6 @@ func projectProvenance(store storage.Store, factID, epID string) error {
 func Consolidate(store storage.Store, embedder storage.EmbeddingProvider, cfg *config.Config, workspace string, llmClassify LLMClassifier, since float64) (*ConsolidationReport, error) {
 	ws := workspace
 	ws = cmp.Or(ws, cfg.Workspace)
-	sem := layers.NewSemanticMemory(store, embedder, ws)
-	threshold := cfg.Consolidate.DedupSimilarityThreshold
 	report := newConsolidationReport()
 
 	episodes, err := store.IterMemories(ws, string(schema.LayerEpisodic), "")
@@ -140,6 +225,9 @@ func Consolidate(store storage.Store, embedder storage.EmbeddingProvider, cfg *c
 	}
 	pending := episodes[:0]
 	for _, e := range episodes {
+		if !schema.IsUsable(e) || e.Type != schema.TypeEvent {
+			continue
+		}
 		if IsConsolidated(e) {
 			report.SkippedConsolidated++
 			continue
@@ -150,7 +238,9 @@ func Consolidate(store storage.Store, embedder storage.EmbeddingProvider, cfg *c
 		pending = append(pending, e)
 	}
 	episodes = pending
-	slices.SortStableFunc(episodes, func(a, b *schema.Memory) int { return cmp.Compare(a.CreatedAt, b.CreatedAt) })
+	slices.SortFunc(episodes, func(a, b *schema.Memory) int {
+		return cmp.Or(cmp.Compare(a.CreatedAt, b.CreatedAt), cmp.Compare(a.ID, b.ID))
+	})
 	if len(episodes) > 500 {
 		episodes = episodes[:500]
 	}
@@ -165,11 +255,20 @@ func Consolidate(store storage.Store, embedder storage.EmbeddingProvider, cfg *c
 		if err != nil {
 			return nil, err
 		}
+		if len(candVecs) != len(contents) {
+			return nil, fmt.Errorf("consolidate: embedding batch returned %d vectors for %d episodes", len(candVecs), len(contents))
+		}
 	}
 
 	for i, ep := range episodes {
 		vec := candVecs[i]
-		raw := store.VectorSearch(vec, cfg.Consolidate.MinEpisodesToTrigger+5)
+		raw, err := store.SearchMemories(vec, cfg.Consolidate.MinEpisodesToTrigger+5, storage.MemoryFilter{
+			Workspace: ws, Layers: []schema.Layer{schema.LayerSemantic},
+			Types: []schema.MemoryType{schema.TypeFact, schema.TypeNote}, ExcludeUnusable: true,
+		})
+		if err != nil {
+			return nil, err
+		}
 		var similar []similarFact
 		for _, h := range raw {
 			if h.Similarity < 0.1 {
@@ -179,14 +278,29 @@ func Consolidate(store storage.Store, embedder storage.EmbeddingProvider, cfg *c
 			if err != nil {
 				return nil, err
 			}
-			if m == nil || m.Workspace != ws || m.Layer != schema.LayerSemantic {
+			if !schema.IsUsable(m) || m.Workspace != ws || m.Layer != schema.LayerSemantic ||
+				(m.Type != schema.TypeFact && m.Type != schema.TypeNote) {
 				continue
 			}
 			similar = append(similar, similarFact{Memory: m, Sim: h.Similarity})
 		}
-		slices.SortStableFunc(similar, func(a, b similarFact) int { return cmp.Compare(b.Sim, a.Sim) })
+		slices.SortFunc(similar, func(a, b similarFact) int {
+			return cmp.Or(cmp.Compare(b.Sim, a.Sim), cmp.Compare(a.Memory.ID, b.Memory.ID))
+		})
+		if llmClassify == nil {
+			for j, fact := range similar {
+				if fact.Memory.Content == ep.Content {
+					similar[0], similar[j] = similar[j], similar[0]
+					break
+				}
+			}
+		}
+		var previousSources []*schema.Memory
+		var sourceErr error
+		if len(similar) > 0 {
+			previousSources, sourceErr = sourceSnapshots(store, similar[0].Memory)
+		}
 
-		candHash := schema.ContentHash(ep.Content)
 		var action Action
 		var newText string
 		if llmClassify != nil {
@@ -200,14 +314,28 @@ func Consolidate(store storage.Store, embedder storage.EmbeddingProvider, cfg *c
 				return nil, cerr
 			}
 		} else {
-			action, newText = offlineClassify(ep.Content, candHash, similar, threshold)
+			action, newText = offlineClassify(ep.Content, similar)
 		}
 
-		report.Actions[string(action)]++
-		report.Details = append(report.Details, map[string]any{
-			"episode_id": ep.ID, "action": string(action), "n_similar": len(similar),
-		})
-
+		switch action {
+		case ActionAdd:
+		case ActionUpdate, ActionDelete, ActionNoop:
+			if len(similar) == 0 {
+				return nil, fmt.Errorf("consolidate: %s requires a live fact/note target", action)
+			}
+		default:
+			return nil, fmt.Errorf("consolidate: invalid action %q", action)
+		}
+		batch := storage.MemoryBatch{Guards: []storage.MemoryGuard{{Expected: ep, PendingEpisode: true}}}
+		stamped := ep.Clone()
+		if stamped.Metadata == nil {
+			stamped.Metadata = map[string]any{}
+		}
+		stamped.Metadata[consolidatedAtKey] = schema.Now()
+		batch.Writes = append(batch.Writes, storage.MemoryWrite{Memory: stamped, PreserveEmbedding: true})
+		if action != ActionAdd {
+			guardMemory(&batch, similar[0].Memory)
+		}
 		switch action {
 		case ActionAdd:
 			meta := map[string]any{}
@@ -215,20 +343,31 @@ func Consolidate(store storage.Store, embedder storage.EmbeddingProvider, cfg *c
 			meta["source_episode"] = ep.ID
 			addedContent := newText
 			addedContent = cmp.Or(addedContent, ep.Content)
-			if fact, err := sem.PutFact(addedContent, ep.Summary, ep.Tags, meta, "consolidate"); err != nil {
-				return nil, err
-			} else if err := projectProvenance(store, fact.ID, ep.ID); err != nil {
+			meta["knowledge_status"] = "inferred"
+			fact := schema.NewMemory(schema.LayerSemantic, schema.TypeFact)
+			fact.Content, fact.Summary = addedContent, cmp.Or(ep.Summary, truncateStr(addedContent, 80))
+			fact.Tags, fact.Metadata = slices.Clone(ep.Tags), meta
+			fact.Workspace, fact.Source = ws, "consolidate"
+			fact.ContentHash = schema.ContentHash(addedContent)
+			factVec, err := embedder.Embed(addedContent)
+			if err != nil {
 				return nil, err
 			}
-			report.PromotedToSemantic++
+			if err := stageProvenance(store, &batch, fact, []*schema.Memory{ep}, "produced_from"); err != nil {
+				return nil, err
+			}
+			batch.Writes = append(batch.Writes, storage.MemoryWrite{Memory: fact, Vector: factVec})
 		case ActionUpdate:
-			if len(similar) == 0 {
-				continue
+			if sourceErr != nil {
+				return nil, sourceErr
 			}
 			target := similar[0].Memory
 			mergedContent := newText
 			mergedContent = cmp.Or(mergedContent, ep.Content)
 			merged := target.Clone()
+			if merged.Metadata == nil {
+				merged.Metadata = map[string]any{}
+			}
 			merged.ID = schema.NewID()
 			merged.Content = mergedContent
 			if ep.Summary != "" {
@@ -238,32 +377,29 @@ func Consolidate(store storage.Store, embedder storage.EmbeddingProvider, cfg *c
 			merged.ContentHash = schema.ContentHash(mergedContent)
 			merged.Metadata["source_episode"] = ep.ID
 			merged.Metadata["updated_from"] = target.ID
+			merged.Metadata["knowledge_status"] = "inferred"
 			vec, err := embedder.Embed(merged.Content)
 			if err != nil {
 				return nil, err
 			}
-			if err := store.PutMemory(merged, vec); err != nil {
+			if err := stageProvenance(store, &batch, merged, append(previousSources, ep), "produced_from"); err != nil {
 				return nil, err
 			}
-			if err := Retire(store, target, merged.ID); err != nil {
-				return nil, err
-			}
-			if err := projectProvenance(store, merged.ID, ep.ID); err != nil {
-				return nil, err
-			}
+			batch.Writes = append(batch.Writes, storage.MemoryWrite{Memory: merged, Vector: vec})
+			stageRetirement(&batch, target, merged.ID)
 		case ActionDelete:
-			if len(similar) > 0 {
-				if err := Retire(store, similar[0].Memory, ""); err != nil {
-					return nil, err
-				}
-			}
+			stageRetirement(&batch, similar[0].Memory, "")
 		}
-
-		// Any verdict counts as processed: stamp the episode so selection
-		// stops revisiting it (and stop re-embedding / re-classifying it).
-		if err := markConsolidated(store, ep, vec); err != nil {
+		if err := store.ApplyMemoryBatch(batch); err != nil {
 			return nil, err
 		}
+		report.Actions[string(action)]++
+		if action == ActionAdd {
+			report.PromotedToSemantic++
+		}
+		report.Details = append(report.Details, map[string]any{
+			"episode_id": ep.ID, "action": string(action), "n_similar": len(similar),
+		})
 	}
 	report.KeptEpisodes = len(episodes)
 	return report, nil

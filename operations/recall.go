@@ -2,6 +2,7 @@ package operations
 
 import (
 	"cmp"
+	"fmt"
 	"maps"
 	"slices"
 	"strings"
@@ -39,10 +40,13 @@ func reflect(query string, hits []*schema.RecallResult, cfg config.RecallConfig)
 		corpus.WriteString(" ")
 		corpus.WriteString(r.Memory.Summary)
 	}
-	lower := strings.ToLower(corpus.String())
+	tokens := map[string]bool{}
+	for _, token := range storage.Tokenize(corpus.String()) {
+		tokens[token] = true
+	}
 	covered := 0
 	for t := range qTokens {
-		if strings.Contains(lower, t) {
+		if tokens[t] {
 			covered++
 		}
 	}
@@ -57,7 +61,7 @@ func rank(candidates []candidate, cfg *config.Config, neighbourCounts map[string
 		act := ActivationScore(c.Memory, c.Sim, cfg.Activation, neighbourCounts, queryTypes, 0)
 		out = append(out, &schema.RecallResult{Memory: c.Memory, Score: act, Tier: 1, Via: []string{}})
 	}
-	slices.SortStableFunc(out, func(a, b *schema.RecallResult) int { return cmp.Compare(b.Score, a.Score) })
+	slices.SortFunc(out, compareRecallResults)
 	return out
 }
 
@@ -72,6 +76,9 @@ func Recall(store storage.Store, embedder storage.EmbeddingProvider, query strin
 	ws := workspace
 	ws = cmp.Or(ws, cfg.Workspace)
 	rcfg := cfg.Recall
+	if rcfg.MaxExpandedNodes < 0 {
+		return nil, fmt.Errorf("recall.max_expanded_nodes must be non-negative")
+	}
 	k1 := topK
 	k1 = cmp.Or(k1, rcfg.TopKTier1)
 	queryVec, err := embedder.Embed(query)
@@ -84,7 +91,11 @@ func Recall(store storage.Store, embedder storage.EmbeddingProvider, query strin
 	}
 
 	fetchK := max(k1*3, k1)
-	rawHits := store.VectorSearch(queryVec, fetchK)
+	filter := storage.MemoryFilter{Workspace: ws, Layers: layers, Types: types, ExcludeUnusable: true}
+	rawHits, err := store.SearchMemories(queryVec, fetchK, filter)
+	if err != nil {
+		return nil, err
+	}
 	var cand []candidate
 	for _, h := range rawHits {
 		if h.Similarity < minSimilarity {
@@ -94,16 +105,7 @@ func Recall(store storage.Store, embedder storage.EmbeddingProvider, query strin
 		if err != nil {
 			return nil, err
 		}
-		if mem == nil || mem.Workspace != ws {
-			continue
-		}
-		if IsRetired(mem) {
-			continue
-		}
-		if layers != nil && !layerIn(mem.Layer, layers) {
-			continue
-		}
-		if types != nil && !typeIn(mem.Type, types) {
+		if !eligibleRecallMemory(mem, filter) {
 			continue
 		}
 		cand = append(cand, candidate{Memory: mem, Sim: h.Similarity})
@@ -129,7 +131,7 @@ func Recall(store storage.Store, embedder storage.EmbeddingProvider, query strin
 		}, nil
 	}
 
-	expanded, err := tier2Expand(store, tier1, cfg, ws)
+	expanded, err := tier2Expand(store, tier1, cfg, ws, filter)
 	if err != nil {
 		return nil, err
 	}
@@ -141,10 +143,10 @@ func Recall(store storage.Store, embedder storage.EmbeddingProvider, query strin
 		if _, ok := byID[ex.Memory.ID]; ok {
 			continue
 		}
-		if layers != nil && !layerIn(ex.Memory.Layer, layers) {
+		if len(layers) > 0 && !layerIn(ex.Memory.Layer, layers) {
 			continue
 		}
-		if types != nil && !typeIn(ex.Memory.Type, types) {
+		if len(types) > 0 && !typeIn(ex.Memory.Type, types) {
 			continue
 		}
 		act := ActivationScore(ex.Memory, ex.Sim, cfg.Activation, neighbourCounts, queryTypes, 0)
@@ -156,7 +158,7 @@ func Recall(store storage.Store, embedder storage.EmbeddingProvider, query strin
 	for _, r := range byID {
 		merged = append(merged, r)
 	}
-	slices.SortStableFunc(merged, func(a, b *schema.RecallResult) int { return cmp.Compare(b.Score, a.Score) })
+	slices.SortFunc(merged, compareRecallResults)
 	if len(merged) > k2 {
 		merged = merged[:k2]
 	}
@@ -164,7 +166,7 @@ func Recall(store storage.Store, embedder storage.EmbeddingProvider, query strin
 	commitAccess(store, resultIDs(merged))
 	return &schema.RecallResponse{
 		Query: query, Results: merged, TierReached: 2,
-		ReflectedSufficient: true,
+		ReflectedSufficient: reflect(query, merged, rcfg).sufficient,
 		ElapsedMs:           float64(time.Since(start).Nanoseconds()) / 1e6,
 	}, nil
 }
@@ -191,12 +193,32 @@ type expandedItem struct {
 	Via    []string
 }
 
-func tier2Expand(store storage.Store, tier1 []*schema.RecallResult, cfg *config.Config, workspace string) ([]expandedItem, error) {
+func compareRecallResults(a, b *schema.RecallResult) int {
+	return cmp.Or(cmp.Compare(b.Score, a.Score), cmp.Compare(a.Memory.ID, b.Memory.ID))
+}
+
+func eligibleRecallMemory(m *schema.Memory, f storage.MemoryFilter) bool {
+	return schema.IsUsable(m) && m.Workspace == f.Workspace &&
+		(len(f.Layers) == 0 || layerIn(m.Layer, f.Layers)) &&
+		(len(f.Types) == 0 || typeIn(m.Type, f.Types))
+}
+
+func tier2Expand(store storage.Store, tier1 []*schema.RecallResult, cfg *config.Config, workspace string, filters ...storage.MemoryFilter) ([]expandedItem, error) {
 	var out []expandedItem
 	seen := map[string]bool{}
+	memories := map[string]*schema.Memory{}
+	filter := storage.MemoryFilter{Workspace: workspace, ExcludeUnusable: true}
+	if len(filters) > 0 {
+		filter = filters[0]
+	}
 	for _, r := range tier1 {
 		seen[r.Memory.ID] = true
+		if eligibleRecallMemory(r.Memory, filter) {
+			memories[r.Memory.ID] = r.Memory
+		}
 	}
+	budget := cmp.Or(cfg.Recall.MaxExpandedNodes, 128)
+	inspected := 0
 
 	type frontierNode struct {
 		id    string
@@ -205,52 +227,50 @@ func tier2Expand(store storage.Store, tier1 []*schema.RecallResult, cfg *config.
 	}
 
 	for _, anchor := range tier1 {
+		if !eligibleRecallMemory(anchor.Memory, filter) {
+			continue
+		}
 		frontier := []frontierNode{{anchor.Memory.ID, 1, []string{anchor.Memory.ID}}}
-		for len(frontier) > 0 {
+		for len(frontier) > 0 && inspected < budget {
 			cur := frontier[0]
 			frontier = frontier[1:]
 			if cur.depth > cfg.Recall.GraphHops {
 				continue
 			}
-			// follow supersedes to the newest version even if filtered from tier-1
-			supEdges, err := store.Neighbors(cur.id, "supersedes")
-			if err != nil {
-				return nil, err
-			}
-			for _, e := range supEdges {
-				if e.SrcID == cur.id && !seen[e.DstID] {
-					seen[e.DstID] = true
-					newer, err := store.GetMemory(e.DstID)
-					if err != nil {
-						return nil, err
-					}
-					if newer != nil && newer.Workspace == workspace {
-						out = append(out, expandedItem{Memory: newer, Sim: max(0.05, anchor.Score*0.6/float64(cur.depth)), Via: append(slices.Clone(cur.path), e.DstID)})
-					}
-				}
-			}
 			edges, err := store.Neighbors(cur.id, "")
 			if err != nil {
 				return nil, err
 			}
+			neighbors := map[string]bool{}
 			for _, e := range edges {
+				if e.ValidTo != nil {
+					continue
+				}
 				otherID := e.DstID
 				if e.SrcID == cur.id {
 					otherID = e.DstID
 				} else {
 					otherID = e.SrcID
 				}
+				neighbors[otherID] = true
+			}
+			for _, otherID := range slices.Sorted(maps.Keys(neighbors)) {
+				if inspected >= budget {
+					break
+				}
 				if seen[otherID] {
 					continue
 				}
 				seen[otherID] = true
+				inspected++
 				other, err := store.GetMemory(otherID)
 				if err != nil {
 					return nil, err
 				}
-				if other == nil || other.Workspace != workspace {
+				if !eligibleRecallMemory(other, filter) {
 					continue
 				}
+				memories[otherID] = other
 				path := append(slices.Clone(cur.path), otherID)
 				out = append(out, expandedItem{Memory: other, Sim: max(0.05, anchor.Score*0.5/float64(cur.depth)), Via: path})
 				frontier = append(frontier, frontierNode{otherID, cur.depth + 1, path})
@@ -258,31 +278,36 @@ func tier2Expand(store storage.Store, tier1 []*schema.RecallResult, cfg *config.
 		}
 	}
 
-	// backtrack: for code symbols, pull their file memory too.
-	// Iterate over a snapshot (Python: for mem_id in list(seen)) — the loop
-	// body adds file memories to seen, and they must not be visited here.
-	seenIDs := slices.Collect(maps.Keys(seen))
-	for _, memID := range seenIDs {
-		mem, err := store.GetMemory(memID)
-		if err != nil {
-			return nil, err
+	var filesByPath map[string]*schema.Memory
+	for _, memID := range slices.Sorted(maps.Keys(memories)) {
+		if inspected >= budget {
+			break
 		}
-		if mem == nil || mem.Type != schema.TypeCodeSymbol {
+		mem := memories[memID]
+		if mem.Type != schema.TypeCodeSymbol {
 			continue
 		}
 		filePath := mem.MetaString("file_path")
 		if filePath == "" {
 			continue
 		}
-		files, err := store.IterMemories(workspace, "", string(schema.TypeCodeFile))
-		if err != nil {
-			return nil, err
-		}
-		for _, m := range files {
-			if m.MetaString("file_path") == filePath && !seen[m.ID] {
-				seen[m.ID] = true
-				out = append(out, expandedItem{Memory: m, Sim: 0.1, Via: []string{memID, m.ID}})
+		if filesByPath == nil {
+			files, err := store.IterMemories(workspace, "", string(schema.TypeCodeFile))
+			if err != nil {
+				return nil, err
 			}
+			slices.SortFunc(files, func(a, b *schema.Memory) int { return cmp.Compare(a.ID, b.ID) })
+			filesByPath = map[string]*schema.Memory{}
+			for _, m := range files {
+				if eligibleRecallMemory(m, filter) && filesByPath[m.MetaString("file_path")] == nil {
+					filesByPath[m.MetaString("file_path")] = m
+				}
+			}
+		}
+		if m := filesByPath[filePath]; m != nil && !seen[m.ID] {
+			seen[m.ID] = true
+			inspected++
+			out = append(out, expandedItem{Memory: m, Sim: 0.1, Via: []string{memID, m.ID}})
 		}
 	}
 	return out, nil

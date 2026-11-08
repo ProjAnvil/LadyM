@@ -8,10 +8,7 @@ import (
 // IsRetired reports whether mem was retired by an UPDATE or DELETE
 // consolidation pass. A nil memory is treated as not-retired.
 func IsRetired(mem *schema.Memory) bool {
-	if mem == nil {
-		return false
-	}
-	return mem.MetaString("superseded_by") != "" || mem.MetaBool("superseded")
+	return schema.IsRetired(mem)
 }
 
 // Retire retires old. When newID is non-empty it writes a supersedes edge
@@ -19,36 +16,35 @@ func IsRetired(mem *schema.Memory) bool {
 // still-valid edges of old are closed so the graph does not leak through a
 // retired node.
 func Retire(store storage.Store, old *schema.Memory, newID string) error {
-	now := schema.Now()
-	if old.Metadata == nil {
-		old.Metadata = map[string]any{}
-	}
-	old.Metadata["superseded_at"] = now
-	if newID != "" {
-		old.Metadata["superseded_by"] = newID
-	} else {
-		old.Metadata["superseded"] = true
-	}
-	neighbors, err := store.Neighbors(old.ID, "")
-	if err != nil {
+	batch := storage.MemoryBatch{}
+	stageRetirement(&batch, old, newID)
+	if err := store.ApplyMemoryBatch(batch); err != nil {
 		return err
 	}
-	for _, e := range neighbors {
-		if e.ValidTo == nil {
-			e.ValidTo = &now
-			if err := store.PutEdge(e); err != nil {
-				return err
-			}
-		}
+	old.Metadata = batch.Writes[0].Memory.Metadata
+	return nil
+}
+
+func stageRetirement(batch *storage.MemoryBatch, old *schema.Memory, newID string) {
+	guardMemory(batch, old)
+	now := schema.Now()
+	retired := old.Clone()
+	if retired.Metadata == nil {
+		retired.Metadata = map[string]any{}
 	}
+	retired.Metadata["superseded_at"] = now
+	if newID != "" {
+		retired.Metadata["superseded_by"] = newID
+	} else {
+		retired.Metadata["superseded"] = true
+	}
+	batch.CloseEdgesFor = append(batch.CloseEdgesFor, old.ID)
+	batch.Writes = append(batch.Writes, storage.MemoryWrite{Memory: retired, PreserveEmbedding: true})
 	if newID != "" {
 		e := schema.NewEdge(old.ID, "supersedes", newID)
 		e.ValidFrom = now
-		if err := store.PutEdge(e); err != nil {
-			return err
-		}
+		batch.Edges = append(batch.Edges, e)
 	}
-	return store.PutMemory(old, nil)
 }
 
 // LatestInChain walks supersedes edges forward and returns the newest version id.

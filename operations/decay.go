@@ -2,6 +2,7 @@ package operations
 
 import (
 	"cmp"
+	"math"
 
 	"github.com/ProjAnvil/LadyM/config"
 	"github.com/ProjAnvil/LadyM/schema"
@@ -12,6 +13,7 @@ import (
 type DecayReport struct {
 	Examined     int
 	Forgotten    int
+	Protected    int
 	ForgottenIDs []string
 }
 
@@ -28,6 +30,15 @@ func Decay(store storage.Store, workspace string, weights *config.ActivationWeig
 	activationFloor = cmp.Or(activationFloor, 0.05)
 	now = cmp.Or(now, schema.Now())
 	report := &DecayReport{}
+	references, err := store.EvidenceReferences(workspace)
+	if err != nil {
+		return nil, err
+	}
+	cutoff := now - maxAgeS
+	if weights.Recency > activationFloor && weights.RecencyHalfLifeS > 0 {
+		activationCutoff := now - weights.RecencyHalfLifeS*math.Log2(weights.Recency/activationFloor)
+		cutoff = min(cutoff, math.Nextafter(activationCutoff, math.Inf(-1)))
+	}
 	episodes, err := store.IterMemories(workspace, string(schema.LayerEpisodic), "")
 	if err != nil {
 		return nil, err
@@ -41,12 +52,21 @@ func Decay(store storage.Store, workspace string, weights *config.ActivationWeig
 		act := weights.Recency*RecencyFactor(mem.LastAccessAt, weights.RecencyHalfLifeS, now) +
 			weights.Frequency*0.0
 		if act < activationFloor {
-			report.Forgotten++
-			report.ForgottenIDs = append(report.ForgottenIDs, mem.ID)
-			if !dryRun {
-				if err := store.DeleteMemory(mem.ID); err != nil {
+			deleted, protected := !references[mem.ID], references[mem.ID]
+			if !dryRun && cutoff > 0 {
+				deleted, protected, err = store.DeleteMemorySafely(mem.ID, cutoff)
+				if err != nil {
 					return nil, err
 				}
+			} else if !dryRun {
+				deleted, protected = false, false
+			}
+			if protected {
+				report.Protected++
+			}
+			if deleted {
+				report.Forgotten++
+				report.ForgottenIDs = append(report.ForgottenIDs, mem.ID)
 			}
 		}
 	}

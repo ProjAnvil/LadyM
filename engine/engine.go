@@ -28,7 +28,9 @@ const consolidatePrompt = "You classify a candidate fact against similar existin
 	"Reply with JSON {action, new_text}. action in ADD|UPDATE|DELETE|NOOP. " +
 	"ADD=brand new (set new_text to the distilled fact, free of event template shells; " +
 	"omitted means the raw event text is kept); UPDATE=refines an existing one (set new_text); " +
-	"DELETE=existing is now wrong; NOOP=duplicate."
+	"DELETE=existing is now wrong; NOOP=duplicate. " +
+	"UPDATE, DELETE and NOOP always target similar[0], the first live fact/note. " +
+	"If similar is empty only ADD is valid; never select another mutation target."
 
 // Engine is the top-level LadyM orchestrator.
 type Engine struct {

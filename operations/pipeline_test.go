@@ -236,7 +236,7 @@ func TestConsolidateOfflineNoopOnIdenticalHash(t *testing.T) {
 	}
 }
 
-func TestConsolidateOfflineUpdateViaSupersededBy(t *testing.T) {
+func TestConsolidateOfflineAddWhenOnlyRetiredMatch(t *testing.T) {
 	store, emb := newParityStore(t)
 	cfg := config.ForTesting(t.TempDir())
 	content := "database migrated to postgres"
@@ -249,15 +249,19 @@ func TestConsolidateOfflineUpdateViaSupersededBy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rep.Actions[string(ActionUpdate)] != 1 {
-		t.Errorf("report = %+v, want one UPDATE", rep)
+	if rep.Actions[string(ActionAdd)] != 1 || rep.Actions[string(ActionNoop)] != 0 {
+		t.Errorf("report = %+v, want ADD (retired matches are not evidence)", rep)
+	}
+	got, _ := store.GetMemory(fact.ID)
+	if got.MetaString("superseded_by") != schema.ContentHash(content) {
+		t.Error("retired fact changed")
 	}
 }
 
-func TestConsolidateOfflineUpdateViaSimilarity(t *testing.T) {
+func TestConsolidateOfflineAddViaSimilarity(t *testing.T) {
 	store, emb := newParityStore(t)
 	cfg := config.ForTesting(t.TempDir())
-	cfg.Consolidate.DedupSimilarityThreshold = 0.0 // any surviving neighbour triggers UPDATE
+	cfg.Consolidate.DedupSimilarityThreshold = 0.0 // similarity alone cannot authorize UPDATE
 	fact := newCustomMem(schema.LayerSemantic, schema.TypeFact, "auth uses jwt tokens for sessions", "test")
 	fact.ContentHash = schema.ContentHash(fact.Content)
 	putCustomMem(t, store, emb, fact)
@@ -269,26 +273,28 @@ func TestConsolidateOfflineUpdateViaSimilarity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rep.Actions[string(ActionUpdate)] != 1 {
-		t.Fatalf("report = %+v, want one UPDATE", rep)
+	if rep.Actions[string(ActionAdd)] != 1 || rep.Actions[string(ActionUpdate)] != 0 {
+		t.Fatalf("report = %+v, want one ADD", rep)
 	}
 	got, err := store.GetMemory(fact.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !IsRetired(got) {
-		t.Error("UPDATE should retire the old fact")
+	if IsRetired(got) || got.Content != fact.Content {
+		t.Error("offline similarity must preserve the old fact")
 	}
-	newID := got.MetaString("superseded_by")
-	merged, err := store.GetMemory(newID)
+	facts, err := store.IterMemories("test", string(schema.LayerSemantic), string(schema.TypeFact))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if merged == nil || merged.Content != ep.Content || merged.Summary != "jwt summary" {
-		t.Errorf("merged fact = %+v", merged)
+	if len(facts) != 2 {
+		t.Fatalf("facts=%d, want preserved old and new fact", len(facts))
 	}
-	if merged.MetaString("updated_from") != fact.ID || merged.MetaString("source_episode") != ep.ID {
-		t.Errorf("merged metadata = %v", merged.Metadata)
+	for _, added := range facts {
+		if added.ID != fact.ID && (added.Content != ep.Content || added.Summary != "jwt summary" ||
+			added.MetaString("updated_from") != "" || added.MetaString("source_episode") != ep.ID) {
+			t.Errorf("added fact=%+v", added)
+		}
 	}
 }
 
@@ -338,33 +344,35 @@ func TestConsolidateLLMClassifier(t *testing.T) {
 		}
 	})
 
-	t.Run("update without similar is skipped", func(t *testing.T) {
+	t.Run("update without similar errors and stays pending", func(t *testing.T) {
 		store, emb := newParityStore(t)
 		cfg := config.ForTesting(t.TempDir())
-		putParityMem(t, store, emb, schema.LayerEpisodic, schema.TypeEvent, "lonesome episode", nil)
-		rep, err := Consolidate(store, emb, cfg, "test", func(string, []string) (Action, string, error) {
+		ep := putParityMem(t, store, emb, schema.LayerEpisodic, schema.TypeEvent, "lonesome episode", nil)
+		_, err := Consolidate(store, emb, cfg, "test", func(string, []string) (Action, string, error) {
 			return ActionUpdate, "", nil
 		}, 0)
-		if err != nil {
-			t.Fatal(err)
+		if err == nil {
+			t.Fatal("targetless UPDATE accepted")
 		}
-		if rep.Actions[string(ActionUpdate)] != 1 || rep.PromotedToSemantic != 0 {
-			t.Errorf("report = %+v", rep)
+		got, _ := store.GetMemory(ep.ID)
+		if IsConsolidated(got) {
+			t.Error("invalid verdict stamped episode")
 		}
 	})
 
-	t.Run("delete without similar is a no-op", func(t *testing.T) {
+	t.Run("delete without similar errors and stays pending", func(t *testing.T) {
 		store, emb := newParityStore(t)
 		cfg := config.ForTesting(t.TempDir())
-		putParityMem(t, store, emb, schema.LayerEpisodic, schema.TypeEvent, "lonesome episode", nil)
-		rep, err := Consolidate(store, emb, cfg, "test", func(string, []string) (Action, string, error) {
+		ep := putParityMem(t, store, emb, schema.LayerEpisodic, schema.TypeEvent, "lonesome episode", nil)
+		_, err := Consolidate(store, emb, cfg, "test", func(string, []string) (Action, string, error) {
 			return ActionDelete, "", nil
 		}, 0)
-		if err != nil {
-			t.Fatal(err)
+		if err == nil {
+			t.Fatal("targetless DELETE accepted")
 		}
-		if rep.Actions[string(ActionDelete)] != 1 {
-			t.Errorf("report = %+v", rep)
+		got, _ := store.GetMemory(ep.ID)
+		if IsConsolidated(got) {
+			t.Error("invalid verdict stamped episode")
 		}
 	})
 
@@ -502,6 +510,7 @@ func TestRecallStopwordQueryIsSufficient(t *testing.T) {
 func TestRecallChineseQueryFindsChineseMemory(t *testing.T) {
 	store, emb := newParityStore(t)
 	cfg := config.ForTesting(t.TempDir())
+	cfg.Recall.ReflectionMinHits = 1
 	putParityMem(t, store, emb, schema.LayerSemantic, schema.TypeFact,
 		"用户登录失败，原因是密码过期", nil)
 	resp, err := Recall(store, emb, "用户登录失败", cfg, "test", 5, nil, nil, 0)
@@ -784,16 +793,17 @@ func TestExtractL5TitleDefaultAndSummariseError(t *testing.T) {
 		t.Errorf("model = %+v, want default title", ms)
 	}
 
-	// LLM failure skips the cluster without failing the run
+	// Provider failures propagate and leave no unsupported model.
 	store2, emb2 := newParityStore(t)
 	putParityMem(t, store2, emb2, schema.LayerSemantic, schema.TypeFact, "alpha fact one", nil)
 	putParityMem(t, store2, emb2, schema.LayerSemantic, schema.TypeFact, "beta fact two", nil)
 	rep, err = ExtractL5(store2, emb2, cfg, "test", &errLLM{errBoom}, "")
-	if err != nil {
-		t.Fatal(err)
+	if !errors.Is(err, errBoom) {
+		t.Fatalf("error=%v, want provider error", err)
 	}
-	if rep.NewModels != 0 {
-		t.Errorf("NewModels = %d, want 0 on LLM failure", rep.NewModels)
+	failedModels, _ := store2.IterMemories("test", string(schema.LayerL5Mental), "")
+	if len(failedModels) != 0 {
+		t.Errorf("published %d models after provider failure", len(failedModels))
 	}
 }
 
@@ -833,7 +843,7 @@ func TestExtractL5MergeCycle(t *testing.T) {
 	if rep.MergedModels != 0 {
 		t.Fatalf("cycle 1 MergedModels = %d, want 0", rep.MergedModels)
 	}
-	raw, err := store.GetMeta("l5_merge_cycle_count")
+	raw, err := store.GetMeta(workspaceMetaKey("l5_merge_cycle_count", "test"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -849,7 +859,7 @@ func TestExtractL5MergeCycle(t *testing.T) {
 	if rep.MergedModels != 1 {
 		t.Fatalf("cycle 2 MergedModels = %d, want 1", rep.MergedModels)
 	}
-	raw, _ = store.GetMeta("l5_merge_cycle_count")
+	raw, _ = store.GetMeta(workspaceMetaKey("l5_merge_cycle_count", "test"))
 	if raw != "0" {
 		t.Errorf("merge counter after merge = %q, want 0", raw)
 	}
@@ -1219,6 +1229,9 @@ func TestRetireClosesEdgesAndWritesSupersedes(t *testing.T) {
 func TestRetireNilMetadata(t *testing.T) {
 	store, _ := newParityStore(t)
 	m := &schema.Memory{ID: schema.NewID(), Layer: schema.LayerSemantic, Type: schema.TypeFact, Workspace: "test"}
+	if err := store.PutMemory(m, nil); err != nil {
+		t.Fatal(err)
+	}
 	if err := Retire(store, m, ""); err != nil {
 		t.Fatal(err)
 	}
@@ -1364,12 +1377,25 @@ func TestConsolidateSortsSimilarBySim(t *testing.T) {
 		putCustomMem(t, store, emb, f)
 	}
 	putParityMem(t, store, emb, schema.LayerEpisodic, schema.TypeEvent, "auth uses jwt tokens", nil)
-	rep, err := Consolidate(store, emb, cfg, "test", nil, 0)
+	var gotSimilar []string
+	rep, err := Consolidate(store, emb, cfg, "test", func(_ string, similar []string) (Action, string, error) {
+		gotSimilar = similar
+		return ActionUpdate, "auth uses jwt tokens", nil
+	}, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if rep.Actions[string(ActionUpdate)] != 1 {
 		t.Errorf("report = %+v, want one UPDATE", rep)
+	}
+	if len(gotSimilar) != 2 {
+		t.Fatalf("similar=%v, want two live facts", gotSimilar)
+	}
+	queryVec, _ := emb.Embed("auth uses jwt tokens")
+	first, _ := emb.Embed(gotSimilar[0])
+	second, _ := emb.Embed(gotSimilar[1])
+	if storage.CosineSimilarity(queryVec, first) < storage.CosineSimilarity(queryVec, second) {
+		t.Errorf("similar facts are not ordered by similarity: %v", gotSimilar)
 	}
 }
 
@@ -1466,19 +1492,22 @@ func TestExtractL5MergeEarlyReturnAndDissimilar(t *testing.T) {
 }
 
 func TestExtractL5MergeSummariseErrorAndTitleDefault(t *testing.T) {
-	// LLM failure inside the merge skips the component without failing the run
+	// A failed merge propagates the provider error without retiring its sources.
 	store, emb := newParityStore(t)
 	cfg := config.ForTesting(t.TempDir())
 	cfg.System2.L5ClusterSimilarity = 1.1
 	cfg.System2.L5MergeSimilarity = 0.9
 	cfg.System2.L5MergeEveryNCycles = 1
-	seedMergeableModels(t, store, emb)
+	m1, m2 := seedMergeableModels(t, store, emb)
 	rep, err := ExtractL5(store, emb, cfg, "test", &errLLM{errBoom}, "")
-	if err != nil {
-		t.Fatal(err)
+	if !errors.Is(err, errBoom) {
+		t.Fatalf("error=%v, want provider error", err)
 	}
-	if rep.MergedModels != 0 {
-		t.Errorf("MergedModels = %d, want 0 on LLM failure", rep.MergedModels)
+	for _, m := range []*schema.Memory{m1, m2} {
+		got, _ := store.GetMemory(m.ID)
+		if IsRetired(got) {
+			t.Error("provider failure retired old model")
+		}
 	}
 
 	// empty title from the LLM falls back to "mental model"
@@ -1634,17 +1663,12 @@ func TestRecallEmbedderAndStoreErrors(t *testing.T) {
 	}
 }
 
-func TestNegativeTopKPanics(t *testing.T) {
-	// documents the current defensive behaviour: a negative topK slips past the
-	// fetchK guard and panics on tier-1 truncation
+func TestNegativeTopKReturnsError(t *testing.T) {
 	store, emb := newParityStore(t)
 	cfg := config.ForTesting(t.TempDir())
-	defer func() {
-		if recover() == nil {
-			t.Error("Recall with negative topK should panic")
-		}
-	}()
-	_, _ = Recall(store, emb, "q", cfg, "test", -1, nil, nil, 0)
+	if _, err := Recall(store, emb, "q", cfg, "test", -1, nil, nil, 0); err == nil {
+		t.Error("negative topK must return an explicit error")
+	}
 }
 
 func TestConsolidateFaults(t *testing.T) {

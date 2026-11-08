@@ -2,6 +2,8 @@ package operations
 
 import (
 	"cmp"
+	"encoding/json"
+	"fmt"
 	"slices"
 	"strings"
 
@@ -13,6 +15,19 @@ import (
 
 const l6Layer = schema.LayerL6Predictive
 const l6Watermark = "l6_last_episode_ts"
+
+type episodeCursor struct {
+	Timestamp float64 `json:"timestamp"`
+	ID        string  `json:"id"`
+}
+
+func workspaceMetaKey(operation, workspace string) string {
+	return operation + ":" + schema.ContentHash(workspace)
+}
+
+func compareEpisodeCursor(a, b episodeCursor) int {
+	return cmp.Or(cmp.Compare(a.Timestamp, b.Timestamp), cmp.Compare(a.ID, b.ID))
+}
 
 const l6DefaultPrompt = `You are a forward-prediction engine for a brain-inspired agent memory system. You are given a
 list of recent episodic events (what the agent just did or observed). Predict the most likely
@@ -76,27 +91,35 @@ func PredictL6(store storage.Store, embedder storage.EmbeddingProvider, cfg *con
 	}
 
 	// 2. window
-	rawWatermark, err := store.GetMeta(l6Watermark)
+	cursorKey := workspaceMetaKey("l6_episode_cursor", ws)
+	rawWatermark, err := store.GetMeta(cursorKey)
 	if err != nil {
 		return nil, err
 	}
-	watermark := 0.0
+	cursor := episodeCursor{}
 	if rawWatermark != "" {
-		watermark = parseFloatOrZero(rawWatermark)
+		if err := json.Unmarshal([]byte(rawWatermark), &cursor); err != nil {
+			return nil, fmt.Errorf("l6: invalid workspace cursor: %w", err)
+		}
 	}
 	episodes, err := store.IterMemories(ws, string(schema.LayerEpisodic), "")
 	if err != nil {
 		return nil, err
 	}
-	slices.SortStableFunc(episodes, func(a, b *schema.Memory) int { return cmp.Compare(a.CreatedAt, b.CreatedAt) })
+	slices.SortFunc(episodes, func(a, b *schema.Memory) int {
+		return compareEpisodeCursor(episodeCursor{a.CreatedAt, a.ID}, episodeCursor{b.CreatedAt, b.ID})
+	})
 	var recent []*schema.Memory
 	for _, e := range episodes {
-		if e.CreatedAt > watermark {
+		if schema.IsUsable(e) && compareEpisodeCursor(episodeCursor{e.CreatedAt, e.ID}, cursor) > 0 {
 			recent = append(recent, e)
 		}
 	}
-	if len(recent) > cfg.System2.L6MaxEpisodes {
-		recent = recent[:cfg.System2.L6MaxEpisodes]
+	if cfg.System2.L6MaxEpisodes < 0 {
+		return nil, fmt.Errorf("l6: max episodes must be non-negative")
+	}
+	if cap := cmp.Or(cfg.System2.L6MaxEpisodes, 20); len(recent) > cap {
+		recent = recent[:cap]
 	}
 	report.EpisodesSeen = len(recent)
 	if len(recent) == 0 {
@@ -177,11 +200,15 @@ func PredictL6(store storage.Store, embedder storage.EmbeddingProvider, cfg *con
 		})
 	}
 
-	newest := recent[len(recent)-1].CreatedAt
-	if err := store.SetMeta(l6Watermark, floatString(newest)); err != nil {
+	last := recent[len(recent)-1]
+	encoded, err := json.Marshal(episodeCursor{last.CreatedAt, last.ID})
+	if err != nil {
 		return nil, err
 	}
-	report.WatermarkUpdatedTo = newest
+	if err := store.SetMeta(cursorKey, string(encoded)); err != nil {
+		return nil, err
+	}
+	report.WatermarkUpdatedTo = last.CreatedAt
 	return report, nil
 }
 

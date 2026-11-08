@@ -1,10 +1,41 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
 )
+
+func TestRecallExpansionNodeConfig(t *testing.T) {
+	if got := Default().Recall.MaxExpandedNodes; got != 128 {
+		t.Fatalf("default node budget=%d, want 128", got)
+	}
+	path := ".task2-recall-budget.toml"
+	t.Cleanup(func() { _ = os.Remove(path) })
+	for _, value := range []int{0, 7, -1} {
+		if err := os.WriteFile(path, []byte(fmt.Sprintf("[recall]\nmax_expanded_nodes = %d\n", value)), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		cfg, err := FromFile(path)
+		if value < 0 {
+			if err == nil {
+				t.Error("negative node budget accepted")
+			}
+		} else if err != nil || cfg.Recall.MaxExpandedNodes != value {
+			t.Errorf("node budget=%d: cfg=%+v err=%v", value, cfg, err)
+		}
+	}
+	if _, err := Load(path, nil); err == nil {
+		t.Error("Load accepted negative file configuration")
+	}
+	if err := os.WriteFile(path, []byte("[recall]\nmax_expanded_nodes = 7\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(path, map[string]any{"recall": map[string]any{"max_expanded_nodes": -1}}); err == nil {
+		t.Error("Load accepted negative CLI configuration")
+	}
+}
 
 func TestIsSecret(t *testing.T) {
 	cases := map[string]bool{

@@ -2,8 +2,10 @@ package operations
 
 import (
 	"cmp"
+	"fmt"
 	"maps"
 	"math"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -53,7 +55,7 @@ func coveredMemberIDs(store storage.Store, workspace string) (map[string]bool, e
 		return nil, err
 	}
 	for _, l5 := range l5s {
-		if IsRetired(l5) {
+		if !schema.IsUsable(l5) {
 			continue
 		}
 		edges, err := store.Neighbors(l5.ID, abstractsRelation)
@@ -61,7 +63,7 @@ func coveredMemberIDs(store storage.Store, workspace string) (map[string]bool, e
 			return nil, err
 		}
 		for _, e := range edges {
-			if e.SrcID == l5.ID {
+			if e.SrcID == l5.ID && e.ValidTo == nil {
 				covered[e.DstID] = true
 			}
 		}
@@ -110,8 +112,10 @@ func connectedComponents(ids []string, vecs [][]float32, threshold float64) [][]
 	}
 	out := make([][]string, 0, len(groups))
 	for _, g := range groups {
+		slices.Sort(g)
 		out = append(out, g)
 	}
+	slices.SortFunc(out, func(a, b []string) int { return cmp.Compare(a[0], b[0]) })
 	return out
 }
 
@@ -160,7 +164,7 @@ func summarise(llm providers.LLMProvider, prompt string, members []*schema.Memor
 	})
 }
 
-func storeModel(store storage.Store, embedder storage.EmbeddingProvider, title, body, workspace, source string, extraMeta map[string]any) (*schema.Memory, error) {
+func buildModel(embedder storage.EmbeddingProvider, title, body, workspace, source string, extraMeta map[string]any) (*schema.Memory, []float32, error) {
 	content := title
 	if body != "" {
 		content = title + ": " + body
@@ -172,16 +176,15 @@ func storeModel(store storage.Store, embedder storage.EmbeddingProvider, title, 
 	m.Summary = title
 	m.Tags = []string{"mental_model"}
 	m.Metadata = meta
+	m.Metadata["knowledge_status"] = "inferred"
 	m.Source = source
 	m.Workspace = workspace
+	m.ContentHash = schema.ContentHash(content)
 	vec, err := embedder.Embed(content)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	if err := store.PutMemory(m, vec); err != nil {
-		return nil, err
-	}
-	return m, nil
+	return m, vec, nil
 }
 
 func mergeL5(store storage.Store, embedder storage.EmbeddingProvider, cfg *config.Config, workspace string, llm providers.LLMProvider, prompt string, report *L5ExtractionReport) (*L5ExtractionReport, error) {
@@ -191,7 +194,7 @@ func mergeL5(store storage.Store, embedder storage.EmbeddingProvider, cfg *confi
 	}
 	var models []*schema.Memory
 	for _, m := range all {
-		if !IsRetired(m) {
+		if schema.IsUsable(m) {
 			models = append(models, m)
 		}
 	}
@@ -211,8 +214,10 @@ func mergeL5(store storage.Store, embedder storage.EmbeddingProvider, cfg *confi
 	if err != nil {
 		return nil, err
 	}
+	if len(vecs) != len(contents) {
+		return nil, fmt.Errorf("l5 merge: embedding batch returned %d vectors for %d memories", len(vecs), len(contents))
+	}
 	components := connectedComponents(ids, vecs, cfg.System2.L5MergeSimilarity)
-	now := schema.Now()
 	for _, comp := range components {
 		if len(comp) < 2 {
 			continue
@@ -229,15 +234,16 @@ func mergeL5(store storage.Store, embedder storage.EmbeddingProvider, cfg *confi
 				return nil, err
 			}
 			for _, e := range edges {
-				if e.SrcID == om.ID && !seen[e.DstID] {
+				if e.SrcID == om.ID && e.ValidTo == nil && !seen[e.DstID] {
 					seen[e.DstID] = true
 					mb, err := store.GetMemory(e.DstID)
 					if err != nil {
 						return nil, err
 					}
-					if mb != nil {
-						members = append(members, mb)
+					if !schema.IsUsable(mb) || mb.Workspace != workspace {
+						return nil, fmt.Errorf("%w: unavailable model source %s", storage.ErrMemoryConflict, e.DstID)
 					}
+					members = append(members, mb)
 				}
 			}
 		}
@@ -245,8 +251,11 @@ func mergeL5(store storage.Store, embedder storage.EmbeddingProvider, cfg *confi
 			continue
 		}
 		result, err := summarise(llm, prompt, members)
-		if err != nil || len(result) == 0 {
-			continue
+		if err != nil {
+			return nil, err
+		}
+		if len(result) == 0 {
+			return nil, fmt.Errorf("l5 merge: empty model response")
 		}
 		title, _ := result["title"].(string)
 		body, _ := result["model"].(string)
@@ -255,23 +264,21 @@ func mergeL5(store storage.Store, embedder storage.EmbeddingProvider, cfg *confi
 		for _, om := range oldModels {
 			oldIDs = append(oldIDs, om.ID)
 		}
-		merged, err := storeModel(store, embedder, title, body, workspace, "l5_merge", map[string]any{
+		merged, vec, err := buildModel(embedder, title, body, workspace, "l5_merge", map[string]any{
 			"n_members": len(members), "merged_from": oldIDs,
 		})
 		if err != nil {
 			return nil, err
 		}
-		for _, om := range oldModels {
-			if err := Retire(store, om, merged.ID); err != nil {
-				return nil, err
-			}
+		batch := storage.MemoryBatch{Writes: []storage.MemoryWrite{{Memory: merged, Vector: vec}}}
+		if err := stageProvenance(store, &batch, merged, members, abstractsRelation); err != nil {
+			return nil, err
 		}
-		for _, mb := range members {
-			e := schema.NewEdge(merged.ID, abstractsRelation, mb.ID)
-			e.ValidFrom = now
-			if err := store.PutEdge(e); err != nil {
-				return nil, err
-			}
+		for _, om := range oldModels {
+			stageRetirement(&batch, om, merged.ID)
+		}
+		if err := store.ApplyMemoryBatch(batch); err != nil {
+			return nil, err
 		}
 		report.MergedModels++
 		report.Clusters = append(report.Clusters, map[string]any{
@@ -303,7 +310,7 @@ func ExtractL5(store storage.Store, embedder storage.EmbeddingProvider, cfg *con
 	var candidates []*schema.Memory
 	for _, m := range all {
 		key := [2]string{string(m.Layer), string(m.Type)}
-		if !covered[m.ID] && abstractable[key] {
+		if schema.IsUsable(m) && !covered[m.ID] && abstractable[key] {
 			candidates = append(candidates, m)
 		}
 	}
@@ -322,9 +329,11 @@ func ExtractL5(store storage.Store, embedder storage.EmbeddingProvider, cfg *con
 		if err != nil {
 			return nil, err
 		}
+		if len(vecs) != len(contents) {
+			return nil, fmt.Errorf("l5 extract: embedding batch returned %d vectors for %d memories", len(vecs), len(contents))
+		}
 	}
 	components := connectedComponents(ids, vecs, cfg.System2.L5ClusterSimilarity)
-	now := schema.Now()
 
 	for _, comp := range components {
 		if len(comp) < cfg.System2.L5MinClusterSize {
@@ -335,22 +344,25 @@ func ExtractL5(store storage.Store, embedder storage.EmbeddingProvider, cfg *con
 			members = append(members, byID[mid])
 		}
 		result, err := summarise(llm, prompt, members)
-		if err != nil || len(result) == 0 {
-			continue
+		if err != nil {
+			return nil, err
+		}
+		if len(result) == 0 {
+			return nil, fmt.Errorf("l5 extract: empty model response")
 		}
 		title, _ := result["title"].(string)
 		body, _ := result["model"].(string)
 		title = cmp.Or(title, "mental model")
-		modelMem, err := storeModel(store, embedder, title, body, ws, "l5_extract", map[string]any{"n_members": len(members)})
+		modelMem, vec, err := buildModel(embedder, title, body, ws, "l5_extract", map[string]any{"n_members": len(members)})
 		if err != nil {
 			return nil, err
 		}
-		for _, m := range members {
-			e := schema.NewEdge(modelMem.ID, abstractsRelation, m.ID)
-			e.ValidFrom = now
-			if err := store.PutEdge(e); err != nil {
-				return nil, err
-			}
+		batch := storage.MemoryBatch{Writes: []storage.MemoryWrite{{Memory: modelMem, Vector: vec}}}
+		if err := stageProvenance(store, &batch, modelMem, members, abstractsRelation); err != nil {
+			return nil, err
+		}
+		if err := store.ApplyMemoryBatch(batch); err != nil {
+			return nil, err
 		}
 		report.NewModels++
 		report.Clusters = append(report.Clusters, map[string]any{
@@ -360,23 +372,30 @@ func ExtractL5(store storage.Store, embedder storage.EmbeddingProvider, cfg *con
 
 	n := cfg.System2.L5MergeEveryNCycles
 	if n > 0 {
-		raw, err := store.GetMeta("l5_merge_cycle_count")
+		key := workspaceMetaKey("l5_merge_cycle_count", ws)
+		raw, err := store.GetMeta(key)
 		if err != nil {
 			return nil, err
 		}
 		counter := 1
 		if raw != "" {
-			if c, err2 := strconv.Atoi(raw); err2 == nil {
-				counter = c + 1
+			c, err := strconv.Atoi(raw)
+			if err != nil || c < 0 {
+				return nil, fmt.Errorf("l5: invalid workspace cycle count %q", raw)
 			}
+			counter = c + 1
 		}
 		if counter >= n {
-			if err := store.SetMeta("l5_merge_cycle_count", "0"); err != nil {
+			report, err = mergeL5(store, embedder, cfg, ws, llm, prompt, report)
+			if err != nil {
 				return nil, err
 			}
-			return mergeL5(store, embedder, cfg, ws, llm, prompt, report)
+			if err := store.SetMeta(key, "0"); err != nil {
+				return nil, err
+			}
+			return report, nil
 		}
-		if err := store.SetMeta("l5_merge_cycle_count", strconv.Itoa(counter)); err != nil {
+		if err := store.SetMeta(key, strconv.Itoa(counter)); err != nil {
 			return nil, err
 		}
 	}

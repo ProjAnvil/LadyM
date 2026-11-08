@@ -62,6 +62,7 @@ type RecallConfig struct {
 	TopKTier1             int
 	TopKTier2             int
 	GraphHops             int
+	MaxExpandedNodes      int
 	ReflectionMinHits     int
 	ReflectionMinCoverage float64
 	EnableTier2           bool
@@ -350,7 +351,7 @@ func Default() *Config {
 			TypeBoost: 0.25, RecencyHalfLifeS: 7 * 24 * 3600.0,
 		},
 		Recall: RecallConfig{
-			TopKTier1: 8, TopKTier2: 20, GraphHops: 2,
+			TopKTier1: 8, TopKTier2: 20, GraphHops: 2, MaxExpandedNodes: 128,
 			ReflectionMinHits: 2, ReflectionMinCoverage: 0.5, EnableTier2: true,
 		},
 		Consolidate: ConsolidateConfig{
@@ -682,6 +683,8 @@ func applyToml(cfg *Config, data map[string]any) {
 						cfg.Recall.TopKTier2 = asInt(nv)
 					case "graph_hops":
 						cfg.Recall.GraphHops = asInt(nv)
+					case "max_expanded_nodes":
+						cfg.Recall.MaxExpandedNodes = asInt(nv)
 					case "reflection_min_hits":
 						cfg.Recall.ReflectionMinHits = asInt(nv)
 					case "reflection_min_coverage":
@@ -1075,6 +1078,9 @@ func FromFile(path string) (*Config, error) {
 	cfg := Default()
 	applyToml(cfg, data)
 	syncNested(cfg)
+	if cfg.Recall.MaxExpandedNodes < 0 {
+		return nil, fmt.Errorf("recall.max_expanded_nodes must be non-negative")
+	}
 	return cfg, nil
 }
 
@@ -1136,6 +1142,9 @@ func Load(configPath string, cliOverrides map[string]any) (*Config, error) {
 			return nil, err
 		}
 		syncNested(cfg)
+	}
+	if cfg.Recall.MaxExpandedNodes < 0 {
+		return nil, fmt.Errorf("recall.max_expanded_nodes must be non-negative")
 	}
 	return cfg, nil
 }
