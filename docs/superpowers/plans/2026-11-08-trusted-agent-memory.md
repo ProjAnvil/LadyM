@@ -86,7 +86,7 @@ PreserveEmbedding=true explicitly retains existing blob; false follows PutMemory
 Batch inserts fail on invalid edge endpoints or guard conflict and roll back everything.
 CloseEdgesFor closes current incident edges at a single transaction time; replacement edges then insert.
 
-- [ ] **Step 1: Write red tests**
+- [x] **Step 1: Write red tests**
   - `TestSearchMemoriesScopeBeforeTopK`: four higher-scoring decoys in other ws/types; target k=1 returns target.
   - `TestSearchMemoriesInvalidAndClosed`: wrong dimension/NaN/Inf/closed DB error, never panic.
   - `TestSQLiteSearchSeesOtherConnectionChanges`: warm reader; second store insert/update/delete; next search reflects all.
@@ -99,10 +99,10 @@ CloseEdgesFor closes current incident edges at a single transaction time; replac
   - `TestSafeDeleteDependencies`: active graph and legacy dependencies protect auto; retired-only do not;
     explicit deletion stales direct fact/model/playbook, removes target, no-op missing.
   - `TestSafeDeleteReferenceRace`: both reference-first and deletion-first orderings maintain spec.
-- [ ] **Step 2: Run red selector**
+- [x] **Step 2: Run red selector**
   `go test ./storage ./schema -run 'Test(SearchMemories|SQLiteSearch|MemoryBatch|SafeDelete)' -count=1`.
   Expect missing interfaces or assertions reproducing the old behavior; save the relevant failure.
-- [ ] **Step 3: Implement contracts**
+- [x] **Step 3: Implement contracts**
   Add shared input/dependency/guard helpers without importing operations into storage.
   SQLite must use mutation-specific persistent generation (generation triggers are preferred):
   raw data_version alone is insufficient because external Touch changes it.
@@ -114,12 +114,12 @@ CloseEdgesFor closes current incident edges at a single transaction time; replac
   SQLite batch in one write transaction; PG lock guards/source rows in stable ID order before writes.
   Serialize safe deletion eligibility with reference commits; preflight stale references in writes/edges as needed.
   Invalid vectors are rejected before persistent mutation. No provider work in transactions.
-- [ ] **Step 4: Run green tests**
+- [x] **Step 4: Run green tests**
   Run the red selector, then `go test ./storage ./schema` and
   `go test -race ./storage -run 'Test(SQLiteSearch|MemoryBatch|SafeDelete)' -count=1`.
   Compile enterprise storage via `go test -tags enterprise ./storage -run '^$'`.
   Use live PG only through existing test DSN/isolation helpers; report skips honestly.
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
   Commit coherent schema/storage/test changes with message `fix(storage): make memory retrieval and mutations consistent`.
   Full report must show red/green commands and residual live-PG limitations.
 
@@ -144,7 +144,7 @@ CloseEdgesFor closes current incident edges at a single transaction time; replac
 - Workspace keys use an operation prefix plus stable workspace hash; L6 JSON cursor has
   `timestamp` and `id`, sorted and compared lexicographically.
 
-- [ ] **Step 1: Write red tests**
+- [x] **Step 1: Write red tests**
   - `TestRecallHonestTier2AndTokens`: absent token stays insufficient, cat/concatenate not coverage.
   - `TestRecallExpansionBudgetAndScope`: >128 neighbors, stable set, no retired/stale/cross-ws bridge.
   - `TestConsolidateTypedOffline`: code/resource same vector cannot retire; similar unequal fact ADD;
@@ -162,9 +162,9 @@ CloseEdgesFor closes current incident edges at a single transaction time; replac
     leaves no unsupported usable model/playbook or premature retirement.
   - `TestSystem2WorkspaceCursor`: A/B independent, equal timestamps > cap across restart consumed exactly once,
     L5 counters independent, provider errors propagate.
-- [ ] **Step 2: Run red selector**
+- [x] **Step 2: Run red selector**
   `go test ./operations ./engine -run 'Test(RecallHonest|RecallExpansion|ConsolidateTyped|ConsolidateInvalid|ConsolidateAtomic|ConsolidateUpdateKeeps|DecayProtected|PlaybookProvenance|System2Workspace)' -count=1`.
-- [ ] **Step 3: Implement lifecycle**
+- [x] **Step 3: Implement lifecycle**
   Migrate every internal VectorSearch call to SearchMemories, including resource and playbook lookups.
   Tier2 applies shared usability/filter helpers, stable bounded traversal, one file-path map,
   and recomputes reflect on returned results. Token equality replaces substring checks.
@@ -180,12 +180,12 @@ CloseEdgesFor closes current incident edges at a single transaction time; replac
   necessary and reuse it from existing helpers. Absent/deleted source conflicts abort publication.
   L6 cursor/checkpoint encoding is lossless for equal timestamps; ignore old global key but leave it intact.
   L5 errors no longer skip silently. No R2 verifier added.
-- [ ] **Step 4: Run green**
+- [x] **Step 4: Run green**
   Red selector then `go test ./operations ./engine ./config`.
   `go test -race ./operations ./engine -run 'Test(ConsolidateAtomic|System2Workspace|RecallExpansion)' -count=1`.
   `go test -tags enterprise ./operations ./engine ./config -run '^$'`.
   Any changed parity test must assert new specified behavior, never merely remove assertions.
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
   `fix(memory): preserve evidence and report recall sufficiency honestly`.
 
 ### Task 3: Canonical capture identity and safe cross-surface provenance
@@ -212,7 +212,7 @@ CloseEdgesFor closes current incident edges at a single transaction time; replac
 - Ordinary resource write/read and Maintain alias merge exclude path entities from fuzzy/alias treatment.
 - MCP memory metadata whitelist is the exact R1-P list; no new generic metadata input endpoint.
 
-- [ ] **Step 1: Write red tests**
+- [x] **Step 1: Write red tests**
   - `TestCaptureIdentityModeConfig`: absent legacy; canonical TOML/env precedence; invalid rejected.
   - `TestCanonicalIdentityPaths`: same dirname different roots distinct, nested git cwd same root,
     spaces/CJK/trailing slash, root-relative main.go paths distinct, root-outside absolute preserved.
@@ -221,19 +221,19 @@ CloseEdgesFor closes current incident edges at a single transaction time; replac
   - `TestHookObservedToolOutcome`: normal/Stop observed, tool_outcome recorded, tool output cannot assert verified.
   - `TestMCPProvenanceWhitelist`: source IDs/list/session/status/time survive; unknown/password/cwd/transcript omitted.
   - Legacy hook/workspace tests continue unchanged.
-- [ ] **Step 2: Red**
+- [x] **Step 2: Red**
   `go test ./config ./hook ./cli ./operations ./engine ./mcp -run 'Test(CaptureIdentity|Canonical|HookObserved|MCPProvenance)' -count=1`.
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
   CLI has parsed payload/cwd/flags/config before identity choice; explicit -w wins; fallback to actual cwd.
   Map ordinary hook outcome compatibly while documenting tool versus task outcomes.
   Exact path identity must be enforced in all three resolution/merge seams, not just parsing.
   Reuse existing record pipeline; do not read transcripts or alter user's hook configs.
   Whitelist values preserve shapes; timestamps/workspace are additive.
   Update capture docs and sample config with explicit migration/backup/no-auto-merge instructions.
-- [ ] **Step 4: Green**
+- [x] **Step 4: Green**
   Run red selector then `go test ./config ./hook ./cli ./operations ./engine ./mcp`.
   `go test -tags enterprise ./config ./hook ./cli ./mcp -run '^$'`.
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
   `feat(capture): add canonical identities and trustworthy provenance`.
 
 ### Task 4: Bounded reference use, provenance-aware evaluation and delivery docs
@@ -262,7 +262,7 @@ CloseEdgesFor closes current incident edges at a single transaction time; replac
   exactly as audited spec; output retrieval_results.evidence_metrics.
 - Unknown provenance consumes a slot; missing server provenance stays compatible with old raw clients.
 
-- [ ] **Step 1: Write red tests**
+- [x] **Step 1: Write red tests**
   - `TestRetainObservedEpisode`: same user workspace Q/A L1 event, observed, no L2 fact.
   - `TestReferenceContextByteBudget`: ASCII/CJK/mixed emoji, oversize prefix and summary <=4096 bytes;
     utf8.ValidString, IDs retained when item emitted, no stale/retired/reference instruction promotion.
@@ -273,20 +273,20 @@ CloseEdgesFor closes current incident edges at a single transaction time; replac
   - `test_evidence_metrics_legacy_stable`: original metrics byte-for-byte shape/numbers unchanged;
     unique single-source groups equal the corresponding slot metric.
   - `test_retrieval_emits_both_metrics`: real runner with fake engine persists both namespaces and ranks.
-- [ ] **Step 2: Red**
+- [x] **Step 2: Red**
   `go test ./langgraph -run 'Test(RetainObserved|ReferenceContext)' -count=1`.
   Use the existing benchmark Python environment; first try
   `/Users/yuhaochen/Documents/codebase/projanvil/ladyM/benchmarks/.venv/bin/python -m pytest benchmarks/tests/test_provenance_metrics.py`
   with `PYTHONPATH=benchmarks/src:wrapper/py/src`.
   Install nothing unless a missing dependency failure requires restoration.
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
   Reuse existing nodes, no new bootstrap tool, LLM or untrusted command execution.
   Build one bounded reference string; handle long prefix without exceeding budget.
   New metrics don't change upstream legacy grading input; document provenance slot semantics and caveats.
   Update architecture to current lazy index/coherency behavior, honest reflection, typed offline ADD,
   atomic evidence retention, opt-in path identity, bounded injection and future R2–R4 boundaries.
   README changes limited to directly relevant capability/compatibility statements.
-- [ ] **Step 4: Green and final gates**
+- [x] **Step 4: Green and final gates**
   `go test ./langgraph`, benchmark targeted tests then `pytest benchmarks/tests` using existing environment.
   Whole repo `go test ./...`.
   `go test -race ./storage ./operations ./engine ./hook ./langgraph`.
@@ -294,7 +294,7 @@ CloseEdgesFor closes current incident edges at a single transaction time; replac
   verify `go list -tags enterprise -deps ./cmd/ladym` excludes modernc.org/sqlite and console.
   `go test -short -tags eval ./eval`; build binary only in ignored/session scratch if needed.
   Run live PG selectors when an existing local pgvector service is reachable; do not change production DBs.
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
   `feat(memory): bound reference context and evaluate source provenance`.
   Report acceptance evidence A01–A20, commands, red/green, skips, actual shipped/deferred features.
 
@@ -322,3 +322,13 @@ Stop after all R1 acceptance and reviews; no unsolicited R2 implementation.
 Plan audit disposition: require mutation-specific generation (not bare data_version),
 and publish L5/playbook provenance with guarded atomic batches. Both blockers resolved
 above with explicit tests and file ownership. No unresolved readiness blocker remains.
+
+## Execution disposition
+
+All four tasks completed with independent spec/quality gates.
+Task 2 required one fix/re-review; Task 3 required two; final whole-branch review
+required one four-finding fix wave and scoped re-review, all resolved.
+Implementation commits: T1 `e4452f1`, T2 `4c257c1` + `68df925`,
+T3 `06b710b` + `e8f571d` + `e143ce7`, T4 `e4b8f6e`;
+final repair `948d2fe`. Full delivery proof/limitations are in spec section 13.
+R2–R4 deferred intentionally; no merge or push performed.

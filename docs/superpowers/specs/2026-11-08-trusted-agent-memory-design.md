@@ -1,7 +1,7 @@
 # LadyM Trusted Agent Memory: 完整架构规格
 
-日期：2026-11-08  
-状态：待独立审计；用户已授权 spec → 审计 → plan → 审计 → subagent 实施  
+日期：2026-11-08
+状态：R1 已实施；spec/plan 独立审计、逐任务审查及全分支修复复审通过
 适用仓库：LadyM，基线 `2c41b06`
 
 ## 1. 意图与问题
@@ -406,3 +406,31 @@ R2–R4 不因本次 R1 完成而自动获准修改实际用户记忆或扩容�
 canonical fuzzy 合并、hook 验证来源、水位同时间戳、评估 rank 语义。
 均已通过本规格的明确契约和 A10b/A11b/A13b/A17b 补齐。
 计划审计必须再检查这些已决事项是否有具体实现任务和数值测试。
+
+## 13. R1 交付与验证记录
+
+分支 `feat/trusted-agent-memory`；基线 `2c41b06`。
+四个实施单元及独立审查完成；全分支审查的四项重要发现已在
+`948d2fe` 修复并通过定向复审：路径候选前置过滤/迁移、缺失来源更新、
+图来源删除后 ID 保留、分类器 action enum。
+
+最终源码版本 `948d2fe` 的新验证：
+
+| 验证 | 结果 |
+|---|---|
+| `CGO_ENABLED=0 go test -count=1 ./...` | 个人版全部包通过 |
+| `go test -race -count=1 ./storage ./operations ./engine ./hook ./langgraph` | 五个相关并发包通过 |
+| `CGO_ENABLED=0 go test -short -tags eval ./eval` | hook 评估回归通过 |
+| `CGO_ENABLED=0 go build -tags enterprise ./cmd/ladym ./cmd/ladymconsole` | 两个企业版生产入口通过 |
+| 企业版依赖检查 | 不包含 SQLite 或嵌入式 console |
+| 当前 worktree 的 `pytest benchmarks/tests` | 49/49 通过 |
+
+验收 A01–A18/A10b/A11b/A13b/A17b 已有对应回归测试和独立审查；
+A19 通过。A20 的企业版构建/依赖隔离通过，真实 PostgreSQL 测试未运行：
+本机没有可用的测试 DSN/服务，Docker daemon 不可用。不得将 PG gated skip
+作为真实后端通过证据。完整 enterprise 测试另有基线 SQLite 专属测试未隔离，
+本轮不修复无关测试；不声称完整 enterprise 套件通过。
+
+Postgres 的保守全局 mutation 锁会串行 workspace 写入，普通查询不受该锁串行化。
+这是 R1 正确性取舍，吞吐量未测量；细粒度锁改进必须伴随真实 PG 竞态测试。
+R2–R4 仍是后续规格，尚未实施。工作区与分支保留，未 merge/push，未修改用户数据库。
