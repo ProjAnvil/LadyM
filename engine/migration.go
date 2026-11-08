@@ -39,12 +39,17 @@ func MigrateEmbeddings(ctx context.Context, store storage.Store, target schema.E
 		return err
 	}
 	if status.ActiveFingerprint == target.Fingerprint() && status.State != "staging" {
-		if !keepRollback && status.RollbackAvailable {
-			return store.FinalizeEmbeddingMigration()
+		if !keepRollback && status.RollbackAvailable && status.AutoFinalize {
+			return store.FinalizeAutomaticEmbeddingMigration(status.Generation, target.Fingerprint())
 		}
 		return nil
 	}
-	generation, err := store.BeginEmbeddingMigrationGeneration(target)
+	var generation string
+	if keepRollback {
+		generation, err = store.BeginEmbeddingMigrationGeneration(target)
+	} else {
+		generation, err = store.BeginAutomaticEmbeddingMigrationGeneration(target)
+	}
 	if err != nil {
 		return err
 	}
@@ -89,7 +94,7 @@ func MigrateEmbeddings(ctx context.Context, store storage.Store, target schema.E
 		return err
 	}
 	if !keepRollback {
-		return store.FinalizeEmbeddingMigration()
+		return store.FinalizeAutomaticEmbeddingMigration(generation, target.Fingerprint())
 	}
 	return nil
 }
@@ -154,12 +159,15 @@ func (e *Engine) enforceEmbeddingFingerprint() error {
 		return e.Store.SetMeta("embedding_provider", "injected")
 	}
 	if status.State == "staging" {
-		if e.Config.EmbeddingAllowDimChange && status.TargetFingerprint == identity.Fingerprint() {
+		if e.Config.EmbeddingAllowDimChange && status.AutoFinalize && status.TargetFingerprint == identity.Fingerprint() {
 			return MigrateEmbeddings(context.Background(), e.Store, identity, e.Provider, 64, false)
 		}
 		return fmt.Errorf("%w: staging migration %s; use explicit status/resume/rollback", storage.ErrEmbeddingMigration, status.Generation)
 	}
 	if status.ActiveFingerprint == identity.Fingerprint() {
+		if status.State == "rollback_window" && status.AutoFinalize {
+			return e.Store.FinalizeAutomaticEmbeddingMigration(status.Generation, identity.Fingerprint())
+		}
 		legacyTokenizer, err := e.Store.GetMeta("embedding_tokenizer")
 		if err != nil {
 			return err
@@ -168,7 +176,7 @@ func (e *Engine) enforceEmbeddingFingerprint() error {
 			return nil
 		}
 		if e.Config.EmbeddingAllowDimChange && status.State == "idle" {
-			if err := e.Store.BeginEmbeddingMigration(identity); err != nil {
+			if _, err := e.Store.BeginAutomaticEmbeddingMigrationGeneration(identity); err != nil {
 				return err
 			}
 			return MigrateEmbeddings(context.Background(), e.Store, identity, e.Provider, 64, false)

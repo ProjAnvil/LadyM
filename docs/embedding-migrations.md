@@ -6,6 +6,14 @@ tokenizer/version, hashed as canonical JSON with SHA-256. Equal dimensions do
 legacy vectors or a different fingerprint. Matching startup does not re-embed
 stored content.
 
+Hashing providers capture their tokenizer and dictionary at construction.
+Subsequent global CJK configuration, dictionary reloads and other Engine instances
+cannot change their vectors or cache identity. Dictionary tokenizer identities
+include variant and a digest of the loaded word/frequency data; changing dictionary
+contents requires migration even within the same variant. Older `dict-v1`
+identities cannot attest a particular dictionary: migrate explicitly rather than
+silently treating them as the new dictionary-specific identity.
+
 Injected providers should implement:
 
 ```go
@@ -62,7 +70,9 @@ perform a migration instead.
   Failed activation leaves the old space and backup intact.
 - Explicit migration retains rollback. Rollback restores vectors and their
   identity, not memory bodies/access counters. Finalize deletes staging/backup
-  vectors and unfreezes writes. It is intentionally irreversible.
+  vectors and unfreezes writes. It is intentionally irreversible. Explicit CLI
+  `--finalize` selects the current rollback window under the transaction lock,
+  not a previously read status or an abandoned runner's generation.
 - During staging and the rollback window, database gates reject memory creation,
   content/vector writes and structural or trust/scope metadata edits, including
   raw SQL. Touch/access updates remain allowed. Explicit Store deletion remains
@@ -94,8 +104,13 @@ err := engine.MigrateEmbeddings(ctx, store, target, provider, 64, true)
 
 The final boolean retains rollback. The legacy `allow_dim_change` automatic
 startup path uses the same durable migration but finalizes after success to
-preserve existing write compatibility. Explicit API/CLI migration defaults to
-retaining the rollback window.
+preserve existing write compatibility. Automatic intent is persisted with
+generation acquisition and cannot take over an explicitly retained migration.
+If the process crashes after activation but before finalization, matching Engine
+startup finishes only that pending automatic generation, even if
+`allow_dim_change` is now disabled. Explicit windows (and legacy records without
+automatic intent) remain retained and write-frozen until administrative control.
+Explicit API/CLI migration defaults to retaining the rollback window.
 
 Low-level runners must acquire a generation atomically with
 `BeginEmbeddingMigrationGeneration(target)`, fetch
@@ -104,6 +119,14 @@ Low-level runners must acquire a generation atomically with
 `ActivateEmbeddingMigration(generation)`. A separate begin/status pair is not a
 safe way to acquire a fence. Late work cannot publish after abort/restart, even
 when the new target has the same fingerprint.
+
+Automatic low-level runners instead acquire
+`BeginAutomaticEmbeddingMigrationGeneration(target)`, use the same fenced
+batch/stage/activate calls, then call
+`FinalizeAutomaticEmbeddingMigration(generation, targetFingerprint)`. Finalization
+checks automatic intent, generation, target and active fingerprint together in
+one transaction. Late finalizers fail after rollback/restart and cannot erase
+the backup of a later generation, even for an identical target.
 
 Cancellation is checked before batches, before/after provider calls and before
 activation. Providers with `EmbedContext` receive the context; legacy providers

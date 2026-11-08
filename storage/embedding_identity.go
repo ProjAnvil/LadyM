@@ -10,7 +10,7 @@ import (
 )
 
 func (h *HashingEmbedding) Identity() schema.EmbeddingIdentity {
-	return schema.EmbeddingIdentity{Provider: "hashing", Model: "blake2b-feature-v1", Dim: h.Dim(), Tokenizer: CJKTokenizerVersion()}
+	return schema.EmbeddingIdentity{Provider: "hashing", Model: "blake2b-feature-v1", Dim: h.Dim(), Tokenizer: h.tokenizer.version}
 }
 
 func (c *CachedEmbedding) Identity() schema.EmbeddingIdentity {

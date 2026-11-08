@@ -133,10 +133,14 @@ func splitCamel(raw string) []string {
 // get_user_name tokenize similarly. CJK script runs are segmented into words
 // by gse (jieba dictionary) for Chinese and per character for kana/hangul.
 func Tokenize(text string) []string {
+	return tokenize(text, segmentCJK)
+}
+
+func tokenize(text string, segment func(string) []string) []string {
 	var out []string
 	for _, raw := range tokenRe.FindAllString(text, -1) {
 		if cjkRunRe.MatchString(raw) {
-			for _, p := range segmentCJK(raw) {
+			for _, p := range segment(raw) {
 				out = append(out, strings.ToLower(p))
 			}
 			continue
@@ -193,18 +197,19 @@ func healthCheckDefault(p EmbeddingProvider) (bool, string) {
 // per-character for kana/hangul), so Chinese, Japanese, and Korean text
 // embed without any network or model download.
 type HashingEmbedding struct {
-	dim int
+	dim       int
+	tokenizer hashingTokenizer
 }
 
 // NewHashingEmbedding returns a HashingEmbedding with the given dim.
 func NewHashingEmbedding(dim int) *HashingEmbedding {
-	return &HashingEmbedding{dim: dim}
+	return &HashingEmbedding{dim: dim, tokenizer: captureHashingTokenizer("", "")}
 }
 
 func (h *HashingEmbedding) Dim() int { return h.dim }
 
 func (h *HashingEmbedding) features(text string) []string {
-	toks := Tokenize(text)
+	toks := tokenize(text, h.tokenizer.segment)
 	feats := make([]string, 0, len(toks)*2)
 	feats = append(feats, toks...)
 	for i := 0; i+1 < len(toks); i++ {
@@ -344,7 +349,7 @@ func MakeProvider(cfg *config.Config) (EmbeddingProvider, error) {
 	var provider EmbeddingProvider
 	switch name {
 	case "hashing":
-		provider = NewHashingEmbedding(cfg.EmbeddingDim)
+		provider = &HashingEmbedding{dim: cfg.EmbeddingDim, tokenizer: captureHashingTokenizer(cfg.EmbeddingCJKTokenizer, cfg.CJKDictDir)}
 	case "st", "sentence-transformer", "sentence_transformers":
 		return nil, fmt.Errorf(
 			"sentence-transformers embeddings are not available in the Go port; use provider \"http\" or \"ollama\" to point at a local embedding endpoint")

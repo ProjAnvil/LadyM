@@ -5,6 +5,10 @@ package engine
 import (
 	"context"
 	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/ProjAnvil/LadyM/adapter"
@@ -14,6 +18,80 @@ import (
 )
 
 type anonymousMigrationEmbedding struct{ storage.EmbeddingProvider }
+
+func TestMigrationLiveHashingEnginesKeepTokenizer(t *testing.T) {
+	restoreCJKMode(t)
+	oldDir := storage.CJKDictStatusNow().Dir
+	t.Cleanup(func() { storage.SetCJKDictDir(oldDir) })
+	dict := t.TempDir()
+	for _, name := range []string{"s_1.txt", "t_1.txt"} {
+		if err := os.WriteFile(filepath.Join(dict, name), []byte("数据库 1024 n\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, cache := range []int{0, 1} {
+		for _, mode := range []string{storage.CJKTokenizerDict, storage.CJKTokenizerChars} {
+			t.Run(fmt.Sprintf("%s/cache=%d", mode, cache), func(t *testing.T) {
+				engineMigrationBackends(t, func(t *testing.T, cfg *config.Config) {
+					cfg.CJKDictDir, cfg.EmbeddingCJKTokenizer, cfg.EmbeddingQueryCacheSize = dict, mode, cache
+					first, err := New(cfg)
+					if err != nil {
+						t.Fatal(err)
+					}
+					defer first.Close()
+					identity, err := first.embeddingIdentity()
+					if err != nil {
+						t.Fatal(err)
+					}
+					before, err := first.Provider.Embed("数据库")
+					if err != nil {
+						t.Fatal(err)
+					}
+					secondCfg := config.ForTesting(t.TempDir())
+					secondCfg.CJKDictDir, secondCfg.EmbeddingQueryCacheSize = dict, cache
+					secondCfg.EmbeddingCJKTokenizer = storage.CJKTokenizerChars
+					if mode == storage.CJKTokenizerChars {
+						secondCfg.EmbeddingCJKTokenizer = storage.CJKTokenizerDict
+					}
+					second, err := New(secondCfg)
+					if err != nil {
+						t.Fatal(err)
+					}
+					defer second.Close()
+					other, err := second.Provider.Embed("数据库")
+					if err != nil {
+						t.Fatal(err)
+					}
+					if slices.Equal(before, other) {
+						t.Fatal("fixture did not distinguish dictionary and character vectors")
+					}
+					// Evict the first provider's cached entry, then also bypass its cache.
+					if _, err := first.Provider.Embed("eviction"); err != nil {
+						t.Fatal(err)
+					}
+					after, err := first.Provider.Embed("数据库")
+					if err != nil {
+						t.Fatal(err)
+					}
+					batch, err := first.Provider.EmbedBatch([]string{"数据库"})
+					if err != nil {
+						t.Fatal(err)
+					}
+					current, err := first.embeddingIdentity()
+					if err != nil {
+						t.Fatal(err)
+					}
+					if !slices.Equal(before, after) || !slices.Equal(before, batch[0]) || identity.Fingerprint() != current.Fingerprint() {
+						t.Fatal("second live Engine silently changed first provider's vectors or fingerprint")
+					}
+					if err := first.enforceEmbeddingFingerprint(); err != nil {
+						t.Fatal(err)
+					}
+				})
+			})
+		}
+	}
+}
 
 func TestMigrationAnonymousLegacyIdentity(t *testing.T) {
 	engineMigrationBackends(t, func(t *testing.T, cfg *config.Config) {

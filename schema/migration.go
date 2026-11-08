@@ -46,6 +46,7 @@ type MigrationStatus struct {
 	Cursor            string            `json:"cursor,omitempty"`
 	Processed         int               `json:"processed"`
 	RollbackAvailable bool              `json:"rollback_available"`
+	AutoFinalize      bool              `json:"auto_finalize,omitempty"`
 	ActiveIdentity    EmbeddingIdentity `json:"active_identity"`
 	TargetIdentity    EmbeddingIdentity `json:"target_identity"`
 }

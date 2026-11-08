@@ -12,10 +12,12 @@ type Store interface {
 	Close() error
 	BeginEmbeddingMigration(schema.EmbeddingIdentity) error
 	BeginEmbeddingMigrationGeneration(schema.EmbeddingIdentity) (string, error)
+	BeginAutomaticEmbeddingMigrationGeneration(schema.EmbeddingIdentity) (string, error)
 	StageEmbeddingMigration(id string, vector []float32, fingerprint, generation string) error
 	ActivateEmbeddingMigration(generation string) error
 	RollbackEmbeddingMigration() error
 	FinalizeEmbeddingMigration() error
+	FinalizeAutomaticEmbeddingMigration(generation, targetFingerprint string) error
 	AdoptEmbeddingIdentity(schema.EmbeddingIdentity) error
 	EmbeddingMigrationStatus() (*schema.MigrationStatus, error)
 	EmbeddingMigrationBatch(generation string, limit int) ([]*schema.Memory, error)

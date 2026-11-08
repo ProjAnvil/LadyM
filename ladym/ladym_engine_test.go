@@ -44,6 +44,7 @@ func dbPathUnderFile(t *testing.T) string {
 }
 func TestNewEngine(t *testing.T) {
 	t.Run("nil config uses defaults", func(t *testing.T) {
+		t.Setenv("LADYM_DB", filepath.Join(t.TempDir(), "mem.db"))
 		eng, err := NewEngine(nil)
 		if err != nil {
 			t.Fatal(err)

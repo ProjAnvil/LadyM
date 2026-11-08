@@ -227,12 +227,7 @@ func CJKTokenizerMode() string {
 // detectable: vectors produced by different versions are not comparable, and
 // silently mixing them would make older CJK memories unsearchable.
 func CJKTokenizerVersion() string {
-	cjkMu.Lock()
-	defer cjkMu.Unlock()
-	if cjkTokenizerMode == CJKTokenizerChars {
-		return "chars-v1"
-	}
-	return "dict-v1"
+	return captureHashingTokenizer("", "").version
 }
 
 // cjkTokenizerUsesDict reports whether segmentCJK may consult the dictionary.
@@ -319,7 +314,10 @@ func maybeReprobeLocked() {
 // The provider registered via SetEmbeddedCJKDict wins over the build-tag
 // variant; both embed the same zh dictionary.
 func loadCJKDict() (*gse.Segmenter, string, CJKDictName) {
-	dir := cjkDictDirFn()
+	return loadCJKDictFrom(cjkDictDirFn())
+}
+
+func loadCJKDictFrom(dir string) (*gse.Segmenter, string, CJKDictName) {
 	if v := detectInstalledVariant(dir); v != nil {
 		var seg gse.Segmenter
 		seg.SkipLog = true

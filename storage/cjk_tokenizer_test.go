@@ -1,8 +1,75 @@
 package storage
 
 import (
+	"os"
+	"path/filepath"
+	"slices"
 	"testing"
 )
+
+func TestHashingDictionarySnapshot(t *testing.T) {
+	dir := installTestDict(t)
+	setCJKTokenizerMode(t, CJKTokenizerDict)
+	first := NewHashingEmbedding(256)
+	before, err := first.Embed("数据库")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fingerprint := first.Identity().Fingerprint()
+	// Same variant, different dictionary contents must name a different space.
+	if err := os.WriteFile(filepath.Join(dir, "s_1.txt"), []byte("数据 1024 n\n库 1024 n\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	SetCJKDictDir(dir)
+	next := NewHashingEmbedding(256)
+	changed, err := next.Embed("数据库")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if slices.Equal(before, changed) || fingerprint == next.Identity().Fingerprint() {
+		t.Fatal("dictionary content change was not fenced by a new fingerprint")
+	}
+	after, err := first.Embed("数据库")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(before, after) || fingerprint != first.Identity().Fingerprint() {
+		t.Fatal("dictionary reload mutated a live provider")
+	}
+}
+
+func TestHashingDictionaryVariantIdentity(t *testing.T) {
+	dir := installTestDict(t)
+	setCJKTokenizerMode(t, CJKTokenizerDict)
+	first := NewHashingEmbedding(256)
+	before, err := first.Embed("テスト")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fingerprint := first.Identity().Fingerprint()
+	if err := os.WriteFile(filepath.Join(dir, "jp.txt"), []byte("テスト 2048 n\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "manifest.json"), []byte(`{"variant":"jp"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	SetCJKDictDir(dir)
+	next := NewHashingEmbedding(256)
+	changed, err := next.Embed("テスト")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if slices.Equal(before, changed) || fingerprint == next.Identity().Fingerprint() {
+		t.Fatal("dictionary variant change was not fenced by a new fingerprint")
+	}
+	after, err := first.Embed("テスト")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(before, after) || fingerprint != first.Identity().Fingerprint() {
+		t.Fatal("dictionary variant switch mutated a live provider")
+	}
+}
 
 // setCJKTokenizerMode redirects the CJK tokenizer mode for one test.
 func setCJKTokenizerMode(t *testing.T, mode string) {

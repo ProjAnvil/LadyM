@@ -165,7 +165,7 @@ func (e *Engine) reembedAll() error {
 	if err != nil {
 		return err
 	}
-	if err := e.Store.BeginEmbeddingMigration(identity); err != nil {
+	if _, err := e.Store.BeginAutomaticEmbeddingMigrationGeneration(identity); err != nil {
 		return err
 	}
 	return MigrateEmbeddings(context.Background(), e.Store, identity, e.Provider, 64, false)

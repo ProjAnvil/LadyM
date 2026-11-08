@@ -217,18 +217,26 @@ func (m *embeddingMigrations) AdoptEmbeddingIdentity(identity schema.EmbeddingId
 }
 
 func (m *embeddingMigrations) BeginEmbeddingMigration(target schema.EmbeddingIdentity) error {
-	return m.beginEmbeddingMigration(target, nil)
+	return m.beginEmbeddingMigration(target, nil, false)
 }
 
 // BeginEmbeddingMigrationGeneration acquires the fence in the same transaction
 // as begin/resume; a separate status read could inherit an intervening restart.
 func (m *embeddingMigrations) BeginEmbeddingMigrationGeneration(target schema.EmbeddingIdentity) (string, error) {
 	var generation string
-	err := m.beginEmbeddingMigration(target, &generation)
+	err := m.beginEmbeddingMigration(target, &generation, false)
 	return generation, err
 }
 
-func (m *embeddingMigrations) beginEmbeddingMigration(target schema.EmbeddingIdentity, acquired *string) error {
+// BeginAutomaticEmbeddingMigrationGeneration persists intent before any vector
+// work. Resuming cannot change the rollback policy selected by the first runner.
+func (m *embeddingMigrations) BeginAutomaticEmbeddingMigrationGeneration(target schema.EmbeddingIdentity) (string, error) {
+	var generation string
+	err := m.beginEmbeddingMigration(target, &generation, true)
+	return generation, err
+}
+
+func (m *embeddingMigrations) beginEmbeddingMigration(target schema.EmbeddingIdentity, acquired *string, autoFinalize bool) error {
 	if err := target.Validate(); err != nil {
 		return err
 	}
@@ -243,6 +251,9 @@ func (m *embeddingMigrations) beginEmbeddingMigration(target schema.EmbeddingIde
 	}
 	fp := target.Fingerprint()
 	if state.State == "staging" && state.TargetFingerprint == fp {
+		if state.AutoFinalize != autoFinalize {
+			return ErrEmbeddingMigration
+		}
 		if acquired != nil {
 			*acquired = state.Generation
 		}
@@ -256,6 +267,7 @@ func (m *embeddingMigrations) beginEmbeddingMigration(target schema.EmbeddingIde
 		return err
 	}
 	state.State, state.TargetIdentity, state.TargetFingerprint = "staging", target, fp
+	state.AutoFinalize = autoFinalize
 	state.Generation, state.Cursor, state.Processed = hex.EncodeToString(generation[:]), "", 0
 	state.OldMeta = map[string]string{}
 	for _, key := range embeddingMetaKeys {
@@ -434,6 +446,7 @@ func migrationClear(tx migrationTransaction, state *migrationRecord) error {
 	}
 	state.State, state.Generation, state.TargetFingerprint, state.Cursor = "idle", "", "", ""
 	state.Processed, state.RollbackAvailable = 0, false
+	state.AutoFinalize = false
 	state.TargetIdentity, state.OldMeta = schema.EmbeddingIdentity{}, nil
 	return migrationSave(tx, state)
 }
@@ -487,6 +500,16 @@ func (m *embeddingMigrations) RollbackEmbeddingMigration() error {
 }
 
 func (m *embeddingMigrations) FinalizeEmbeddingMigration() error {
+	return m.finalizeEmbeddingMigration("", "", false)
+}
+
+// FinalizeAutomaticEmbeddingMigration can clear only the captured automatic
+// generation and space, never an administrator's later rollback window.
+func (m *embeddingMigrations) FinalizeAutomaticEmbeddingMigration(generation, targetFingerprint string) error {
+	return m.finalizeEmbeddingMigration(generation, targetFingerprint, true)
+}
+
+func (m *embeddingMigrations) finalizeEmbeddingMigration(generation, targetFingerprint string, automatic bool) error {
 	tx, err := m.begin()
 	if err != nil {
 		return err
@@ -496,7 +519,11 @@ func (m *embeddingMigrations) FinalizeEmbeddingMigration() error {
 	if err != nil {
 		return err
 	}
-	if !state.RollbackAvailable {
+	if state.State != "rollback_window" || !state.RollbackAvailable {
+		return ErrEmbeddingMigration
+	}
+	if automatic && (!state.AutoFinalize || generation == "" || generation != state.Generation ||
+		targetFingerprint == "" || targetFingerprint != state.TargetFingerprint || targetFingerprint != state.ActiveFingerprint) {
 		return ErrEmbeddingMigration
 	}
 	if err := migrationClear(tx, state); err != nil {

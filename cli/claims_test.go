@@ -33,7 +33,7 @@ func TestClaimCLIContracts(t *testing.T) {
 				cfg.StoreDSN = testutil.PGDatabase(t, dsn)
 				t.Setenv("LADYM_STORE_DSN", cfg.StoreDSN)
 			}
-			t.Setenv("LADYM_DB_PATH", cfg.DBPath)
+			t.Setenv("LADYM_DB", cfg.DBPath)
 			t.Setenv("LADYM_EMBEDDING_DIM", "64")
 			t.Setenv("LADYM_EMBEDDING_PROVIDER", "hashing")
 			t.Setenv("LADYM_LLM_PROVIDER", "none")
