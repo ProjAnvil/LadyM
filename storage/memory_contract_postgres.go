@@ -230,6 +230,9 @@ func (s *PostgresStore) SearchMemories(queryVec []float32, topK int, filter Memo
 	if filter.ExcludeUnusable {
 		where += ` AND COALESCE(metadata->>'knowledge_status','') NOT IN ('stale','rejected') AND metadata->'evidence_missing' IS DISTINCT FROM 'true'::jsonb`
 	}
+	if filter.ExcludePathResources {
+		where += ` AND (type<>'resource' OR metadata->>'resource_identity' IS DISTINCT FROM 'path')`
+	}
 	// MATERIALIZED prevents an ANN preselection: sort the exact filtered set.
 	query := `WITH eligible AS MATERIALIZED (SELECT id,embedding FROM memories WHERE ` + where + `)
 		SELECT id, CASE WHEN vector_norm(embedding)=0 OR vector_norm($1::vector)=0 THEN 0::float8

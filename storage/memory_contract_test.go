@@ -2,7 +2,9 @@ package storage
 
 import (
 	"errors"
+	"fmt"
 	"math"
+	"slices"
 	"sync"
 	"testing"
 
@@ -72,6 +74,30 @@ func TestSearchMemoriesInvalidAndClosed(t *testing.T) {
 		s.Close()
 		if _, err := s.SearchMemories(contractVector(), 1, MemoryFilter{}); err == nil {
 			t.Fatal("closed DB returned success")
+		}
+	})
+}
+
+func TestSearchMemoriesPathExclusionBeforeTopK(t *testing.T) {
+	runStoreBackends(t, func(t *testing.T, s Store) {
+		for i := range 50 {
+			m := contractMemory(schema.TypeResource)
+			m.ID = fmt.Sprintf("a-path-%03d", i)
+			m.Metadata["resource_identity"] = "path"
+			suitePutMemory(t, s, m, contractVector())
+		}
+		target := contractMemory(schema.TypeResource)
+		target.ID = "z-ordinary"
+		suitePutMemory(t, s, target, contractVector())
+		filter := MemoryFilter{Workspace: "contract", Types: []schema.MemoryType{schema.TypeResource}, ExcludeUnusable: true}
+		hits, err := s.SearchMemories(contractVector(), 50, filter)
+		if err != nil || len(hits) != 50 || hits[0].ID != "a-path-000" || slices.ContainsFunc(hits, func(h SearchHit) bool { return h.ID == target.ID }) {
+			t.Fatalf("fixture does not starve ordinary resource: %v %v", hits, err)
+		}
+		filter.ExcludePathResources = true
+		hits, err = s.SearchMemories(contractVector(), 1, filter)
+		if err != nil || len(hits) != 1 || hits[0].ID != target.ID {
+			t.Fatalf("path exclusion must precede truncation: %v %v", hits, err)
 		}
 	})
 }
@@ -222,6 +248,7 @@ func TestSafeDeleteEvidenceSnapshotParity(t *testing.T) {
 			if _, err := db.pool.Exec(t.Context(), "UPDATE memories SET metadata=jsonb_build_object('source_episode',$1::text) WHERE id=$2", source.ID, foreign.ID); err != nil {
 				t.Fatal(err)
 			}
+
 		default:
 			putLegacyForeignReference(t, s, foreign, source.ID)
 		}
@@ -235,6 +262,59 @@ func TestSafeDeleteEvidenceSnapshotParity(t *testing.T) {
 	})
 }
 
+func TestSafeDeleteGraphOnlyProvenanceRetained(t *testing.T) {
+	runStoreBackends(t, func(t *testing.T, s Store) {
+		source := contractMemory(schema.TypeFact)
+		other := contractMemory(schema.TypeFact)
+		another := contractMemory(schema.TypeFact)
+		suitePutMemory(t, s, source, contractVector())
+		suitePutMemory(t, s, other, contractVector())
+		suitePutMemory(t, s, another, contractVector())
+		for _, relation := range []string{"abstracts", "produced_from"} {
+			dependant := contractMemory(schema.TypeMentalModel)
+			dependant.Layer = schema.LayerL5Mental
+			dependant.Metadata["marker"] = "original"
+			if relation == "produced_from" {
+				dependant.Metadata["source_episode"] = other.ID
+				dependant.Metadata["source_episodes"] = []string{another.ID}
+			}
+			suitePutMemory(t, s, dependant, contractVector())
+			if err := s.PutEdge(schema.NewEdge(dependant.ID, relation, source.ID)); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if deleted, protected, err := s.DeleteMemorySafely(source.ID, 2); err != nil || deleted || !protected {
+			t.Fatalf("graph-only evidence not protected: %v %v %v", deleted, protected, err)
+		}
+		if err := s.DeleteMemory(source.ID); err != nil {
+			t.Fatal(err)
+		}
+		if got, err := s.GetMemory(source.ID); err != nil || got != nil {
+			t.Fatalf("source survived explicit deletion: %+v %v", got, err)
+		}
+		dependants, err := s.IterMemories("contract", string(schema.LayerL5Mental), "")
+		if err != nil || len(dependants) != 2 {
+			t.Fatalf("dependants: %v %v", dependants, err)
+		}
+		for _, m := range dependants {
+			if schema.IsUsable(m) || m.MetaString("knowledge_status") != "stale" || m.Meta("evidence_missing") != true || m.MetaString("marker") != "original" {
+				t.Errorf("lost invalidation or original metadata: %+v", m)
+			}
+			ids := legacySources(m)
+			if !slices.Contains(ids, source.ID) {
+				t.Errorf("cascade erased graph-only lost source ID: %v", m.Metadata)
+			}
+			if m.MetaString("source_episode") == other.ID &&
+				(!slices.Contains(ids, other.ID) || !slices.Contains(ids, another.ID)) {
+				t.Errorf("deletion replaced legacy provenance: %v", m.Metadata)
+			}
+			edges, err := s.Neighbors(m.ID, "")
+			if err != nil || slices.ContainsFunc(edges, func(e *schema.Edge) bool { return e.DstID == source.ID }) {
+				t.Errorf("source edge did not cascade: %+v %v", edges, err)
+			}
+		}
+	})
+}
 func TestMemoryBatchDatabaseFailureRollback(t *testing.T) {
 	runStoreBackends(t, func(t *testing.T, s Store) {
 		source := contractMemory(schema.TypeEvent)
@@ -274,7 +354,7 @@ func TestMemoryBatchDatabaseFailureRollback(t *testing.T) {
 		}
 		gotSource, _ = s.GetMemory(source.ID)
 		gotTarget, _ = s.GetMemory(target.ID)
-		if gotSource == nil || !schema.IsUsable(gotTarget) {
+		if gotSource == nil || !schema.IsUsable(gotTarget) || slices.Contains(legacySources(gotTarget), source.ID) {
 			t.Fatalf("failed delete partially invalidated evidence: %v %v", gotSource, gotTarget)
 		}
 	})

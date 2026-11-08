@@ -105,10 +105,11 @@ and [benchmark provenance semantics](benchmarks/README.md#two-retrieval-metric-n
 
 ## What's New in 0.6.0
 
-- **Concurrent HTTP data plane** — the global request mutex is gone: requests across
-  workspaces run fully in parallel via per-request `engine.Scope` views, writes
-  serialize only at the storage backend (SQLite WAL single-writer; Postgres fully
-  parallel), and the in-memory vector index is now `RWMutex`-guarded.
+- **Concurrent HTTP data plane** — the global request mutex is gone: requests use
+  per-request `engine.Scope` views. Reads are not globally serialized; SQLite WAL
+  remains single-writer, and PostgreSQL conservatively serializes memory/edge
+  mutations globally for evidence correctness. Concurrent-write throughput is an
+  unmeasured limitation, not a claim of fully parallel PostgreSQL writers.
 - **Multi-replica System 2 workers** — cycle-level leader election (Postgres advisory
   lock / SQLite flock) makes standby workers safe: a crashed replica's cycles are
   picked up by any survivor, with no duplicate consolidation spend.

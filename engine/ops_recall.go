@@ -189,7 +189,7 @@ func (s *Scope) resolveResourceForRead(name string) (*schema.Memory, error) {
 	}
 	hits, err := s.eng.Store.SearchMemories(queryVec, 50, storage.MemoryFilter{
 		Workspace: s.workspace, Layers: []schema.Layer{schema.LayerSemantic},
-		Types: []schema.MemoryType{schema.TypeResource}, ExcludeUnusable: true,
+		Types: []schema.MemoryType{schema.TypeResource}, ExcludeUnusable: true, ExcludePathResources: true,
 	})
 	if err != nil {
 		return nil, err

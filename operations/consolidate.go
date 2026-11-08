@@ -84,6 +84,16 @@ func guardMemory(batch *storage.MemoryBatch, m *schema.Memory) {
 }
 
 func sourceSnapshots(store storage.Store, m *schema.Memory) ([]*schema.Memory, error) {
+	sources, missing, err := sourceSnapshotsWithMissing(store, m)
+	if err == nil && len(missing) > 0 {
+		err = fmt.Errorf("%w: unavailable source %s", storage.ErrMemoryConflict, missing[0])
+	}
+	return sources, err
+}
+
+// Snapshot missing legacy evidence before classification, not after: a source
+// that disappears during classification must still fail its persisted guard.
+func sourceSnapshotsWithMissing(store storage.Store, m *schema.Memory) ([]*schema.Memory, []string, error) {
 	ids := map[string]bool{}
 	if id := m.MetaString("source_episode"); id != "" {
 		ids[id] = true
@@ -102,7 +112,7 @@ func sourceSnapshots(store storage.Store, m *schema.Memory) ([]*schema.Memory, e
 	}
 	edges, err := store.Neighbors(m.ID, "produced_from")
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	for _, edge := range edges {
 		if edge.SrcID == m.ID && edge.ValidTo == nil {
@@ -110,17 +120,22 @@ func sourceSnapshots(store storage.Store, m *schema.Memory) ([]*schema.Memory, e
 		}
 	}
 	var sources []*schema.Memory
+	var missing []string
 	for _, id := range slices.Sorted(maps.Keys(ids)) {
 		source, err := store.GetMemory(id)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
+		}
+		if source == nil {
+			missing = append(missing, id)
+			continue
 		}
 		if !schema.IsUsable(source) || source.Workspace != m.Workspace {
-			return nil, fmt.Errorf("%w: unavailable source %s", storage.ErrMemoryConflict, id)
+			return nil, nil, fmt.Errorf("%w: unavailable source %s", storage.ErrMemoryConflict, id)
 		}
 		sources = append(sources, source)
 	}
-	return sources, nil
+	return sources, missing, nil
 }
 
 // stageProvenance snapshots every source and resource before the transaction.
@@ -312,9 +327,10 @@ func Consolidate(store storage.Store, embedder storage.EmbeddingProvider, cfg *c
 			}
 		}
 		var previousSources []*schema.Memory
+		var missingSources []string
 		var sourceErr error
 		if len(similar) > 0 {
-			previousSources, sourceErr = sourceSnapshots(store, similar[0].Memory)
+			previousSources, missingSources, sourceErr = sourceSnapshotsWithMissing(store, similar[0].Memory)
 		}
 
 		var action Action
@@ -400,6 +416,12 @@ func Consolidate(store storage.Store, embedder storage.EmbeddingProvider, cfg *c
 			}
 			if err := stageProvenance(store, &batch, merged, append(previousSources, ep), "produced_from"); err != nil {
 				return nil, err
+			}
+			if len(missingSources) > 0 {
+				ids := append(merged.Metadata["source_episodes"].([]string), missingSources...)
+				slices.Sort(ids)
+				merged.Metadata["source_episodes"] = slices.Compact(ids)
+				merged.Metadata["evidence_missing"] = true
 			}
 			batch.Writes = append(batch.Writes, storage.MemoryWrite{Memory: merged, Vector: vec})
 			stageRetirement(&batch, target, merged.ID)

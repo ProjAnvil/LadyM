@@ -38,25 +38,31 @@ CREATE TABLE IF NOT EXISTS memory_evidence_sources (
 	PRIMARY KEY(memory_id,source_id)
 );
 CREATE INDEX IF NOT EXISTS idx_evidence_source ON memory_evidence_sources(source_id);
-CREATE TRIGGER IF NOT EXISTS memories_evidence_insert AFTER INSERT ON memories BEGIN
-	INSERT OR IGNORE INTO memory_evidence_sources
+DROP TRIGGER IF EXISTS memories_evidence_insert;
+DROP TRIGGER IF EXISTS memories_evidence_update;
+CREATE TRIGGER memories_evidence_insert AFTER INSERT ON memories BEGIN
+	INSERT INTO memory_evidence_sources
 		SELECT NEW.id,json_extract(NEW.metadata,'$.source_episode')
 		WHERE json_type(NEW.metadata,'$.source_episode')='text'
-			AND json_extract(NEW.metadata,'$.source_episode')<>'';
-	INSERT OR IGNORE INTO memory_evidence_sources
+			AND json_extract(NEW.metadata,'$.source_episode')<>''
+		ON CONFLICT(memory_id,source_id) DO NOTHING;
+	INSERT INTO memory_evidence_sources
 		SELECT NEW.id,value FROM json_each(NEW.metadata,'$.source_episodes')
-		WHERE json_type(NEW.metadata,'$.source_episodes')='array' AND type='text' AND value<>'';
+		WHERE json_type(NEW.metadata,'$.source_episodes')='array' AND type='text' AND value<>''
+		ON CONFLICT(memory_id,source_id) DO NOTHING;
 END;
-CREATE TRIGGER IF NOT EXISTS memories_evidence_update AFTER UPDATE OF metadata ON memories
+CREATE TRIGGER memories_evidence_update AFTER UPDATE OF metadata ON memories
 WHEN NEW.metadata IS NOT OLD.metadata BEGIN
 	DELETE FROM memory_evidence_sources WHERE memory_id=NEW.id;
-	INSERT OR IGNORE INTO memory_evidence_sources
+	INSERT INTO memory_evidence_sources
 		SELECT NEW.id,json_extract(NEW.metadata,'$.source_episode')
 		WHERE json_type(NEW.metadata,'$.source_episode')='text'
-			AND json_extract(NEW.metadata,'$.source_episode')<>'';
-	INSERT OR IGNORE INTO memory_evidence_sources
+			AND json_extract(NEW.metadata,'$.source_episode')<>''
+		ON CONFLICT(memory_id,source_id) DO NOTHING;
+	INSERT INTO memory_evidence_sources
 		SELECT NEW.id,value FROM json_each(NEW.metadata,'$.source_episodes')
-		WHERE json_type(NEW.metadata,'$.source_episodes')='array' AND type='text' AND value<>'';
+		WHERE json_type(NEW.metadata,'$.source_episodes')='array' AND type='text' AND value<>''
+		ON CONFLICT(memory_id,source_id) DO NOTHING;
 END;
 `
 

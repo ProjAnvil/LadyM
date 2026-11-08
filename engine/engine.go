@@ -221,6 +221,12 @@ func (e *Engine) reembedAll() error {
 		return err
 	}
 	for _, m := range all {
+		if m.Type == schema.TypeResource && m.MetaString("resource_identity") == "path" {
+			if err := e.Store.PutMemory(m, nil); err != nil {
+				return err
+			}
+			continue
+		}
 		vec, err := e.Provider.Embed(m.Content)
 		if err != nil {
 			return err
@@ -268,7 +274,7 @@ func makeClassifier(provider providers.LLMProvider) operations.LLMClassifier {
 		d, err := provider.CompleteStructured(msgs, providers.JSONSchema{
 			"type": "object",
 			"properties": map[string]any{
-				"action":   map[string]any{"type": "string", "description": "One of ADD|UPDATE|DELETE|NOOP"},
+				"action":   map[string]any{"type": "string", "enum": []string{"ADD", "UPDATE", "DELETE", "NOOP"}, "description": "One of ADD|UPDATE|DELETE|NOOP"},
 				"new_text": map[string]any{"type": "string", "description": "Replacement text for ADD/UPDATE; omitted otherwise"},
 			},
 			"required": []string{"action"},

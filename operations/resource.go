@@ -114,7 +114,7 @@ func ResolveResource(store storage.Store, embedder storage.EmbeddingProvider,
 	}
 	hits, err := store.SearchMemories(queryVec, 50, storage.MemoryFilter{
 		Workspace: ws, Layers: []schema.Layer{schema.LayerSemantic},
-		Types: []schema.MemoryType{schema.TypeResource}, ExcludeUnusable: true,
+		Types: []schema.MemoryType{schema.TypeResource}, ExcludeUnusable: true, ExcludePathResources: true,
 	})
 	if err != nil {
 		return nil, false, err

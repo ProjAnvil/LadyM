@@ -19,6 +19,8 @@ type MemoryFilter struct {
 	Types           []schema.MemoryType
 	ExcludeRetired  bool
 	ExcludeUnusable bool
+	// ExcludePathResources keeps structural path identities out of fuzzy search.
+	ExcludePathResources bool
 }
 
 func (f MemoryFilter) matches(m *schema.Memory) bool {
@@ -26,6 +28,7 @@ func (f MemoryFilter) matches(m *schema.Memory) bool {
 		(len(f.Layers) == 0 || slices.Contains(f.Layers, m.Layer)) &&
 		(len(f.Types) == 0 || slices.Contains(f.Types, m.Type)) &&
 		(!f.ExcludeRetired || !schema.IsRetired(m)) &&
+		(!f.ExcludePathResources || m.Type != schema.TypeResource || m.MetaString("resource_identity") != "path") &&
 		(!f.ExcludeUnusable || schema.IsUsable(m))
 }
 
@@ -354,6 +357,12 @@ func deleteMemorySafely(tx memoryTransaction, id string, autoBefore float64) (bo
 		}
 	} else {
 		for _, dependant := range direct {
+			ids := legacySources(dependant)
+			if !slices.Contains(ids, id) {
+				ids = append(ids, id)
+				slices.Sort(ids)
+				dependant.Metadata["source_episodes"] = slices.Compact(ids)
+			}
 			dependant.Metadata["knowledge_status"] = "stale"
 			dependant.Metadata["evidence_missing"] = true
 			dependant.UpdatedAt = schema.Now()

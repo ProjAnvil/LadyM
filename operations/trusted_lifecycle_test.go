@@ -17,6 +17,7 @@ import (
 	"github.com/ProjAnvil/LadyM/providers"
 	"github.com/ProjAnvil/LadyM/schema"
 	"github.com/ProjAnvil/LadyM/storage"
+	"github.com/jackc/pgx/v5"
 )
 
 type trustedEmbedding struct{}
@@ -403,6 +404,7 @@ func TestConsolidateUpdateKeepsAllSources(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	old, _ := s.GetMemory(target.ID)
 	updated, _ := s.GetMemory(old.MetaString("superseded_by"))
 	if updated == nil {
@@ -424,6 +426,136 @@ func TestConsolidateUpdateKeepsAllSources(t *testing.T) {
 	}
 }
 
+func legacyUpdateFixture(t *testing.T, backend string) (storage.Store, trustedEmbedding, func(string, ...any) error) {
+	t.Helper()
+	if backend == "postgres" {
+		dsn := os.Getenv("LADYM_TEST_PG_DSN")
+		if dsn == "" {
+			t.Skip("LADYM_TEST_PG_DSN not set")
+		}
+		dsn = recallParityPGDSN(t, dsn)
+		s, err := storage.NewPostgresStore(dsn, 2)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { s.Close() })
+		conn, err := pgx.Connect(t.Context(), dsn)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { conn.Close(t.Context()) })
+		return s, trustedEmbedding{}, func(query string, args ...any) error {
+			_, err := conn.Exec(t.Context(), query, args...)
+			return err
+		}
+	}
+	s, emb := trustedStore(t)
+	db, err := sql.Open("sqlite", s.(trustedFixtureStore).path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	return s, emb, func(query string, args ...any) error {
+		_, err := db.Exec(query, args...)
+		return err
+	}
+}
+
+func TestConsolidateUpdateLegacyMissingAndConcurrentDeletion(t *testing.T) {
+	for _, backend := range []string{"sqlite", "postgres"} {
+		for _, tc := range []struct {
+			name       string
+			missing    bool
+			concurrent bool
+		}{
+			{"legacy missing", true, false},
+			{"concurrent deletion", false, true},
+			{"missing plus concurrent deletion", true, true},
+		} {
+			t.Run(backend+"/"+tc.name, func(t *testing.T) {
+				s, emb, exec := legacyUpdateFixture(t, backend)
+				surviving := trustedMemory(t, s, schema.LayerEpisodic, schema.TypeEvent, "surviving", "test", map[string]any{"consolidated_at": 1.0})
+				graphSource := trustedMemory(t, s, schema.LayerEpisodic, schema.TypeEvent, "graph evidence", "test", map[string]any{"consolidated_at": 1.0})
+				lostID := "legacy-lost"
+				if !tc.missing {
+					lost := trustedMemory(t, s, schema.LayerEpisodic, schema.TypeEvent, "present at snapshot", "test", map[string]any{"consolidated_at": 1.0})
+					lostID = lost.ID
+				}
+				target := trustedMemory(t, s, schema.LayerSemantic, schema.TypeFact, "old fact", "test", map[string]any{"marker": "retained"})
+				raw, err := json.Marshal(map[string]any{"source_episode": lostID, "source_episodes": []string{surviving.ID, lostID}, "marker": "retained"})
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := exec("UPDATE memories SET metadata=$1 WHERE id=$2", string(raw), target.ID); err != nil {
+					t.Fatal(err)
+				}
+				trustedEdge(t, s, target.ID, "produced_from", graphSource.ID)
+				resource := trustedMemory(t, s, schema.LayerSemantic, schema.TypeResource, "database", "test", nil)
+				trustedEdge(t, s, surviving.ID, "operates_on", resource.ID)
+				ep := trustedMemory(t, s, schema.LayerEpisodic, schema.TypeEvent, "new evidence", "test", nil)
+				report, err := Consolidate(s, emb, config.Default(), "test", func(string, []string) (Action, string, error) {
+					if tc.concurrent {
+						// An external legacy writer bypasses invalidation, so only the
+						// pre-classification source guard can detect this deletion.
+						deletedID := lostID
+						if tc.missing {
+							deletedID = graphSource.ID
+						}
+						if err := exec("DELETE FROM memories WHERE id=$1", deletedID); err != nil {
+							t.Fatal(err)
+						}
+					}
+					return ActionUpdate, "replacement", nil
+				}, 0)
+				old, _ := s.GetMemory(target.ID)
+				stamped, _ := s.GetMemory(ep.ID)
+				if tc.concurrent {
+					if !errors.Is(err, storage.ErrMemoryConflict) || IsRetired(old) || IsConsolidated(stamped) {
+						t.Fatalf("concurrent source deletion must roll back: err=%v old=%+v ep=%+v", err, old, stamped)
+					}
+					facts, _ := s.IterMemories("test", string(schema.LayerSemantic), string(schema.TypeFact))
+					if len(facts) != 1 {
+						t.Fatal("conflicting UPDATE published a replacement")
+					}
+					return
+				}
+				if err != nil {
+					t.Fatalf("already-missing legacy evidence must not block UPDATE: %v", err)
+				}
+				updated, _ := s.GetMemory(old.MetaString("superseded_by"))
+				if report.Actions["UPDATE"] != 1 || !IsConsolidated(stamped) || updated == nil ||
+					schema.IsUsable(updated) || updated.Meta("evidence_missing") != true || updated.MetaString("marker") != "retained" {
+					t.Fatalf("replacement missing atomic unusable state: report=%+v replacement=%+v", report, updated)
+				}
+				want := []string{lostID, surviving.ID, graphSource.ID, ep.ID}
+				var ids []string
+				for _, value := range updated.Meta("source_episodes").([]any) {
+					ids = append(ids, value.(string))
+				}
+				slices.Sort(ids)
+				slices.Sort(want)
+				if !slices.Equal(ids, want) || updated.MetaString("source_episode") != ep.ID {
+					t.Fatalf("lost legacy source IDs: got=%v want=%v", ids, want)
+				}
+				edges, err := s.Neighbors(updated.ID, "")
+				if err != nil {
+					t.Fatal(err)
+				}
+				for _, source := range []*schema.Memory{surviving, graphSource, ep} {
+					if !slices.ContainsFunc(edges, func(e *schema.Edge) bool {
+						return e.SrcID == updated.ID && e.DstID == source.ID && e.Relation == "produced_from" && e.ID == schema.ProjectedEdgeID(updated.ID, "produced_from", source.ID)
+					}) {
+						t.Errorf("missing surviving source projection %s: %+v", source.ID, edges)
+					}
+				}
+				if slices.ContainsFunc(edges, func(e *schema.Edge) bool { return e.DstID == lostID }) ||
+					!slices.ContainsFunc(edges, func(e *schema.Edge) bool { return e.DstID == resource.ID && e.Relation == "operates_on" }) {
+					t.Errorf("dangling source or missing resource projection: %+v", edges)
+				}
+			})
+		}
+	}
+}
 func TestDecayProtectedLegacyAndDeletion(t *testing.T) {
 	s, _ := trustedStore(t)
 	ep := trustedMemory(t, s, schema.LayerEpisodic, schema.TypeEvent, "evidence", "test", nil)

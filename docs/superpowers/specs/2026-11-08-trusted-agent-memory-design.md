@@ -148,6 +148,8 @@ worker 锁不能替代该契约，因为 API/MCP 也能调用整合。
 UPDATE 必须保留旧的全部有效来源：`source_episodes` 为去重 ID 列表，
 `produced_from` 投影到每个仍存在、同 workspace 的来源。
 旧来源已丢失时不构造悬挂边，记录可识别的缺失证据状态。
+缺失状态以分类前来源快照为准：保留已有缺失 ID，replacement 原子标
+`evidence_missing=true`；当时仍存在的来源须 guard，并发删除仍返回 conflict。
 原子提交必须覆盖这些投影。
 
 ### R1-E: 证据保留与删除的区别
@@ -169,6 +171,8 @@ dryRun 与真实执行使用相同选择；报告增加保护数，输出兼容�
 显式 Forget/Delete 仍删除指定记录；它不被自动保留策略阻止。
 同事务使直接派生知识标为 `knowledge_status=stale`、
 `evidence_missing=true`，保留已经存在的缺失来源 ID 供审计；
+graph-only `produced_from` / `abstracts` 来源在删除级联前写入现有
+`source_episodes` provenance metadata，并保留原 metadata 和已有来源。
 stale 知识不得作为充分回答依据或自动注入。
 原始删除成功与依赖标记必须原子；错误不得部分成功。
 R1 只做直接依赖失效，R2 定义完整传递传播。
@@ -192,6 +196,8 @@ canonical 模式：
 文档说明两种模式不可无损推断映射，同库同名项目建议 canonical。
 canonical hook 资源标 `resource_identity=path`，使用 workspace+规范路径的
 确定性 ID、区分大小写，不参加 fuzzy alias、向量实体合并或 worker LLM alias merge。
+path entity 在 fuzzy topK 截断之前排除；支持的 embedding dimension/tokenizer
+迁移保持其 structural-only，并清除旧 path vectors，不调用 embedder。
 原普通资源解析也不得把 path entity 用作 fuzzy 候选；read 只能精确定位 path，
 未知 path 可走明确 recall fallback，不能返回另一个路径实体。
 

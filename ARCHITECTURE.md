@@ -183,6 +183,12 @@ Workspace/layer/type/usability filtering happens before top-k selection.
 `prefer_sqlite_vec` remains accepted but inert.
 
 PostgreSQL uses the same filtered-search and guarded-batch contracts with pgvector.
+For R1 correctness, memory/edge mutations take a global `SHARE ROW EXCLUSIVE`
+table lock before eligibility checks, serializing concurrent writers even across
+workspaces (including ordinary SQL writers to these tables). Ordinary reads are
+not serialized by this lock. Concurrent-write throughput is unmeasured; finer-grained
+locking requires live PostgreSQL correctness and performance evidence. This is
+not a claim of fully parallel PostgreSQL writers or new QA benefits.
 The `enterprise` build excludes SQLite and the embedded console from `cmd/ladym`;
 `cmd/ladymconsole` is the separate console binary. PostgreSQL correctness requires
 live tests against a reachable pgvector service; a skipped test is not evidence.
@@ -201,8 +207,12 @@ Facts, supersession, source IDs/edges and episode stamps publish through
 playbooks also publish atomically with provenance. Automatic decay protects evidence
 referenced by usable direct dependants through active `produced_from`/`abstracts`
 edges or legacy `source_episode`/`source_episodes`. Explicit deletion atomically marks
-direct dependants stale with missing evidence, closes their active edges, then deletes
-the source. This is direct invalidation, not R2's transitive verifier workflow.
+direct dependants stale with missing evidence and preserves lost source IDs in
+`source_episodes` before source-edge cascades, including graph-only L5 provenance.
+UPDATE retains legacy IDs already missing at classification start and atomically
+marks its replacement `evidence_missing=true`; surviving sources remain guarded
+and fully projected. A source present at that snapshot but concurrently deleted
+still causes a conflict. This is direct invalidation, not R2's transitive verifier workflow.
 
 System 2 persists L5 merge cycles and L6 `(CreatedAt, ID)` cursors per workspace and
 operation. Equal timestamps spanning an episode cap survive later cycles/restarts;
