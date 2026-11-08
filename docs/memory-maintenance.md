@@ -189,8 +189,17 @@ LLM improvements, token savings, retrieval superiority or production latency.
 The existing LongMemEval live answer/judge entrypoints require explicit
 `--model`, positive finite `--budget-seconds` and positive `--limit`.
 The budget is **wall seconds**, not money or billable tokens. Answers disable
-SDK retries and use remaining-deadline request timeouts; the pinned judge's
-retry loop is bounded by a subprocess deadline. Hypotheses over the explicit
+SDK retries and run in per-call subprocesses killed/reaped on the shared total
+answer deadline, including startup, client setup, transport, SDK decoding and
+shutdown (not merely read inactivity). The deadline starts at answer-callable
+construction: intervening recall/context/output work consumes it but is not
+interrupted; dataset loading and final reporting are not capped. OS spawn/reap
+overhead is unavoidable. Provider failures retain their type/message in a
+`RuntimeError` envelope; per-question fault reporting is unchanged.
+The pinned judge's startup/requests/retry loop has a separate subprocess budget;
+local retrieval scoring, hypothesis counting, aggregation and reporting are
+outside it. See [exact benchmark boundaries](../benchmarks/README.md).
+Hypotheses over the explicit
 limit are rejected before judging. Credentials alone do not authorize network.
 No live model measurement was run for this release.
 

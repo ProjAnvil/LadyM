@@ -103,16 +103,17 @@ def test_live_judge_refuses_hypotheses_above_limit(tmp_path):
 
 
 def test_live_answer_deadline_prevents_another_provider_request(monkeypatch):
-    import sys
     from types import SimpleNamespace
     from longmemeval.config import BenchConfig
     from longmemeval import run_qa
 
     times = iter([100, 101, 111])
     monkeypatch.setattr(run_qa.time, "monotonic", lambda: next(times))
-    result = SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content="fixture"))])
-    transport = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=lambda **kw: result)))
-    monkeypatch.setitem(sys.modules, "openai", SimpleNamespace(OpenAI=lambda **kw: transport))
+    def transport(*args, **kwargs):
+        assert kwargs["timeout"] == 9
+        return SimpleNamespace(stdout='{"answer": "fixture"}')
+
+    monkeypatch.setattr(run_qa.subprocess, "run", transport)
     answer = run_qa._default_answer_llm(BenchConfig(limit=2, live_model="explicit-model", live_budget_s=10))
     assert answer("system", "user") == "fixture"
     with pytest.raises(TimeoutError, match="wall budget"):

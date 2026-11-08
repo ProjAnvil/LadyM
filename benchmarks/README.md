@@ -45,8 +45,25 @@ uv run python -m longmemeval evaluate --difficulty oracle --variant raw \
 Live answer/judge calls require an explicitly named model, positive question
 limit and finite positive wall-time budget. Credentials alone never authorize
 network. The wall budget is seconds, **not** dollars, billing tokens or a count
-of judge retries; the pinned upstream judge runs inside a bounded subprocess.
-The answer client disables SDK retries and uses remaining-deadline timeouts.
+of judge retries. QA shares one deadline starting when its default answer callable
+is constructed, after dataset loading/limiting. Each live answer runs in a fresh
+Python subprocess: startup, SDK import/client setup, DNS/connect/read, SDK response
+decoding and client shutdown all consume the remaining budget. SDK retries are
+disabled. An outer total timeout kills and reaps the worker and closes its pipes/
+sockets, even if response chunks keep arriving below the SDK inactivity timeout.
+Interpreter/client startup is intentionally paid per answer to avoid uncancellable
+threads and unsafe forks of threaded clients. OS process creation/reaping and
+scheduling have unavoidable small overhead beyond the deadline.
+
+Recall, context construction and output work between answers consume the shared
+deadline but are **not interrupted**; dataset loading, final reporting and local
+bookkeeping are not themselves deadline-cancelled. This is a live-answer deadline,
+not a cap on the entire QA CLI. No further answer worker starts after exhaustion.
+Provider errors cross the process boundary as `RuntimeError` retaining their source
+type/message; per-question failures still go to `run_report.json`.
+The pinned judge has a separate bounded subprocess budget covering its startup,
+requests and retries; retrieval scoring, hypothesis counting, aggregation (its own
+120s timeout), and report writing are outside that judge budget.
 Injected test answer functions remain offline. No live QA/LLM gains are inferred
 from synthetic fixtures or unit-test hypotheses.
 
@@ -92,8 +109,9 @@ See [maintenance and B01–B14 evidence](../docs/memory-maintenance.md).
   for the `raw` variant offline.
 - **Answer LLM (Phase B only)**: env-configured OpenAI-compatible client —
   `OPENAI_API_KEY` (required), `OPENAI_BASE_URL` (optional),
-  `LME_ANSWER_MODEL` (default `gpt-4o-mini`). The judge stays pinned to
-  `gpt-4o` via the vendored scripts.
+  with an explicit `--model` (no environment/default model), `--limit` and
+  `--budget-seconds`. The supported judge short name remains `gpt-4o`, selected
+  explicitly and mapped to its pinned snapshot by the vendored scripts.
 
 ## Provenance and compatibility
 

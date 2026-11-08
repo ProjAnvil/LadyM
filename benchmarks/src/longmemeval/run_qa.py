@@ -3,12 +3,38 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import subprocess
+import sys
 import time
 
 from .config import BenchConfig
 from ._runtime import make_engine as _default_engine_factory
 
 ABSTAIN_SCORE_FLOOR = 0.05
+
+
+def _answer_worker():
+    """One isolated SDK call; errors cross IPC with their source type/message."""
+    payload = json.load(sys.stdin)
+    try:
+        from openai import OpenAI
+
+        with OpenAI(max_retries=0) as client:
+            remaining = payload["deadline"] - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError("live answer wall budget exhausted")
+            resp = client.chat.completions.create(
+                model=payload["model"],
+                messages=payload["messages"],
+                temperature=0,
+                timeout=remaining,
+            )
+            result = {"answer": resp.choices[0].message.content.strip()}
+    except Exception as error:
+        # Forward rather than suppress errors; SDK exceptions carry live HTTP
+        # objects, so use a plain envelope rather than trying to pickle them.
+        result = {"error_type": type(error).__name__, "error": str(error)}
+    json.dump(result, sys.stdout)
 
 
 def _default_answer_llm(cfg: BenchConfig):
@@ -22,30 +48,54 @@ def _default_answer_llm(cfg: BenchConfig):
       * ``OPENAI_BASE_URL``  — optional, for OpenAI-compatible endpoints
     Model, wall budget and question limit must be provided in BenchConfig.
     Environment credentials alone never authorize a request. Retries are disabled.
+    One shared deadline starts here; recall/context/output work between calls
+    consumes it but is not itself interrupted. Each live call includes worker
+    startup, SDK import/client setup, transport, decoding and client shutdown.
+    Provider failures become RuntimeError with the original type and message.
 
-    Returns a callable ``(system, user) -> str``. Tests pass ``answer_llm=``
-    explicitly and never hit the network.
+    Returns a callable ``(system, user) -> str``. Injected ``answer_llm=`` tests
+    remain in-process and offline; deadline regressions use loopback HTTP only.
     """
     cfg.require_live(cfg.live_model)
-    from openai import OpenAI
-
-    client = OpenAI(max_retries=0)
     deadline = time.monotonic() + cfg.live_budget_s
 
     def _call(system: str, user: str) -> str:
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            raise TimeoutError("live answer wall budget exhausted")
-        resp = client.chat.completions.create(
-            model=cfg.live_model,
-            messages=[
+        payload = json.dumps({
+            "deadline": deadline,
+            "model": cfg.live_model,
+            "messages": [
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},
             ],
-            temperature=0,
-            timeout=remaining,
-        )
-        return resp.choices[0].message.content.strip()
+        })
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError("live answer wall budget exhausted")
+        # SDK timeouts limit inactivity, not total wall time. A fresh interpreter
+        # avoids unsafe forks of threaded clients; startup/client reuse cost is
+        # deliberately traded for cancellation. subprocess.run kills AND reaps
+        # on timeout and closes IPC pipes: no abandoned worker thread/socket.
+        try:
+            proc = subprocess.run(
+                [sys.executable, "-c",
+                 "from longmemeval.run_qa import _answer_worker; _answer_worker()"],
+                input=payload, capture_output=True, text=True, check=True,
+                timeout=remaining,
+            )
+        except subprocess.TimeoutExpired as error:
+            raise TimeoutError("live answer wall budget exhausted") from error
+        except subprocess.CalledProcessError as error:
+            raise RuntimeError(
+                f"live answer worker failed (exit {error.returncode}): "
+                f"{error.stderr.strip()}"
+            ) from error
+        result = json.loads(proc.stdout)
+        if "error_type" in result:
+            message = f"{result['error_type']}: {result['error']}"
+            if result["error_type"] == "TimeoutError":
+                raise TimeoutError(message)
+            raise RuntimeError(message)
+        return result["answer"]
 
     return _call
 
