@@ -617,6 +617,9 @@ type failingEmbedder struct {
 }
 
 func (f *failingEmbedder) Dim() int { return f.dim }
+func (f *failingEmbedder) Identity() schema.EmbeddingIdentity {
+	return schema.EmbeddingIdentity{Provider: "test", Model: "failing-v1", Dim: f.dim, Tokenizer: "local-v1"}
+}
 
 func (f *failingEmbedder) Embed(string) ([]float32, error) { return nil, f.err }
 

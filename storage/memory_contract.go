@@ -254,6 +254,9 @@ func episodeCompleted(m *schema.Memory) bool {
 
 func applyMemoryBatch(tx memoryTransaction, batch MemoryBatch, preserveAccess bool) error {
 	defer tx.rollback()
+	if err := tx.(migrationTransaction).checkIdentity(); err != nil {
+		return err
+	}
 	for _, id := range batch.AbsentIDs {
 		current, err := tx.get(id)
 		if err != nil {
@@ -452,6 +455,16 @@ func deleteMemorySafely(tx memoryTransaction, id string, autoBefore float64) (bo
 		if m.LastAccessAt > autoBefore {
 			return false, false, nil
 		}
+		state, err := migrationRead(tx.(migrationTransaction))
+		if err != nil {
+			return false, false, err
+		}
+		if state.State != "idle" {
+			return false, false, ErrEmbeddingMigration
+		}
+	}
+	if err := migrationPrepareDelete(tx.(migrationTransaction)); err != nil {
+		return false, false, err
 	}
 	if _, err := invalidateDependants(tx, m, map[string]bool{id: true}, nil); err != nil {
 		return false, false, err

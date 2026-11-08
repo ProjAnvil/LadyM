@@ -1,5 +1,8 @@
 # Evidence-backed memory learning
 
+For embedding identity changes and recovery, see
+[embedding migrations](embedding-migrations.md).
+
 Claims record caller-attested knowledge, not independent experimental verification.
 Recording evidence never executes its content, invokes a model, reads a path or URL,
 or imports a transcript. Existing generic memory APIs remain unchanged; managed

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"slices"
 
 	"github.com/ProjAnvil/LadyM/schema"
@@ -12,7 +13,9 @@ import (
 )
 
 type postgresMemoryTransaction struct {
-	tx pgx.Tx
+	tx                  pgx.Tx
+	store               *PostgresStore
+	migrationAuthorized bool
 }
 
 func (s *PostgresStore) beginMemoryTransaction(batch MemoryBatch) (*postgresMemoryTransaction, error) {
@@ -52,10 +55,15 @@ func (s *PostgresStore) beginMemoryTransaction(batch MemoryBatch) (*postgresMemo
 			return nil, err
 		}
 	}
-	return &postgresMemoryTransaction{tx: tx}, nil
+	return &postgresMemoryTransaction{tx: tx, store: s}, nil
 }
 
 func (tx *postgresMemoryTransaction) commit() error {
+	if tx.migrationAuthorized {
+		if err := tx.exec("UPDATE embedding_migration SET internal=0 WHERE id=1"); err != nil {
+			return err
+		}
+	}
 	return tx.tx.Commit(context.Background())
 }
 func (tx *postgresMemoryTransaction) rollback() {
@@ -151,7 +159,11 @@ func (tx *postgresMemoryTransaction) remove(id string) error {
 }
 
 func (s *PostgresStore) ApplyMemoryBatch(batch MemoryBatch) error {
-	if err := validateBatch(batch, s.dim); err != nil {
+	dim, err := s.embeddingDimension()
+	if err != nil {
+		return err
+	}
+	if err := validateBatch(batch, dim); err != nil {
 		return err
 	}
 	tx, err := s.beginMemoryTransaction(batch)
@@ -195,7 +207,31 @@ func pgTruthy(key string) string {
 }
 
 func (s *PostgresStore) SearchMemories(queryVec []float32, topK int, filter MemoryFilter) ([]SearchHit, error) {
-	if err := validateVector(queryVec, s.dim); err != nil {
+	read, err := s.pool.BeginTx(context.Background(), pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
+	if err != nil {
+		return nil, err
+	}
+	tx := &postgresMemoryTransaction{tx: read, store: s}
+	defer tx.rollback()
+	// ALTER TYPE rewrites are not MVCC-safe for snapshots taken before the
+	// rewrite. Lock the vector table before reading identity or taking a snapshot.
+	if _, err := read.Exec(context.Background(), "LOCK TABLE memories IN ACCESS SHARE MODE"); err != nil {
+		return nil, err
+	}
+	if err := tx.checkIdentity(); err != nil {
+		return nil, err
+	}
+	dim := s.dim
+	var stored string
+	if err := tx.scan("SELECT COALESCE((SELECT value FROM meta WHERE key='embedding_dim'),'')", nil, &stored); err != nil {
+		return nil, err
+	}
+	if stored != "" {
+		if _, err := fmt.Sscan(stored, &dim); err != nil {
+			return nil, err
+		}
+	}
+	if err := validateVector(queryVec, dim); err != nil {
 		return nil, err
 	}
 	if topK <= 0 {
@@ -249,7 +285,7 @@ func (s *PostgresStore) SearchMemories(queryVec []float32, topK int, filter Memo
 		SELECT id, CASE WHEN vector_norm(embedding)=0 OR vector_norm($1::vector)=0 THEN 0::float8
 		ELSE 1-(embedding <=> $1) END AS similarity FROM eligible
 		ORDER BY similarity DESC, id COLLATE "C" ASC LIMIT $2`
-	rows, err := s.pool.Query(context.Background(), query, args...)
+	rows, err := read.Query(context.Background(), query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -262,5 +298,9 @@ func (s *PostgresStore) SearchMemories(queryVec []float32, topK int, filter Memo
 		}
 		hits = append(hits, hit)
 	}
-	return hits, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	rows.Close()
+	return hits, tx.commit()
 }

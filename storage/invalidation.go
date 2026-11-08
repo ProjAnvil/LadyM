@@ -149,6 +149,11 @@ func invalidateRoot(tx memoryTransaction, id string) (int, error) {
 }
 
 func deleteRoots(tx memoryTransaction, memories []*schema.Memory) error {
+	if len(memories) > 0 {
+		if err := migrationPrepareDelete(tx.(migrationTransaction)); err != nil {
+			return err
+		}
+	}
 	seen := map[string]bool{}
 	for _, m := range memories {
 		seen[m.ID] = true

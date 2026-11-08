@@ -5,10 +5,10 @@ package engine
 
 import (
 	"cmp"
+	"context"
 	"errors"
 	"fmt"
 	"log"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -103,12 +103,15 @@ func NewWithModels(cfg *config.Config, models *adapter.ModelRouting) (*Engine, e
 	e.Store = store
 
 	if err := e.enforceEmbeddingDim(); err != nil {
-		store.Close()
-		return nil, err
+		return nil, errors.Join(err, store.Close())
 	}
-	if err := e.enforceEmbeddingTokenizer(); err != nil {
-		store.Close()
-		return nil, err
+	identity, identityErr := e.embeddingIdentity()
+	fingerprint := ""
+	if identityErr == nil {
+		fingerprint = identity.Fingerprint()
+	}
+	if err := storage.BindEmbeddingIdentity(store, fingerprint); err != nil {
+		return nil, errors.Join(err, store.Close())
 	}
 
 	e.Working = layers.NewWorkingMemory(64, cfg.Workspace)
@@ -149,93 +152,23 @@ func (e *Engine) ensureProviderDim() error {
 }
 
 func (e *Engine) enforceEmbeddingDim() error {
-	stored, err := e.Store.GetMeta("embedding_dim")
-	if err != nil {
-		return err
-	}
-	actual := e.Provider.Dim()
-	providerName := e.Config.EmbeddingProvider
-	if e.routing != nil && e.routing.Embedding != nil {
-		providerName = "injected"
-	}
-	if stored == "" {
-		if err := e.Store.SetMeta("embedding_dim", strconv.Itoa(actual)); err != nil {
-			return err
-		}
-		return e.Store.SetMeta("embedding_provider", providerName)
-	}
-	storedDim, _ := strconv.Atoi(stored)
-	if storedDim != actual {
-		if e.Config.EmbeddingAllowDimChange {
-			e.Store.RebuildVectorIndex(actual)
-			if err := e.reembedAll(); err != nil {
-				return err
-			}
-			if err := e.Store.SetMeta("embedding_dim", strconv.Itoa(actual)); err != nil {
-				return err
-			}
-			return e.Store.SetMeta("embedding_provider", providerName)
-		}
-		return storage.AssertDimMatches(storedDim, actual)
-	}
-	return nil
+	return e.enforceEmbeddingFingerprint()
 }
 
-// enforceEmbeddingTokenizer records which CJK tokenizer built the stored
-// vectors, and refuses to reopen a database whose vectors came from a
-// different one unless re-embedding is explicitly allowed.
-//
-// Only the offline hashing provider tokenizes locally. Hosted and injected
-// providers do their own tokenization server-side, so their vectors are
-// unaffected by the CJK mode and nothing is recorded for them.
+// The legacy tokenizer entry point now enforces the whole vector-space identity.
 func (e *Engine) enforceEmbeddingTokenizer() error {
-	if e.routing != nil && e.routing.Embedding != nil {
-		return nil
-	}
-	if !strings.EqualFold(e.Config.EmbeddingProvider, "hashing") {
-		return nil
-	}
-	want := storage.CJKTokenizerVersion()
-	stored, err := e.Store.GetMeta("embedding_tokenizer")
-	if err != nil {
-		return err
-	}
-	if stored == "" {
-		return e.Store.SetMeta("embedding_tokenizer", want)
-	}
-	if stored == want {
-		return nil
-	}
-	if !e.Config.EmbeddingAllowDimChange {
-		return &storage.EmbeddingTokenizerMismatch{Stored: stored, Configured: want}
-	}
-	if err := e.reembedAll(); err != nil {
-		return err
-	}
-	return e.Store.SetMeta("embedding_tokenizer", want)
+	return e.enforceEmbeddingFingerprint()
 }
 
 func (e *Engine) reembedAll() error {
-	all, err := e.Store.IterMemories("", "", "")
+	identity, err := e.embeddingIdentity()
 	if err != nil {
 		return err
 	}
-	for _, m := range all {
-		if m.Type == schema.TypeResource && m.MetaString("resource_identity") == "path" {
-			if err := e.Store.PutMemory(m, nil); err != nil {
-				return err
-			}
-			continue
-		}
-		vec, err := e.Provider.Embed(m.Content)
-		if err != nil {
-			return err
-		}
-		if err := e.Store.PutMemory(m, vec); err != nil {
-			return err
-		}
+	if err := e.Store.BeginEmbeddingMigration(identity); err != nil {
+		return err
 	}
-	return nil
+	return MigrateEmbeddings(context.Background(), e.Store, identity, e.Provider, 64, false)
 }
 
 // ---- agent wiring ----

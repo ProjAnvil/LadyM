@@ -130,6 +130,7 @@ func decodeVec(b []byte) []float32 {
 // generations rebuild it from a consistent snapshot. The hook pays NewStore once per tool
 // call, so an eager O(n) warm is an O(n) tax on every event.
 type SQLiteStore struct {
+	*embeddingMigrations
 	DBPath      string
 	Dim         int
 	db          *sql.DB
@@ -217,8 +218,13 @@ func NewStore(dbPath string, dim int, preferSQLiteVec bool, enableWAL bool) (*SQ
 		db.Close()
 		return nil, err
 	}
+	if err := installSQLiteMigration(db); err != nil {
+		db.Close()
+		return nil, err
+	}
 
 	s := &SQLiteStore{DBPath: dbPath, Dim: dim, db: db, vectorIndex: NewInMemoryVectorIndex(dim)}
+	s.embeddingMigrations = &embeddingMigrations{begin: s.beginMigration}
 	return s, nil
 }
 
@@ -259,7 +265,17 @@ func (s *SQLiteStore) refreshIndex(tx *sql.Tx, generation int64) error {
 		return err
 	}
 	defer rows.Close()
-	index := NewInMemoryVectorIndex(s.Dim)
+	dim := s.Dim
+	var stored string
+	if err := tx.QueryRow("SELECT COALESCE((SELECT value FROM meta WHERE key='embedding_dim'),'')").Scan(&stored); err != nil {
+		return err
+	}
+	if stored != "" {
+		if _, err := fmt.Sscan(stored, &dim); err != nil {
+			return err
+		}
+	}
+	index := NewInMemoryVectorIndex(dim)
 	for rows.Next() {
 		var id string
 		var blob []byte
@@ -270,7 +286,7 @@ func (s *SQLiteStore) refreshIndex(tx *sql.Tx, generation int64) error {
 			return fmt.Errorf("invalid embedding blob for %s", id)
 		}
 		vec := decodeVec(blob)
-		if len(vec) == s.Dim {
+		if len(vec) == dim {
 			if err := index.Upsert(id, vec); err != nil {
 				return err
 			}
@@ -337,7 +353,11 @@ func (s *SQLiteStore) TryAcquireWorkerLock() (func(), error) {
 
 func (s *SQLiteStore) PutMemory(mem *schema.Memory, vector []float32) error {
 	batch := MemoryBatch{Writes: []MemoryWrite{{Memory: mem, Vector: vector}}}
-	if err := validateBatch(batch, s.Dim); err != nil {
+	dim, err := s.embeddingDimension()
+	if err != nil {
+		return err
+	}
+	if err := validateBatch(batch, dim); err != nil {
 		return err
 	}
 	tx, err := s.beginMemoryTransaction()
@@ -410,7 +430,11 @@ func (s *SQLiteStore) DeleteMemory(id string) error {
 // is a no-op.
 func (s *SQLiteStore) UpdateMemoryContent(id, content, summary string, tags []string, vector []float32, now float64) error {
 	if vector != nil {
-		if err := validateVector(vector, s.Dim); err != nil {
+		dim, err := s.embeddingDimension()
+		if err != nil {
+			return err
+		}
+		if err := validateVector(vector, dim); err != nil {
 			return err
 		}
 	}

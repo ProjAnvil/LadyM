@@ -96,8 +96,9 @@ func installLegacyEvidenceIndex(db *sql.DB) error {
 }
 
 type sqliteMemoryTransaction struct {
-	store *SQLiteStore
-	tx    *sql.Tx
+	store               *SQLiteStore
+	tx                  *sql.Tx
+	migrationAuthorized bool
 }
 
 func (s *SQLiteStore) beginMemoryTransaction() (*sqliteMemoryTransaction, error) {
@@ -114,8 +115,15 @@ func (s *SQLiteStore) beginMemoryTransaction() (*sqliteMemoryTransaction, error)
 	return &sqliteMemoryTransaction{store: s, tx: tx}, nil
 }
 
-func (tx *sqliteMemoryTransaction) commit() error { return tx.tx.Commit() }
-func (tx *sqliteMemoryTransaction) rollback()     { _ = tx.tx.Rollback() }
+func (tx *sqliteMemoryTransaction) commit() error {
+	if tx.migrationAuthorized {
+		if err := tx.exec("UPDATE embedding_migration SET internal=0 WHERE id=1"); err != nil {
+			return err
+		}
+	}
+	return tx.tx.Commit()
+}
+func (tx *sqliteMemoryTransaction) rollback() { _ = tx.tx.Rollback() }
 
 func (tx *sqliteMemoryTransaction) queryMemories(query string, args ...any) ([]*schema.Memory, error) {
 	rows, err := tx.tx.Query(query, args...)
@@ -217,11 +225,18 @@ func (s *SQLiteStore) updateLocalVector(id string, vector []float32) error {
 		s.vectorIndex.Delete(id)
 		return nil
 	}
+	if index, ok := s.vectorIndex.(*InMemoryVectorIndex); ok && index.dim != len(vector) {
+		s.vectorIndex = NewInMemoryVectorIndex(len(vector))
+	}
 	return s.vectorIndex.Upsert(id, vector)
 }
 
 func (s *SQLiteStore) ApplyMemoryBatch(batch MemoryBatch) error {
-	if err := validateBatch(batch, s.Dim); err != nil {
+	dim, err := s.embeddingDimension()
+	if err != nil {
+		return err
+	}
+	if err := validateBatch(batch, dim); err != nil {
 		return err
 	}
 	tx, err := s.beginMemoryTransaction()
@@ -271,9 +286,6 @@ func (s *SQLiteStore) EvidenceReferences(workspace string) (map[string]bool, err
 func (s *SQLiteStore) SearchMemories(queryVec []float32, topK int, filter MemoryFilter) ([]SearchHit, error) {
 	s.indexMu.Lock()
 	defer s.indexMu.Unlock()
-	if err := validateVector(queryVec, s.Dim); err != nil {
-		return nil, err
-	}
 	if topK <= 0 {
 		return nil, errors.New("topK must be positive")
 	}
@@ -282,6 +294,9 @@ func (s *SQLiteStore) SearchMemories(queryVec []float32, topK int, filter Memory
 		return nil, err
 	}
 	defer read.Rollback()
+	if err := (&sqliteMemoryTransaction{store: s, tx: read}).checkIdentity(); err != nil {
+		return nil, err
+	}
 	var generation int64
 	if err := read.QueryRow("SELECT generation FROM memory_vector_generation WHERE id=1").Scan(&generation); err != nil {
 		return nil, err
@@ -290,6 +305,9 @@ func (s *SQLiteStore) SearchMemories(queryVec []float32, topK int, filter Memory
 		s.indexRefreshHook()
 	}
 	if err := s.refreshIndex(read, generation); err != nil {
+		return nil, err
+	}
+	if err := validateVector(queryVec, s.vectorIndex.(*InMemoryVectorIndex).dim); err != nil {
 		return nil, err
 	}
 	eligible := map[string]bool{}

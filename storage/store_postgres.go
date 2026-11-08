@@ -22,6 +22,7 @@ import (
 // lock/index mechanisms (pg advisory lock, pgvector HNSW index instead of the
 // process-local InMemoryVectorIndex + flock file).
 type PostgresStore struct {
+	*embeddingMigrations
 	dim  int
 	pool *pgxpool.Pool
 }
@@ -170,7 +171,9 @@ func NewPostgresStore(dsn string, dim int) (*PostgresStore, error) {
 		pool.Close()
 		return nil, err
 	}
-	return &PostgresStore{dim: dim, pool: pool}, nil
+	s := &PostgresStore{dim: dim, pool: pool}
+	s.embeddingMigrations = &embeddingMigrations{begin: s.beginMigration}
+	return s, nil
 }
 
 // applyPGSchema runs the idempotent schema statements under an exclusive
@@ -188,12 +191,17 @@ func applyPGSchema(ctx context.Context, pool *pgxpool.Pool, dim int) error {
 	defer func() {
 		_, _ = conn.Exec(context.Background(), "SELECT pg_advisory_unlock($1)", schemaSetupAdvisoryKey)
 	}()
-	for _, stmt := range pgSchema(dim) {
-		if _, err := conn.Exec(ctx, stmt); err != nil {
+	tx, err := conn.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("postgres schema setup failed: %w", err)
+	}
+	defer tx.Rollback(ctx)
+	for _, stmt := range append(pgSchema(dim), pgMigrationSchema()...) {
+		if _, err := tx.Exec(ctx, stmt); err != nil {
 			return fmt.Errorf("postgres schema setup failed: %w", err)
 		}
 	}
-	return nil
+	return tx.Commit(ctx)
 }
 
 // Close releases the connection pool.
@@ -240,7 +248,11 @@ func (s *PostgresStore) RebuildVectorIndex(newDim int) {
 
 func (s *PostgresStore) PutMemory(mem *schema.Memory, vector []float32) error {
 	batch := MemoryBatch{Writes: []MemoryWrite{{Memory: mem, Vector: vector}}}
-	if err := validateBatch(batch, s.dim); err != nil {
+	dim, err := s.embeddingDimension()
+	if err != nil {
+		return err
+	}
+	if err := validateBatch(batch, dim); err != nil {
 		return err
 	}
 	tx, err := s.beginMemoryTransaction(batch)
@@ -312,7 +324,11 @@ func (s *PostgresStore) DeleteMemory(id string) error {
 // embedding and recomputes content_hash. A missing id is a no-op.
 func (s *PostgresStore) UpdateMemoryContent(id, content, summary string, tags []string, vector []float32, now float64) error {
 	if vector != nil {
-		if err := validateVector(vector, s.dim); err != nil {
+		dim, err := s.embeddingDimension()
+		if err != nil {
+			return err
+		}
+		if err := validateVector(vector, dim); err != nil {
 			return err
 		}
 	}

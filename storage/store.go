@@ -10,6 +10,16 @@ import (
 type Store interface {
 	// lifecycle
 	Close() error
+	BeginEmbeddingMigration(schema.EmbeddingIdentity) error
+	BeginEmbeddingMigrationGeneration(schema.EmbeddingIdentity) (string, error)
+	StageEmbeddingMigration(id string, vector []float32, fingerprint, generation string) error
+	ActivateEmbeddingMigration(generation string) error
+	RollbackEmbeddingMigration() error
+	FinalizeEmbeddingMigration() error
+	AdoptEmbeddingIdentity(schema.EmbeddingIdentity) error
+	EmbeddingMigrationStatus() (*schema.MigrationStatus, error)
+	EmbeddingMigrationBatch(generation string, limit int) ([]*schema.Memory, error)
+	GetEmbedding(id string) ([]float32, error)
 
 	// Ping checks storage connectivity (health probe): SQLite runs SELECT 1,
 	// Postgres pings the pool.
