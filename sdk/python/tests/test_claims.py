@@ -1,9 +1,36 @@
+import json
 import unittest
+from copy import deepcopy
+from dataclasses import asdict
 
 from ladym_client import Client, Claim, ClaimFeedbackRequest, ClaimScope, CreateClaimRequest, EvidenceRef, LadymError, RecordEvidenceRequest
 
 
 class ClaimTests(unittest.TestCase):
+    def test_claim_scope_conditions_json_roundtrip(self):
+        cases = [
+            ('{"scope":{"environment":"test","code_version":"v1","conditions":null}}',
+             {"environment": "test", "code_version": "v1", "conditions": []}),
+            ('{"scope":{"environment":"test","code_version":"v1"}}',
+             {"environment": "test", "code_version": "v1", "conditions": []}),
+            ('{"scope":{"environment":"test","code_version":"v1","conditions":["ready"]}}',
+             {"environment": "test", "code_version": "v1", "conditions": ["ready"]}),
+            ('{"scope":{"environment":"test","code_version":"v1","conditions":[]}}',
+             {"environment": "test", "code_version": "v1", "conditions": []}),
+            ('{"scope":null}', {"environment": "", "code_version": "", "conditions": []}),
+            ('{}', {"environment": "", "code_version": "", "conditions": []}),
+        ]
+        for payload, expected_scope in cases:
+            with self.subTest(payload=payload):
+                data = json.loads(payload)
+                original = deepcopy(data)
+                claim = Claim.from_json(data)
+                self.assertEqual(asdict(claim.scope), expected_scope)
+                self.assertEqual(list(claim.scope.conditions), expected_scope["conditions"])
+                self.assertEqual(data, original)
+                roundtrip = Claim.from_json(json.loads(json.dumps(asdict(claim))))
+                self.assertEqual(roundtrip, claim)
+
     def test_typed_claims_and_errors(self):
         requests = []
 

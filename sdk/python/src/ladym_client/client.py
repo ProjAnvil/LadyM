@@ -182,6 +182,9 @@ class Claim:
 
     @classmethod
     def from_json(cls, d: dict) -> "Claim":
+        scope = dict(d.get("scope") or {})
+        if scope.get("conditions") is None:
+            scope["conditions"] = []
         v = d.get("verification")
         verification = None
         if v is not None:
@@ -195,7 +198,7 @@ class Claim:
             revision=d.get("revision", 0), status=d.get("status", ""),
             evidence_refs=[EvidenceRef(**r) for r in d.get("evidence_refs") or []],
             counter_evidence=[EvidenceRef(**r) for r in d.get("counter_evidence") or []],
-            scope=ClaimScope(**(d.get("scope") or {})), verification=verification,
+            scope=ClaimScope(**scope), verification=verification,
             valid_until=d.get("valid_until", 0),
         )
 
