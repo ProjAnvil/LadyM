@@ -35,7 +35,11 @@ func (e *Engine) Scope(workspace string) *Scope {
 	if ws != e.Config.Workspace {
 		// Non-default workspaces get their own L0 buffer so concurrent
 		// requests to different workspaces never share it.
-		v, _ := e.working.LoadOrStore(ws, layers.NewWorkingMemory(64, ws))
+		root := e.workingRoot
+		if root == nil {
+			root = e
+		}
+		v, _ := root.working.LoadOrStore(ws, layers.NewWorkingMemory(64, ws))
 		working = v.(*layers.WorkingMemory)
 	}
 	return &Scope{

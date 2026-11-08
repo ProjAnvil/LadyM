@@ -6,6 +6,13 @@ enterprise includes PostgreSQL only. These are explicit interfaces and opt-in
 maintenance, not an autonomous agent, command executor, new queue or service.
 Whole-branch controller review remains the final release gate.
 
+`Engine.WithContext(ctx)` creates an immutable database-context view: cancellation
+does not mutate the root or sibling views. Default and cached per-workspace L0
+buffers remain shared with the root, without copying mutexes or caches; different
+workspaces remain isolated. PostgreSQL query, batch, copy and transaction paths
+inherit the caller context, including read transactions waiting for migration
+locks or pool connections. Rollback uses a separate bounded cleanup context.
+
 ## Trust, scopes and deletion
 
 See [memory learning](memory-learning.md) for typed evidence, claims, feedback,

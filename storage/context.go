@@ -72,9 +72,21 @@ func (p *contextPool) Ping(ctx context.Context) error { return p.Pool.Ping(p.con
 func (p *contextPool) Acquire(ctx context.Context) (*pgxpool.Conn, error) {
 	return p.Pool.Acquire(p.context(ctx))
 }
+func (p *contextPool) AcquireFunc(ctx context.Context, fn func(*pgxpool.Conn) error) error {
+	return p.Pool.AcquireFunc(p.context(ctx), fn)
+}
+func (p *contextPool) CopyFrom(ctx context.Context, table pgx.Identifier, columns []string, rows pgx.CopyFromSource) (int64, error) {
+	return p.Pool.CopyFrom(p.context(ctx), table, columns, rows)
+}
+func (p *contextPool) SendBatch(ctx context.Context, batch *pgx.Batch) pgx.BatchResults {
+	return p.Pool.SendBatch(p.context(ctx), batch)
+}
 func (p *contextPool) Begin(ctx context.Context) (pgx.Tx, error) {
+	return p.BeginTx(ctx, pgx.TxOptions{})
+}
+func (p *contextPool) BeginTx(ctx context.Context, options pgx.TxOptions) (pgx.Tx, error) {
 	ctx = p.context(ctx)
-	tx, err := p.Pool.Begin(ctx)
+	tx, err := p.Pool.BeginTx(ctx, options)
 	if err != nil {
 		return nil, err
 	}
@@ -86,6 +98,22 @@ type contextPGTx struct {
 	ctx context.Context
 }
 
+func (t *contextPGTx) Begin(_ context.Context) (pgx.Tx, error) {
+	tx, err := t.Tx.Begin(t.ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &contextPGTx{Tx: tx, ctx: t.ctx}, nil
+}
+func (t *contextPGTx) CopyFrom(_ context.Context, table pgx.Identifier, columns []string, rows pgx.CopyFromSource) (int64, error) {
+	return t.Tx.CopyFrom(t.ctx, table, columns, rows)
+}
+func (t *contextPGTx) SendBatch(_ context.Context, batch *pgx.Batch) pgx.BatchResults {
+	return t.Tx.SendBatch(t.ctx, batch)
+}
+func (t *contextPGTx) Prepare(_ context.Context, name, query string) (*pgconn.StatementDescription, error) {
+	return t.Tx.Prepare(t.ctx, name, query)
+}
 func (t *contextPGTx) Exec(_ context.Context, q string, args ...any) (pgconn.CommandTag, error) {
 	return t.Tx.Exec(t.ctx, q, args...)
 }

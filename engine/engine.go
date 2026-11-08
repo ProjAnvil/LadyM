@@ -49,6 +49,8 @@ type Engine struct {
 	// working caches per-workspace L0 buffers for non-default workspaces
 	// (Scope); the default workspace uses the public Working field.
 	working sync.Map
+	// Context views use the root's cache without copying its synchronization.
+	workingRoot *Engine
 
 	mu                  sync.Mutex
 	llmClassify         operations.LLMClassifier

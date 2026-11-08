@@ -554,8 +554,7 @@ func (e *Engine) RunBudgetedCycle(parent context.Context, workspace string) (*sc
 		return nil, err
 	}
 	start := time.Now()
-	// Do not copy Engine's mutex or change global/provider context.
-	view := &Engine{Config: e.Config, Provider: e.Provider, Store: e.Store.WithContext(ctx), routing: e.routing, agents: map[string]providers.LLMProvider{}}
+	view := e.WithContext(ctx)
 	scope := view.Scope(workspace)
 	if err := scope.discoverMaintenance(cfg.MaxCandidates + 1); err != nil {
 		return nil, err
