@@ -222,6 +222,7 @@ func (m *embeddingMigrations) BeginEmbeddingMigration(target schema.EmbeddingIde
 
 // BeginEmbeddingMigrationGeneration acquires the fence in the same transaction
 // as begin/resume; a separate status read could inherit an intervening restart.
+// Administrative resume preserves the existing generation's automatic intent.
 func (m *embeddingMigrations) BeginEmbeddingMigrationGeneration(target schema.EmbeddingIdentity) (string, error) {
 	var generation string
 	err := m.beginEmbeddingMigration(target, &generation, false)
@@ -251,7 +252,7 @@ func (m *embeddingMigrations) beginEmbeddingMigration(target schema.EmbeddingIde
 	}
 	fp := target.Fingerprint()
 	if state.State == "staging" && state.TargetFingerprint == fp {
-		if state.AutoFinalize != autoFinalize {
+		if autoFinalize && !state.AutoFinalize {
 			return ErrEmbeddingMigration
 		}
 		if acquired != nil {

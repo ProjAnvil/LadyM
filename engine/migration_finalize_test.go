@@ -48,77 +48,83 @@ func (s *migrationFinalizeBarrier) FinalizeAutomaticEmbeddingMigration(generatio
 func TestMigrationOldAutomaticFinalizeCannotEraseNewGeneration(t *testing.T) {
 	for _, statusRead := range []bool{false, true} {
 		for _, sameTarget := range []bool{false, true} {
-			t.Run(fmt.Sprintf("status-read=%t/same-target=%t", statusRead, sameTarget), func(t *testing.T) {
-				engineMigrationBackends(t, func(t *testing.T, cfg *config.Config) {
-					store, err := storage.OpenStore(cfg, 8)
-					if err != nil {
-						t.Fatal(err)
-					}
-					defer store.Close()
-					old := schema.EmbeddingIdentity{Provider: "test", Model: "old", Dim: 8, Tokenizer: "v1"}
-					if err := store.AdoptEmbeddingIdentity(old); err != nil {
-						t.Fatal(err)
-					}
-					memory := schema.NewMemory(schema.LayerSemantic, schema.TypeFact)
-					memory.ID, memory.Content = "a", "a"
-					if err := store.PutMemory(memory, []float32{1, 0, 0, 0, 0, 0, 0, 0}); err != nil {
-						t.Fatal(err)
-					}
-					target := &migrationEmbedder{identity: schema.EmbeddingIdentity{Provider: "test", Model: "next", Dim: 8, Tokenizer: "v1"}}
-					if statusRead {
-						if err := MigrateEmbeddings(t.Context(), migrationCrashAfterActivation{store}, target.identity, target, 2, false); err == nil {
-							t.Fatal("crash fixture did not interrupt finalization")
+			for _, administrative := range []bool{false, true} {
+				t.Run(fmt.Sprintf("status-read=%t/same-target=%t/administrative=%t", statusRead, sameTarget, administrative), func(t *testing.T) {
+					engineMigrationBackends(t, func(t *testing.T, cfg *config.Config) {
+						store, err := storage.OpenStore(cfg, 8)
+						if err != nil {
+							t.Fatal(err)
 						}
-					}
-					barrier := &migrationFinalizeBarrier{Store: store, started: make(chan struct{}), release: make(chan struct{}), statusRead: statusRead}
-					done := make(chan error, 1)
-					go func() { done <- MigrateEmbeddings(t.Context(), barrier, target.identity, target, 2, false) }()
-					<-barrier.started
-					finished := false
-					defer func() {
-						if !finished {
-							close(barrier.release)
-							<-done
+						defer store.Close()
+						old := schema.EmbeddingIdentity{Provider: "test", Model: "old", Dim: 8, Tokenizer: "v1"}
+						if err := store.AdoptEmbeddingIdentity(old); err != nil {
+							t.Fatal(err)
 						}
-					}()
-					// A different handle represents an administrative rollback/restart.
-					current, err := storage.OpenStore(cfg, 8)
-					if err != nil {
-						t.Fatal(err)
-					}
-					defer current.Close()
-					if err := current.RollbackEmbeddingMigration(); err != nil {
-						t.Fatal(err)
-					}
-					next := &migrationEmbedder{identity: target.identity}
-					if !sameTarget {
-						next.identity.Model = "later"
-					}
-					if err := MigrateEmbeddings(t.Context(), current, next.identity, next, 2, true); err != nil {
-						t.Fatal(err)
-					}
-					close(barrier.release)
-					err = <-done
-					finished = true
-					if !errors.Is(err, storage.ErrEmbeddingMigration) {
-						t.Errorf("old automatic runner erased a later backup: %v", err)
-					}
-					status, err := current.EmbeddingMigrationStatus()
-					if err != nil {
-						t.Fatal(err)
-					}
-					if status.State != "rollback_window" || !status.RollbackAvailable || status.ActiveFingerprint != next.identity.Fingerprint() {
-						t.Fatalf("new generation backup lost: %+v", status)
-					}
-					if err := current.RollbackEmbeddingMigration(); err != nil {
-						t.Fatal(err)
-					}
-					vector, err := current.GetEmbedding("a")
-					if err != nil || !slices.Equal(vector, []float32{1, 0, 0, 0, 0, 0, 0, 0}) {
-						t.Fatalf("later backup could not restore original vectors: %v %v", vector, err)
-					}
+						memory := schema.NewMemory(schema.LayerSemantic, schema.TypeFact)
+						memory.ID, memory.Content = "a", "a"
+						if err := store.PutMemory(memory, []float32{1, 0, 0, 0, 0, 0, 0, 0}); err != nil {
+							t.Fatal(err)
+						}
+						target := &migrationEmbedder{identity: schema.EmbeddingIdentity{Provider: "test", Model: "next", Dim: 8, Tokenizer: "v1"}}
+						if statusRead {
+							if err := MigrateEmbeddings(t.Context(), migrationCrashAfterActivation{store}, target.identity, target, 2, false); err == nil {
+								t.Fatal("crash fixture did not interrupt finalization")
+							}
+						} else if administrative {
+							if _, err := store.BeginAutomaticEmbeddingMigrationGeneration(target.identity); err != nil {
+								t.Fatal(err)
+							}
+						}
+						barrier := &migrationFinalizeBarrier{Store: store, started: make(chan struct{}), release: make(chan struct{}), statusRead: statusRead}
+						done := make(chan error, 1)
+						go func() { done <- MigrateEmbeddings(t.Context(), barrier, target.identity, target, 2, administrative) }()
+						<-barrier.started
+						finished := false
+						defer func() {
+							if !finished {
+								close(barrier.release)
+								<-done
+							}
+						}()
+						// A different handle represents an administrative rollback/restart.
+						current, err := storage.OpenStore(cfg, 8)
+						if err != nil {
+							t.Fatal(err)
+						}
+						defer current.Close()
+						if err := current.RollbackEmbeddingMigration(); err != nil {
+							t.Fatal(err)
+						}
+						next := &migrationEmbedder{identity: target.identity}
+						if !sameTarget {
+							next.identity.Model = "later"
+						}
+						if err := MigrateEmbeddings(t.Context(), current, next.identity, next, 2, true); err != nil {
+							t.Fatal(err)
+						}
+						close(barrier.release)
+						err = <-done
+						finished = true
+						if !errors.Is(err, storage.ErrEmbeddingMigration) {
+							t.Errorf("old automatic runner erased a later backup: %v", err)
+						}
+						status, err := current.EmbeddingMigrationStatus()
+						if err != nil {
+							t.Fatal(err)
+						}
+						if status.State != "rollback_window" || !status.RollbackAvailable || status.ActiveFingerprint != next.identity.Fingerprint() {
+							t.Fatalf("new generation backup lost: %+v", status)
+						}
+						if err := current.RollbackEmbeddingMigration(); err != nil {
+							t.Fatal(err)
+						}
+						vector, err := current.GetEmbedding("a")
+						if err != nil || !slices.Equal(vector, []float32{1, 0, 0, 0, 0, 0, 0, 0}) {
+							t.Fatalf("later backup could not restore original vectors: %v %v", vector, err)
+						}
+					})
 				})
-			})
+			}
 		}
 	}
 }
@@ -193,4 +199,50 @@ func TestMigrationRestartResumesOnlyAutomaticFinalization(t *testing.T) {
 			})
 		}
 	}
+
+}
+
+func TestMigrationAdministrativeResumeFinalizesAutomaticWindow(t *testing.T) {
+	engineMigrationBackends(t, func(t *testing.T, cfg *config.Config) {
+		store, err := storage.OpenStore(cfg, 8)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer store.Close()
+		old := schema.EmbeddingIdentity{Provider: "test", Model: "old", Dim: 8, Tokenizer: "v1"}
+		if err := store.AdoptEmbeddingIdentity(old); err != nil {
+			t.Fatal(err)
+		}
+		memory := schema.NewMemory(schema.LayerSemantic, schema.TypeFact)
+		memory.ID, memory.Content = "a", "a"
+		if err := store.PutMemory(memory, []float32{1, 0, 0, 0, 0, 0, 0, 0}); err != nil {
+			t.Fatal(err)
+		}
+		target := &migrationEmbedder{identity: schema.EmbeddingIdentity{Provider: "test", Model: "next", Dim: 8, Tokenizer: "v1"}}
+		if err := MigrateEmbeddings(t.Context(), migrationCrashAfterActivation{store}, target.identity, target, 2, false); err == nil {
+			t.Fatal("crash fixture did not interrupt finalization")
+		}
+		if err := store.Close(); err != nil {
+			t.Fatal(err)
+		}
+		store, err = storage.OpenStore(cfg, 8)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer store.Close()
+		target.calls = nil
+		if err := MigrateEmbeddings(t.Context(), store, target.identity, target, 2, true); err != nil {
+			t.Fatal(err)
+		}
+		status, err := store.EmbeddingMigrationStatus()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if status.State != "idle" || status.RollbackAvailable || len(target.calls) != 0 {
+			t.Fatalf("administrative resume failed pending automatic finalization: %+v calls=%v", status, target.calls)
+		}
+		if err := store.UpdateMemoryContent("a", "writable", "", nil, nil, 1); err != nil {
+			t.Fatalf("completed automatic migration still freezes writes: %v", err)
+		}
+	})
 }

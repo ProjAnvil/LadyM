@@ -149,3 +149,71 @@ func TestMigrationPathAndLegacyAdopt(t *testing.T) {
 		}
 	})
 }
+
+func TestMigrationAutomaticStartupCannotTakeOverExplicitStaging(t *testing.T) {
+	engineMigrationBackends(t, func(t *testing.T, cfg *config.Config) {
+		store, err := storage.OpenStore(cfg, 8)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer store.Close()
+		old := schema.EmbeddingIdentity{Provider: "test", Model: "old", Dim: 8, Tokenizer: "v1"}
+		if err := store.AdoptEmbeddingIdentity(old); err != nil {
+			t.Fatal(err)
+		}
+		for _, id := range []string{"a", "b", "c", "d"} {
+			memory := schema.NewMemory(schema.LayerSemantic, schema.TypeFact)
+			memory.ID, memory.Content = id, id
+			if err := store.PutMemory(memory, []float32{1, 0, 0, 0, 0, 0, 0, 0}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		target := &migrationEmbedder{identity: schema.EmbeddingIdentity{Provider: "test", Model: "next", Dim: 8, Tokenizer: "v1"}, failAt: 3}
+		if err := MigrateEmbeddings(t.Context(), store, target.identity, target, 2, true); err == nil {
+			t.Fatal("provider failure did not interrupt explicit staging")
+		}
+		pending, err := store.EmbeddingMigrationStatus()
+		if err != nil {
+			t.Fatal(err)
+		}
+		cfg.EmbeddingAllowDimChange = true
+		target.calls, target.failAt = nil, 0
+		eng, err := NewWithModels(cfg, &adapter.ModelRouting{Embedding: target})
+		if eng != nil {
+			eng.Close()
+		}
+		if !errors.Is(err, storage.ErrEmbeddingMigration) {
+			t.Fatalf("automatic startup took over explicit staging: %v", err)
+		}
+		if err := MigrateEmbeddings(t.Context(), store, target.identity, target, 2, false); !errors.Is(err, storage.ErrEmbeddingMigration) {
+			t.Fatalf("automatic runner took over explicit staging: %v", err)
+		}
+		unchanged, err := store.EmbeddingMigrationStatus()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if unchanged.AutoFinalize || unchanged.Generation != pending.Generation || unchanged.Processed != 2 || unchanged.Cursor != "b" || len(target.calls) != 0 {
+			t.Fatalf("automatic takeover changed explicit checkpoint: %+v calls=%v", unchanged, target.calls)
+		}
+		if err := MigrateEmbeddings(t.Context(), store, target.identity, target, 2, true); err != nil {
+			t.Fatal(err)
+		}
+		retained, err := store.EmbeddingMigrationStatus()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if retained.State != "rollback_window" || !retained.RollbackAvailable || retained.AutoFinalize || !slices.Equal(target.calls, []string{"c", "d"}) {
+			t.Fatalf("administrative resume lost explicit policy/cursor: %+v calls=%v", retained, target.calls)
+		}
+		if err := store.UpdateMemoryContent("a", "frozen", "", nil, nil, 1); err == nil {
+			t.Fatal("explicit rollback window allowed content writes")
+		}
+		if err := store.RollbackEmbeddingMigration(); err != nil {
+			t.Fatal(err)
+		}
+		vector, err := store.GetEmbedding("a")
+		if err != nil || !slices.Equal(vector, []float32{1, 0, 0, 0, 0, 0, 0, 0}) {
+			t.Fatalf("explicit backup was erased: %v %v", vector, err)
+		}
+	})
+}

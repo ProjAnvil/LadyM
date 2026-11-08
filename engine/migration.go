@@ -14,6 +14,8 @@ import (
 
 // MigrateEmbeddings is deliberately independent of Engine.New: recovery must
 // open a mismatched store without first admitting queries in the target space.
+// keepRollback selects intent for new work; administrative resume honors the
+// persisted policy, while automatic runners cannot take over explicit staging.
 func MigrateEmbeddings(ctx context.Context, store storage.Store, target schema.EmbeddingIdentity, provider storage.EmbeddingProvider, batchSize int, keepRollback bool) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -39,7 +41,7 @@ func MigrateEmbeddings(ctx context.Context, store storage.Store, target schema.E
 		return err
 	}
 	if status.ActiveFingerprint == target.Fingerprint() && status.State != "staging" {
-		if !keepRollback && status.RollbackAvailable && status.AutoFinalize {
+		if status.RollbackAvailable && status.AutoFinalize {
 			return store.FinalizeAutomaticEmbeddingMigration(status.Generation, target.Fingerprint())
 		}
 		return nil
@@ -53,6 +55,14 @@ func MigrateEmbeddings(ctx context.Context, store storage.Store, target schema.E
 	if err != nil {
 		return err
 	}
+	status, err = store.EmbeddingMigrationStatus()
+	if err != nil {
+		return err
+	}
+	if status.State != "staging" || status.Generation != generation || status.TargetFingerprint != target.Fingerprint() {
+		return storage.ErrEmbeddingMigration
+	}
+	autoFinalize := status.AutoFinalize
 	for {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -93,7 +103,7 @@ func MigrateEmbeddings(ctx context.Context, store storage.Store, target schema.E
 	if err := store.ActivateEmbeddingMigration(generation); err != nil {
 		return err
 	}
-	if !keepRollback {
+	if autoFinalize {
 		return store.FinalizeAutomaticEmbeddingMigration(generation, target.Fingerprint())
 	}
 	return nil

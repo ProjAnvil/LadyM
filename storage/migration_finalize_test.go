@@ -114,3 +114,49 @@ func TestMigrationExplicitRollbackPolicyCannotBeAdoptedAutomatically(t *testing.
 		}
 	})
 }
+
+func TestMigrationAdministrativeResumePreservesAutomaticIntent(t *testing.T) {
+	migrationBackends(t, func(t *testing.T, store Store) {
+		migrationSeed(t, store)
+		target := migrationIdentity("new", 8)
+		generation, err := store.BeginAutomaticEmbeddingMigrationGeneration(target)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, id := range []string{"a", "b"} {
+			migrationStage(t, store, id, []float32{0, 1, 0, 0, 0, 0, 0, 0})
+		}
+		if err := store.BeginEmbeddingMigration(target); err != nil {
+			t.Fatalf("administrative resume rejected automatic staging: %v", err)
+		}
+		resumed, err := store.BeginEmbeddingMigrationGeneration(target)
+		if err != nil || resumed != generation {
+			t.Fatalf("administrative generation acquisition: %q %v", resumed, err)
+		}
+		status, err := store.EmbeddingMigrationStatus()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !status.AutoFinalize || status.Generation != generation || status.Cursor != "b" || status.Processed != 2 {
+			t.Fatalf("administrative resume changed durable intent/checkpoint: %+v", status)
+		}
+		if _, err := store.BeginEmbeddingMigrationGeneration(migrationIdentity("other", 8)); !errors.Is(err, ErrEmbeddingMigration) {
+			t.Fatalf("administrative resume inherited another target: %v", err)
+		}
+		for _, id := range []string{"c", "d"} {
+			migrationStage(t, store, id, []float32{0, 1, 0, 0, 0, 0, 0, 0})
+		}
+		if err := store.ActivateEmbeddingMigration(generation); err != nil {
+			t.Fatal(err)
+		}
+		if err := store.RollbackEmbeddingMigration(); err != nil {
+			t.Fatal(err)
+		}
+		for _, id := range []string{"a", "b", "c", "d"} {
+			vector, err := store.GetEmbedding(id)
+			if err != nil || !slices.Equal(vector, []float32{1, 0, 0, 0, 0, 0, 0, 0}) {
+				t.Fatalf("resume replaced original backup for %s: %v %v", id, vector, err)
+			}
+		}
+	})
+}

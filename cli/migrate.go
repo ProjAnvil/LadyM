@@ -79,7 +79,7 @@ func migrateCmd() *cobra.Command {
 	}
 	addDBWS(cmd, &db, &workspace)
 	cmd.Flags().BoolVar(&status, "status", false, "Read durable migration status without loading a provider")
-	cmd.Flags().BoolVar(&resume, "resume", false, "Stage/resume configured embeddings; retain rollback backup")
+	cmd.Flags().BoolVar(&resume, "resume", false, "Stage/resume configured embeddings; preserve pending mode, retain rollback for new migrations")
 	cmd.Flags().BoolVar(&rollback, "rollback", false, "Abort staging or atomically restore the previous space")
 	cmd.Flags().BoolVar(&finalize, "finalize", false, "Delete backup and unfreeze writes")
 	cmd.Flags().BoolVar(&adopt, "adopt", false, "Attest legacy vector identity without changing vectors")
