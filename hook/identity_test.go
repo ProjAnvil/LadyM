@@ -134,6 +134,11 @@ func TestCanonicalIdentityPollutedGitEnv(t *testing.T) {
 		{"config", map[string]string{"GIT_CONFIG": config}},
 		{"global-config", map[string]string{"GIT_CONFIG_GLOBAL": config}},
 		{"system-config", map[string]string{"GIT_CONFIG_SYSTEM": config}},
+		{"ceiling-root", map[string]string{"GIT_CEILING_DIRECTORIES": root}},
+		{"discovery-disabled", map[string]string{"GIT_DISCOVERY_ACROSS_FILESYSTEM": "0"}},
+		{"discovery-enabled", map[string]string{"GIT_DISCOVERY_ACROSS_FILESYSTEM": "1"}},
+		{"discovery-invalid", map[string]string{"GIT_DISCOVERY_ACROSS_FILESYSTEM": "invalid"}},
+		{"ceiling-with-discovery-enabled", map[string]string{"GIT_CEILING_DIRECTORIES": root, "GIT_DISCOVERY_ACROSS_FILESYSTEM": "1"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

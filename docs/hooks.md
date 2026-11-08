@@ -50,7 +50,7 @@ identity_mode = "canonical" # 默认 "legacy"
 
 或设置 `LADYM_CAPTURE_IDENTITY_MODE=canonical`。只接受 `legacy` / `canonical`，非法值返回 ConfigError；不会静默降级。
 
-canonical 用清理后的绝对 git 项目根（非 git 用绝对 cwd），workspace 为 `project:` 加根路径 SHA-256 的完整十六进制值。git 查找有超时、使用参数数组而非 shell；不解析 symlink。查找会移除继承的 Git 仓库、对象/索引和 `GIT_CONFIG*` 环境覆盖，避免 harness 的 `GIT_DIR` / `GIT_WORK_TREE` 等把身份重定向到别处；仍通过正常 PATH 查找 git。同一 git 仓库的子目录共享 workspace；不同根目录、移动仓库或不同 symlink 拼写会产生不同身份。
+canonical 用清理后的绝对 git 项目根（非 git 用绝对 cwd），workspace 为 `project:` 加根路径 SHA-256 的完整十六进制值。git 查找有超时、使用参数数组而非 shell；不解析 symlink。仅根查找子进程会移除所有继承的 `GIT_*` 环境变量，包括 `GIT_DIR` / `GIT_WORK_TREE`、`GIT_CONFIG*`、`GIT_CEILING_DIRECTORIES` 和 `GIT_DISCOVERY_ACROSS_FILESYSTEM`，避免 harness 的仓库选择或发现控制改变身份；仍通过正常 PATH 查找 git，cwd 和两秒超时不变。同一 git 仓库的子目录共享 workspace；不同根目录、移动仓库或不同 symlink 拼写会产生不同身份。
 
 文件资源为根相对路径（如 `engine/main.go`、`cli/main.go`），根外文件保留清理后的绝对路径。路径区分大小写，资源 ID 为 `path:` 加 `SHA256(workspace + NUL + path)`；元数据标记 `resource_identity=path`。它们是无向量、无别名的结构实体，不参加普通资源的 exact alias / fuzzy 匹配或 worker 的 LLM alias merge。读取路径只精确定位，保留文件名开头/结尾的空格（`main.go` 与 `main.go ` 不同）；仅空白的查询仍拒绝，普通 legacy 资源查询仍去除外围空白。未知路径可显式 fallback 到普通 recall，但不会 fuzzy 定位为另一条路径。
 

@@ -27,18 +27,9 @@ func ProjectIdentity(cwd string) (root, workspace string, err error) {
 	defer cancel()
 	// --show-cdup avoids git's physical --show-toplevel resolving symlinks.
 	cmd := exec.CommandContext(ctx, "git", "-C", root, "rev-parse", "--show-cdup")
-	// Repository/config overrides must not redirect discovery away from cwd.
+	// Identity follows cwd, independent of inherited Git discovery/config controls.
 	cmd.Env = slices.DeleteFunc(os.Environ(), func(entry string) bool {
-		key, _, _ := strings.Cut(entry, "=")
-		switch key {
-		case "GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE",
-			"GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES",
-			"GIT_IMPLICIT_WORK_TREE", "GIT_PREFIX", "GIT_GRAFT_FILE",
-			"GIT_SHALLOW_FILE", "GIT_NO_REPLACE_OBJECTS", "GIT_REPLACE_REF_BASE":
-			return true
-		default:
-			return strings.HasPrefix(key, "GIT_CONFIG")
-		}
+		return strings.HasPrefix(entry, "GIT_")
 	})
 	cmd.Env = append(cmd.Env, "LC_ALL=C")
 	out, err := cmd.Output()

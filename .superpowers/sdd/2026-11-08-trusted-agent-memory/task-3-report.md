@@ -507,3 +507,117 @@ ok github.com/ProjAnvil/LadyM/hook 0.942s
 
 Build, vet, and diff check produced no diagnostics. Live PostgreSQL and race
 validation are not claimed; the existing enterprise CLI blocker is not fixed.
+
+## Fix2 — Task 3 review round 2/5
+
+- Starting HEAD: `e8f571d`.
+- Fixed only remaining finding 1: inherited `GIT_CEILING_DIRECTORIES` prevented
+  nested Git root discovery and silently selected cwd as the workspace root.
+  `GIT_DISCOVERY_ACROSS_FILESYSTEM` also remained inherited; an invalid value
+  made root discovery fail.
+- `ProjectIdentity` now omits every inherited `GIT_*` variable from only its root
+  discovery subprocess. PATH, cwd, argument-vector invocation, two-second
+  timeout, lexical/symlink behavior, and non-repository fallback are unchanged.
+- Extended `TestCanonicalIdentityPollutedGitEnv` with ceiling at the repository
+  root, filesystem discovery disabled/enabled/invalid, and ceiling combined with
+  enabled filesystem discovery. Every case checks root, nested cwd, fallback,
+  and the full workspace hash against independently constructed expectations.
+  The invalid-value case positively detects discovery-control leakage without
+  requiring a cross-filesystem mount; actual mount crossing was not tested.
+- Updated `docs/hooks.md` to state the complete subprocess-only isolation.
+  Finding 2's exact-whitespace implementation/tests were not edited.
+- No subagents, Task 4, dependency changes, or additional tracked scratch files.
+
+### Read-only reproduction
+
+From the specified worktree, before edits:
+
+```sh
+env GIT_CEILING_DIRECTORIES="$PWD" git -C hook rev-parse --show-cdup
+env GIT_DISCOVERY_ACROSS_FILESYSTEM=invalid git -C hook rev-parse --show-cdup
+```
+
+Each exited 128:
+
+```text
+fatal: not a git repository (or any of the parent directories): .git
+fatal: bad boolean environment value 'invalid' for 'GIT_DISCOVERY_ACROSS_FILESYSTEM'
+```
+
+### Modern Go / validation environment
+
+Before editing either Go file, complete unfiltered `list` output was read; both
+commands exited 0:
+
+```sh
+sh '/Users/yuhaochen/Library/Application Support/Code/agentPlugins/file-Users-yuhaochen-vscode-agent-plugins-github-com-JetBrains-go-modern-guidelines-plugin/1a1685ebdb9/skills/use-modern-go/scripts/run-tool.sh' list --file-path hook/identity.go
+sh '/Users/yuhaochen/Library/Application Support/Code/agentPlugins/file-Users-yuhaochen-vscode-agent-plugins-github-com-JetBrains-go-modern-guidelines-plugin/1a1685ebdb9/skills/use-modern-go/scripts/run-tool.sh' list --file-path /Users/yuhaochen/Documents/codebase/projanvil/ladyM-agent-memory/hook/identity_test.go
+```
+
+All edits used `apply_patch`, and formatting used `gofmt`. Go commands ran with:
+
+```sh
+mkdir -p .task3-fix2-data/home
+export CGO_ENABLED=0 TMPDIR="$PWD/.task3-fix2-data"
+export GOCACHE="$(go env GOCACHE)" GOPATH="$(go env GOPATH)"
+export HOME="$PWD/.task3-fix2-data/home"
+```
+
+The first red run additionally exposed the enclosing worktree being discovered
+from the in-project non-Git fixtures when their ceiling changed. Before further
+validation, an untracked `.task3-fix2-data/.git` marker containing
+`gitdir: .nonexistent-git-dir` isolated scratch discovery from the enclosing
+worktree. Nested real Git fixtures remained discoverable; non-repository
+fixtures used the existing not-a-repository fallback. The entire scratch
+directory was removed before staging; no user config/database was modified.
+
+### TDD red → green and requested gate
+
+Tests were extended and run before the production change:
+
+```sh
+gofmt -w hook/identity_test.go
+go test ./hook -run '^TestCanonicalIdentity' -count=1 -v
+```
+
+The isolated red run exited 1. Output excerpts (long fixture paths omitted):
+
+```text
+--- FAIL: TestCanonicalIdentityPollutedGitEnv (0.54s)
+    --- FAIL: TestCanonicalIdentityPollutedGitEnv/ceiling-root (0.03s)
+    --- PASS: TestCanonicalIdentityPollutedGitEnv/discovery-disabled (0.03s)
+    --- PASS: TestCanonicalIdentityPollutedGitEnv/discovery-enabled (0.03s)
+    --- FAIL: TestCanonicalIdentityPollutedGitEnv/discovery-invalid (0.03s)
+    --- FAIL: TestCanonicalIdentityPollutedGitEnv/ceiling-with-discovery-enabled (0.03s)
+FAIL github.com/ProjAnvil/LadyM/hook 1.076s
+```
+
+Ceiling cases returned the nested cwd/hash instead of the repository root/hash;
+invalid discovery returned `exit status 128`. Existing identity cases passed.
+
+After the narrow production change:
+
+```sh
+gofmt -w hook/identity.go hook/identity_test.go
+go test ./hook -run '^TestCanonicalIdentity' -count=1 -v
+go test ./hook ./engine -count=1
+git diff --check
+```
+
+All exited 0. Green output excerpts:
+
+```text
+    --- PASS: TestCanonicalIdentityPollutedGitEnv/ceiling-root (0.03s)
+    --- PASS: TestCanonicalIdentityPollutedGitEnv/discovery-disabled (0.03s)
+    --- PASS: TestCanonicalIdentityPollutedGitEnv/discovery-enabled (0.03s)
+    --- PASS: TestCanonicalIdentityPollutedGitEnv/discovery-invalid (0.03s)
+    --- PASS: TestCanonicalIdentityPollutedGitEnv/ceiling-with-discovery-enabled (0.03s)
+PASS
+ok github.com/ProjAnvil/LadyM/hook 1.250s
+ok github.com/ProjAnvil/LadyM/hook 0.758s
+ok github.com/ProjAnvil/LadyM/engine 7.138s
+```
+
+Diff check produced no diagnostics. The requested hook/engine suites include
+the existing whitespace regressions. No new full-suite, enterprise, race, or
+live PostgreSQL verification is claimed for Fix2.
