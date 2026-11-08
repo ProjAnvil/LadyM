@@ -181,7 +181,7 @@ func TestNewStoreAddsEmbeddingColumnToLegacyDB(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Simulate a pre-migration database (no embedding column).
-	if _, err := s.db.Exec("ALTER TABLE memories DROP COLUMN embedding"); err != nil {
+	if _, err := s.db.Exec("DROP TRIGGER memories_vector_update; ALTER TABLE memories DROP COLUMN embedding"); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.Close(); err != nil {

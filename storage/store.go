@@ -19,6 +19,16 @@ type Store interface {
 	PutMemory(mem *schema.Memory, vector []float32) error
 	GetMemory(id string) (*schema.Memory, error)
 	DeleteMemory(id string) error
+	// DeleteMemorySafely rechecks access and usable direct references atomically.
+	// autoBefore==0 explicitly deletes and invalidates direct dependants.
+	// A positive cutoff skips newer memories and protects referenced evidence.
+	DeleteMemorySafely(id string, autoBefore float64) (deleted bool, protected bool, err error)
+	// ApplyMemoryBatch commits guards, writes, edge closures and new edges
+	// together. Guard conflicts wrap ErrMemoryConflict; no provider work runs here.
+	ApplyMemoryBatch(batch MemoryBatch) error
+	// EvidenceReferences returns the same direct dependency protection used by
+	// safe deletion, scoped to workspace (empty means all workspaces).
+	EvidenceReferences(workspace string) (map[string]bool, error)
 	// UpdateMemoryContent patches one memory's content/summary/tags and bumps
 	// updated_at (now==0 falls back to the wall clock). Unlike PutMemory's
 	// upsert — where a nil vector NULLs the embedding column — a nil vector
@@ -35,6 +45,9 @@ type Store interface {
 	// vector retrieval (cosine similarity, deterministic top-k; semantics
 	// anchored to InMemoryVectorIndex.Search)
 	VectorSearch(queryVec []float32, topK int) []SearchHit
+	// SearchMemories applies eligibility before exact top-k truncation and
+	// returns input/database errors. Empty filter fields preserve global scope.
+	SearchMemories(queryVec []float32, topK int, filter MemoryFilter) ([]SearchHit, error)
 
 	// L4 associative graph
 	PutEdge(e *schema.Edge) error

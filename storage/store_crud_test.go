@@ -33,11 +33,11 @@ func TestSQLiteVectorIndexSync(t *testing.T) {
 		t.Errorf("index len = %d, want 1", s.vectorIndex.Len())
 	}
 
-	// A vector-less upsert must not insert a new index entry.
+	// A vector-less upsert NULLs the persisted vector and removes its entry.
 	m.Content = "updated"
 	putTestMemory(t, s, m, nil)
-	if s.vectorIndex.Len() != 1 {
-		t.Errorf("index len after vector-less upsert = %d, want 1", s.vectorIndex.Len())
+	if s.vectorIndex.Len() != 0 {
+		t.Errorf("index len after vector-less upsert = %d, want 0", s.vectorIndex.Len())
 	}
 
 	// Delete removes the index entry too; deleting a missing id is a no-op.

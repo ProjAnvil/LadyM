@@ -167,10 +167,8 @@ func TestSQLiteRefsForSymbolScanError(t *testing.T) {
 	}
 }
 
-// TestWarmIndexSkipsUnscannableRows: warmIndexFromBlobs skips rows whose id
-// fails to scan (SQLite permits NULL in a TEXT PRIMARY KEY) and still warms
-// the valid ones.
-func TestWarmIndexSkipsUnscannableRows(t *testing.T) {
+// Failed scans must surface and leave the index cold for a later retry.
+func TestWarmIndexRejectsUnscannableRows(t *testing.T) {
 	s := openTestStore(t)
 	blob := make([]byte, s.Dim*4)
 	if _, err := s.db.Exec(
@@ -183,9 +181,8 @@ func TestWarmIndexSkipsUnscannableRows(t *testing.T) {
 		 VALUES ('good', 'L1_episodic', 'event', 'x', 0, 0, 0, ?)`, blob); err != nil {
 		t.Fatal(err)
 	}
-	s.warmIndexFromBlobs()
-	if n := s.vectorIndex.Len(); n != 1 {
-		t.Errorf("index len after warm = %d, want 1 (the NULL-id row skipped)", n)
+	if err := s.warmIndexFromBlobs(); err == nil || s.indexWarm {
+		t.Fatalf("unscannable row: err=%v warm=%v", err, s.indexWarm)
 	}
 }
 

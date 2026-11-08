@@ -53,10 +53,7 @@ func TestNewStoreDoesNotWarmIndex(t *testing.T) {
 	}
 }
 
-// TestVectorSearchWarmsIndex pins the other half: the first VectorSearch must
-// warm from the database, and warming must happen exactly once. A second
-// search after the database moved on must NOT re-read, which is what keeps the
-// deferral from turning into a per-query scan.
+// The first read warms lazily; a subsequent real mutation invalidates it.
 func TestVectorSearchWarmsIndex(t *testing.T) {
 	s, _ := reopenStore(t, 3)
 
@@ -68,8 +65,7 @@ func TestVectorSearchWarmsIndex(t *testing.T) {
 		t.Errorf("index len after warm = %d, want 3", got)
 	}
 
-	// Slip a row into the database behind the store's back. A warm that ran
-	// on every search would pick it up; warm-once must not.
+	// Direct SQL must participate in persistent generation invalidation.
 	late := schema.NewMemory(schema.LayerEpisodic, schema.TypeEvent)
 	if _, err := s.db.Exec(
 		`INSERT INTO memories (id, layer, type, content, created_at, updated_at, last_access_at, embedding)
@@ -78,13 +74,14 @@ func TestVectorSearchWarmsIndex(t *testing.T) {
 		t.Fatalf("insert row behind the index: %v", err)
 	}
 	hits = s.VectorSearch([]float32{1, 0, 0, 0, 0, 0, 0, 0}, 8)
+	found := false
 	for _, h := range hits {
 		if h.ID == late.ID {
-			t.Errorf("second VectorSearch returned %s: warm ran more than once", late.ID)
+			found = true
 		}
 	}
-	if len(hits) != 3 {
-		t.Errorf("second VectorSearch hits = %d, want 3 (warm-once keeps the first snapshot)", len(hits))
+	if !found || len(hits) != 4 {
+		t.Errorf("second VectorSearch = %v, want all four committed rows", hits)
 	}
 }
 

@@ -48,8 +48,8 @@ func l2Norm(vec []float32) float64 {
 }
 
 func (ix *InMemoryVectorIndex) Upsert(itemID string, vector []float32) error {
-	if len(vector) != ix.dim {
-		return fmt.Errorf("vector dim %d != index dim %d", len(vector), ix.dim)
+	if err := validateVector(vector, ix.dim); err != nil {
+		return fmt.Errorf("index: %w", err)
 	}
 	vec := slices.Clone(vector)
 	if n := l2Norm(vec); n > 0 {
@@ -74,6 +74,9 @@ func (ix *InMemoryVectorIndex) Search(query []float32, topK int) []SearchHit {
 	// afterwards, so Search never mutates shared state.
 	ix.mu.RLock()
 	defer ix.mu.RUnlock()
+	if topK <= 0 || validateVector(query, ix.dim) != nil {
+		return nil
+	}
 	if len(ix.ids) == 0 {
 		return nil
 	}

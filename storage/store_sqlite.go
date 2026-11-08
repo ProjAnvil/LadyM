@@ -4,11 +4,13 @@ package storage
 
 import (
 	"cmp"
+	"context"
 	"database/sql"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"math"
 	"os"
 	"path/filepath"
@@ -124,9 +126,8 @@ func decodeVec(b []byte) []float32 {
 //
 // The vector index is warm-loaded lazily: it is either cold (nothing read from
 // the database yet) or hot (it covers every stored embedding). Writes may land
-// at any time in either state. Warming happens once, on the first VectorSearch,
-// and reloads every row with Upsert, so it is idempotent with respect to any
-// write that already reached the index. The hook pays NewStore once per tool
+// at any time in either state. The first search warms it; later vector
+// generations rebuild it from a consistent snapshot. The hook pays NewStore once per tool
 // call, so an eager O(n) warm is an O(n) tax on every event.
 type SQLiteStore struct {
 	DBPath      string
@@ -135,8 +136,11 @@ type SQLiteStore struct {
 	vectorIndex VectorIndex
 	usingVec    bool
 
-	indexMu   sync.RWMutex
-	indexWarm bool
+	indexMu          sync.RWMutex
+	indexWarm        bool
+	indexGeneration  int64
+	indexRebuilds    uint64
+	indexRefreshHook func()
 }
 
 var _ Store = (*SQLiteStore)(nil)
@@ -205,6 +209,14 @@ func NewStore(dbPath string, dim int, preferSQLiteVec bool, enableWAL bool) (*SQ
 			return nil, err
 		}
 	}
+	if _, err := db.Exec(vectorGenerationSQL); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if err := installLegacyEvidenceIndex(db); err != nil {
+		db.Close()
+		return nil, err
+	}
 
 	s := &SQLiteStore{DBPath: dbPath, Dim: dim, db: db, vectorIndex: NewInMemoryVectorIndex(dim)}
 	return s, nil
@@ -213,50 +225,65 @@ func NewStore(dbPath string, dim int, preferSQLiteVec bool, enableWAL bool) (*SQ
 // UsingSQLiteVec always returns false (see NewStore).
 func (s *SQLiteStore) UsingSQLiteVec() bool { return s.usingVec }
 
-// ensureIndex warms the vector index from the database at most once per store.
-//
-// It holds the write lock across the load, and every write path takes the read
-// lock around its index mutation, so a write can neither interleave with the
-// SELECT nor mutate the index while warm is filling it. Without both halves a
-// Delete racing warm would have its row resurrected, and an update would have
-// its fresh vector overwritten by warm's stale snapshot — permanently, since
-// warm never runs again.
-//
-// A failed warm leaves the index cold so the next search retries. Marking it
-// warm on error would silently disable vector search for the process.
-func (s *SQLiteStore) ensureIndex() {
+// ensureIndex refreshes under the same cache lock used by search and writes.
+func (s *SQLiteStore) ensureIndex() error {
 	s.indexMu.Lock()
 	defer s.indexMu.Unlock()
-	if s.indexWarm {
-		return
-	}
-	if err := s.warmIndexFromBlobs(); err != nil {
-		return
-	}
-	s.indexWarm = true
+	return s.warmIndexFromBlobs()
 }
 
-// warmIndexFromBlobs reloads every stored embedding into the index. It reports
-// the query error so ensureIndex can stay cold and retry; unscannable rows are
-// skipped rather than failing the whole load.
+// warmIndexFromBlobs samples generation and embeddings in one read snapshot.
+// A failed refresh leaves the cached generation unchanged so the next read retries.
 func (s *SQLiteStore) warmIndexFromBlobs() error {
-	rows, err := s.db.Query("SELECT id, embedding FROM memories WHERE embedding IS NOT NULL")
+	tx, err := s.db.BeginTx(context.Background(), &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var generation int64
+	if err := tx.QueryRow("SELECT generation FROM memory_vector_generation WHERE id=1").Scan(&generation); err != nil {
+		return err
+	}
+	if err := s.refreshIndex(tx, generation); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (s *SQLiteStore) refreshIndex(tx *sql.Tx, generation int64) error {
+	if s.indexWarm && s.indexGeneration == generation {
+		return nil
+	}
+	rows, err := tx.Query("SELECT id, embedding FROM memories WHERE embedding IS NOT NULL")
 	if err != nil {
 		return err
 	}
 	defer rows.Close()
+	index := NewInMemoryVectorIndex(s.Dim)
 	for rows.Next() {
 		var id string
 		var blob []byte
 		if err := rows.Scan(&id, &blob); err != nil {
-			continue
+			return err
+		}
+		if len(blob)%4 != 0 {
+			return fmt.Errorf("invalid embedding blob for %s", id)
 		}
 		vec := decodeVec(blob)
 		if len(vec) == s.Dim {
-			_ = s.vectorIndex.Upsert(id, vec)
+			if err := index.Upsert(id, vec); err != nil {
+				return err
+			}
 		}
 	}
-	return rows.Err()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	s.vectorIndex = index
+	s.indexGeneration = generation
+	s.indexWarm = true
+	s.indexRebuilds++
+	return nil
 }
 
 // Close commits and closes the underlying connection.
@@ -277,10 +304,11 @@ func (s *SQLiteStore) RebuildVectorIndex(newDim int) {
 // VectorSearch runs a cosine top-k search over the in-memory vector index,
 // warming it from the database on first use.
 func (s *SQLiteStore) VectorSearch(queryVec []float32, topK int) []SearchHit {
-	s.ensureIndex()
-	s.indexMu.RLock()
-	defer s.indexMu.RUnlock()
-	return s.vectorIndex.Search(queryVec, topK)
+	hits, err := s.SearchMemories(queryVec, topK, MemoryFilter{})
+	if err != nil {
+		log.Printf("storage VectorSearch: %v", err)
+	}
+	return hits
 }
 
 // indexLockPath names the lock file <db>.index.lock — identical to the Python
@@ -308,36 +336,18 @@ func (s *SQLiteStore) TryAcquireWorkerLock() (func(), error) {
 // ---- memory CRUD ----
 
 func (s *SQLiteStore) PutMemory(mem *schema.Memory, vector []float32) error {
-	var blob any
-	if vector != nil {
-		blob = encodeVec(vector)
-	}
-	tags, _ := json.Marshal(mem.Tags)
-	meta, _ := json.Marshal(mem.Metadata)
-	if _, err := s.db.Exec(
-		`INSERT INTO memories (id, layer, type, content, summary, tags, metadata,
-		                       source, workspace, created_at, updated_at,
-		                       last_access_at, access_count, activation, content_hash, embedding)
-		 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-		 ON CONFLICT(id) DO UPDATE SET
-		   layer=excluded.layer, type=excluded.type, content=excluded.content,
-		   summary=excluded.summary, tags=excluded.tags, metadata=excluded.metadata,
-		   source=excluded.source, workspace=excluded.workspace,
-		   updated_at=excluded.updated_at, last_access_at=excluded.last_access_at,
-		   access_count=excluded.access_count, activation=excluded.activation,
-		   content_hash=excluded.content_hash, embedding=excluded.embedding`,
-		mem.ID, mem.Layer, mem.Type, mem.Content, mem.Summary, string(tags), string(meta),
-		mem.Source, mem.Workspace, mem.CreatedAt, mem.UpdatedAt,
-		mem.LastAccessAt, mem.AccessCount, mem.Activation, mem.ContentHash, blob,
-	); err != nil {
+	batch := MemoryBatch{Writes: []MemoryWrite{{Memory: mem, Vector: vector}}}
+	if err := validateBatch(batch, s.Dim); err != nil {
 		return err
 	}
-	if vector != nil {
-		s.indexMu.RLock()
-		defer s.indexMu.RUnlock()
-		return s.vectorIndex.Upsert(mem.ID, vector)
+	tx, err := s.beginMemoryTransaction()
+	if err != nil {
+		return err
 	}
-	return nil
+	if err := applyMemoryBatch(tx, batch, false); err != nil {
+		return err
+	}
+	return s.updateLocalVector(mem.ID, vector)
 }
 
 func (s *SQLiteStore) scanMemory(row *sql.Rows) (*schema.Memory, error) {
@@ -389,13 +399,8 @@ func (s *SQLiteStore) GetMemory(id string) (*schema.Memory, error) {
 
 // DeleteMemory deletes a memory and its vector entry.
 func (s *SQLiteStore) DeleteMemory(id string) error {
-	if _, err := s.db.Exec("DELETE FROM memories WHERE id = ?", id); err != nil {
-		return err
-	}
-	s.indexMu.RLock()
-	s.vectorIndex.Delete(id)
-	s.indexMu.RUnlock()
-	return nil
+	_, _, err := s.DeleteMemorySafely(id, 0)
+	return err
 }
 
 // UpdateMemoryContent patches content/summary/tags/updated_at in place. A nil
@@ -404,6 +409,11 @@ func (s *SQLiteStore) DeleteMemory(id string) error {
 // embedding, recomputes content_hash and re-indexes the vector. A missing id
 // is a no-op.
 func (s *SQLiteStore) UpdateMemoryContent(id, content, summary string, tags []string, vector []float32, now float64) error {
+	if vector != nil {
+		if err := validateVector(vector, s.Dim); err != nil {
+			return err
+		}
+	}
 	now = cmp.Or(now, schema.Now())
 	tagsJSON, _ := json.Marshal(tags)
 	var (
@@ -424,9 +434,7 @@ func (s *SQLiteStore) UpdateMemoryContent(id, content, summary string, tags []st
 	}
 	if vector != nil {
 		if n, _ := res.RowsAffected(); n > 0 {
-			s.indexMu.RLock()
-			defer s.indexMu.RUnlock()
-			return s.vectorIndex.Upsert(id, vector)
+			return s.updateLocalVector(id, vector)
 		}
 	}
 	return nil
@@ -560,20 +568,7 @@ func (s *SQLiteStore) Count(workspace string) (map[string]int, error) {
 
 // PutEdge inserts or updates an edge.
 func (s *SQLiteStore) PutEdge(e *schema.Edge) error {
-	var validTo any
-	if e.ValidTo != nil {
-		validTo = *e.ValidTo
-	}
-	meta, _ := json.Marshal(e.Metadata)
-	_, err := s.db.Exec(
-		`INSERT INTO edges (id, src_id, relation, dst_id, weight, valid_from, valid_to, metadata)
-		 VALUES (?,?,?,?,?,?,?,?)
-		 ON CONFLICT(id) DO UPDATE SET
-		   src_id=excluded.src_id, relation=excluded.relation, dst_id=excluded.dst_id,
-		   weight=excluded.weight, valid_from=excluded.valid_from,
-		   valid_to=excluded.valid_to, metadata=excluded.metadata`,
-		e.ID, e.SrcID, e.Relation, e.DstID, e.Weight, e.ValidFrom, validTo, string(meta))
-	return err
+	return s.ApplyMemoryBatch(MemoryBatch{Edges: []*schema.Edge{e}})
 }
 
 func (s *SQLiteStore) scanEdge(row *sql.Rows) (*schema.Edge, error) {
@@ -847,11 +842,14 @@ func (s *SQLiteStore) DeleteCodeArtifactsByFile(workspace, filePath string) erro
 		string(schema.TypeCodeSymbol), filePath, workspace); err != nil {
 		return err
 	}
-	s.indexMu.RLock()
+	s.indexMu.Lock()
+	if len(ids) > 0 {
+		s.indexWarm = false
+	}
 	for _, id := range ids {
 		s.vectorIndex.Delete(id)
 	}
-	s.indexMu.RUnlock()
+	s.indexMu.Unlock()
 	return nil
 }
 

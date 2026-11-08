@@ -54,7 +54,7 @@ func TestNewStoreReadOnlyMigrationFails(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.db.Exec("ALTER TABLE memories DROP COLUMN embedding"); err != nil {
+	if _, err := s.db.Exec("DROP TRIGGER memories_vector_update; ALTER TABLE memories DROP COLUMN embedding"); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.Close(); err != nil {

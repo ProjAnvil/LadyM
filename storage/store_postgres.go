@@ -6,8 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"os"
-	"slices"
 	"strconv"
 
 	"github.com/ProjAnvil/LadyM/schema"
@@ -73,6 +73,8 @@ func pgSchema(dim int) []string {
 		`CREATE INDEX IF NOT EXISTS idx_mem_ws ON memories(workspace)`,
 		`CREATE INDEX IF NOT EXISTS idx_mem_source ON memories(source)`,
 		`CREATE INDEX IF NOT EXISTS idx_mem_hash ON memories(content_hash)`,
+		`CREATE INDEX IF NOT EXISTS idx_mem_source_episode ON memories ((metadata->>'source_episode'))`,
+		`CREATE INDEX IF NOT EXISTS idx_mem_source_episodes ON memories USING gin ((metadata->'source_episodes'))`,
 		`CREATE INDEX IF NOT EXISTS idx_mem_embedding ON memories USING hnsw (embedding vector_cosine_ops)`,
 		`CREATE TABLE IF NOT EXISTS edges (
     id          TEXT PRIMARY KEY,
@@ -235,104 +237,18 @@ func (s *PostgresStore) RebuildVectorIndex(newDim int) {
 	s.dim = newDim
 }
 
-// VectorSearch runs a cosine top-k search via pgvector. Ordering matches
-// InMemoryVectorIndex.Search: similarity desc, id asc as deterministic
-// tiebreak; the vector index is global (workspace filtering happens in the
-// recall layer above). Query failures degrade to nil, mirroring the in-memory
-// index's error-free Search signature (same tolerance as warmIndexFromBlobs).
-//
-// Degenerate vectors are handled outside the ANN path: pgvector's cosine
-// distance is NaN for zero-norm vectors, and the HNSW index omits them
-// entirely, while the in-memory baseline assigns them similarity 0. A
-// zero-norm query therefore takes a plain id-ordered scan, and zero-norm
-// stored vectors are appended via UNION ALL with a literal 0 similarity.
-func (s *PostgresStore) VectorSearch(queryVec []float32, topK int) []SearchHit {
-	if topK <= 0 {
-		return nil
-	}
-	ctx := context.Background()
-	if l2Norm(queryVec) == 0 {
-		// COLLATE "C" forces byte-wise ordering to match the baseline's
-		// Go string comparison, regardless of the database's locale.
-		rows, err := s.pool.Query(ctx,
-			`SELECT id FROM memories WHERE embedding IS NOT NULL ORDER BY id COLLATE "C" LIMIT $1`, topK)
-		if err != nil {
-			return nil
-		}
-		defer rows.Close()
-		var out []SearchHit
-		for rows.Next() {
-			var h SearchHit
-			if err := rows.Scan(&h.ID); err != nil {
-				return nil
-			}
-			out = append(out, h)
-		}
-		if rows.Err() != nil {
-			return nil
-		}
-		return out
-	}
-	rows, err := s.pool.Query(ctx,
-		`(SELECT id, 1 - (embedding <=> $1) AS sim FROM memories
-		  WHERE embedding IS NOT NULL AND vector_norm(embedding) > 0
-		  ORDER BY embedding <=> $1 LIMIT $2)
-		 UNION ALL
-		 (SELECT id, 0.0::float8 AS sim FROM memories
-		  WHERE embedding IS NOT NULL AND vector_norm(embedding) = 0)`,
-		pgvector.NewVector(queryVec), topK)
-	if err != nil {
-		return nil
-	}
-	defer rows.Close()
-	var out []SearchHit
-	for rows.Next() {
-		var h SearchHit
-		if err := rows.Scan(&h.ID, &h.Similarity); err != nil {
-			return nil
-		}
-		out = append(out, h)
-	}
-	if rows.Err() != nil {
-		return nil
-	}
-	// Canonical sim-desc / id-asc ordering is enforced here so the ANN
-	// pre-selection and the zero-norm UNION branch merge deterministically,
-	// exactly matching InMemoryVectorIndex.Search.
-	slices.SortStableFunc(out, func(a, b SearchHit) int {
-		return cmp.Or(cmp.Compare(b.Similarity, a.Similarity), cmp.Compare(a.ID, b.ID))
-	})
-	if len(out) > topK {
-		out = out[:topK]
-	}
-	return out
-}
-
 // ---- memory CRUD ----
 
 func (s *PostgresStore) PutMemory(mem *schema.Memory, vector []float32) error {
-	var embedding any
-	if vector != nil {
-		embedding = pgvector.NewVector(vector)
+	batch := MemoryBatch{Writes: []MemoryWrite{{Memory: mem, Vector: vector}}}
+	if err := validateBatch(batch, s.dim); err != nil {
+		return err
 	}
-	tags, _ := json.Marshal(mem.Tags)
-	meta, _ := json.Marshal(mem.Metadata)
-	_, err := s.pool.Exec(context.Background(),
-		`INSERT INTO memories (id, layer, type, content, summary, tags, metadata,
-		                       source, workspace, created_at, updated_at,
-		                       last_access_at, access_count, activation, content_hash, embedding)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
-		 ON CONFLICT (id) DO UPDATE SET
-		   layer=excluded.layer, type=excluded.type, content=excluded.content,
-		   summary=excluded.summary, tags=excluded.tags, metadata=excluded.metadata,
-		   source=excluded.source, workspace=excluded.workspace,
-		   updated_at=excluded.updated_at, last_access_at=excluded.last_access_at,
-		   access_count=excluded.access_count, activation=excluded.activation,
-		   content_hash=excluded.content_hash, embedding=excluded.embedding`,
-		mem.ID, string(mem.Layer), string(mem.Type), mem.Content, mem.Summary,
-		string(tags), string(meta), mem.Source, mem.Workspace, mem.CreatedAt, mem.UpdatedAt,
-		mem.LastAccessAt, mem.AccessCount, mem.Activation, mem.ContentHash, embedding)
-	return err
+	tx, err := s.beginMemoryTransaction(batch)
+	if err != nil {
+		return err
+	}
+	return applyMemoryBatch(tx, batch, false)
 }
 
 func scanMemoryPG(row pgx.Rows) (*schema.Memory, error) {
@@ -387,7 +303,7 @@ func (s *PostgresStore) GetMemory(id string) (*schema.Memory, error) {
 
 // DeleteMemory deletes a memory (the HNSW index entry goes with the row).
 func (s *PostgresStore) DeleteMemory(id string) error {
-	_, err := s.pool.Exec(context.Background(), "DELETE FROM memories WHERE id = $1", id)
+	_, _, err := s.DeleteMemorySafely(id, 0)
 	return err
 }
 
@@ -396,6 +312,11 @@ func (s *PostgresStore) DeleteMemory(id string) error {
 // PutMemory upsert, which would NULL them); a non-nil vector rewrites the
 // embedding and recomputes content_hash. A missing id is a no-op.
 func (s *PostgresStore) UpdateMemoryContent(id, content, summary string, tags []string, vector []float32, now float64) error {
+	if vector != nil {
+		if err := validateVector(vector, s.dim); err != nil {
+			return err
+		}
+	}
 	now = cmp.Or(now, schema.Now())
 	tagsJSON, _ := json.Marshal(tags)
 	var err error
@@ -532,16 +453,15 @@ func (s *PostgresStore) Count(workspace string) (map[string]int, error) {
 
 // PutEdge inserts or updates an edge.
 func (s *PostgresStore) PutEdge(e *schema.Edge) error {
-	meta, _ := json.Marshal(e.Metadata)
-	_, err := s.pool.Exec(context.Background(),
-		`INSERT INTO edges (id, src_id, relation, dst_id, weight, valid_from, valid_to, metadata)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-		 ON CONFLICT (id) DO UPDATE SET
-		   src_id=excluded.src_id, relation=excluded.relation, dst_id=excluded.dst_id,
-		   weight=excluded.weight, valid_from=excluded.valid_from,
-		   valid_to=excluded.valid_to, metadata=excluded.metadata`,
-		e.ID, e.SrcID, e.Relation, e.DstID, e.Weight, e.ValidFrom, e.ValidTo, string(meta))
-	return err
+	return s.ApplyMemoryBatch(MemoryBatch{Edges: []*schema.Edge{e}})
+}
+
+func (s *PostgresStore) VectorSearch(queryVec []float32, topK int) []SearchHit {
+	hits, err := s.SearchMemories(queryVec, topK, MemoryFilter{})
+	if err != nil {
+		log.Printf("storage VectorSearch: %v", err)
+	}
+	return hits
 }
 
 func scanEdgePG(row pgx.Rows) (*schema.Edge, error) {
