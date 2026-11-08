@@ -38,9 +38,13 @@ MCP 召回新增 workspace、时间戳及白名单 provenance metadata，不回�
 LangGraph Q/A 落 L1 observed，参考上下文总计不超过 **4096 UTF-8 字节**，包含
 prefix、提示头与 ID。LongMemEval 新增以记忆槽位排名的 `evidence_metrics`，旧 `metrics` 不变。
 
-R2 验证/反馈/传递失效、R3 主题视图/混合检索/启动知识入口、
-R4 变化驱动维护/质量成本预算均**延期**。未新增 wiki、verifier、UI 或 bootstrap/List API，
-不宣称未测量的 QA 提升、token 节省或生产 p95。
+R2 caller-attested 证据/断言/反馈和递归失效、R3 显式来源主题视图/混合检索/
+Bootstrap/TTL 任务状态、R4 opt-in 持久化 job/lease/上下文 fence 与 byte 预算已实现。
+默认字节入口；嵌入式 token 模式须宿主注入纯本地计数器。模型迁移支持
+adopt/resume/rollback/finalize，显式删除不可被向量回滚复活。
+未新增自主 verifier、命令执行、UI、队列或服务。四种离线变体仅观察来源覆盖、
+陈旧使用、读取耗时和上下文字节，不宣称 QA 提升、token 节省或生产 p95。
+详见[维护、恢复及 B01–B14 验收](docs/memory-maintenance.md)；最终全分支审查仍由 controller 执行。
 详见 [ARCHITECTURE.md](ARCHITECTURE.md#12-delivered-foundation-and-deferred-releases)
 及[来源评估语义](benchmarks/README.md#two-retrieval-metric-namespaces)。
 
@@ -629,7 +633,8 @@ Bash/Lua/SQL/HTML/CSS 退化为行窗口切片）、MCP server、CLI、Skill、G
 TOML 配置、System 2 后台 worker、L5 心智模型 / L6 前瞻意图抽取、嵌入式管理台
 （`ladym serve --http`，Vue 3 SPA，源码在 `console/`）、加密 secret store。
 
-🚧 R2–R4 按上述 R1 基础说明延期；跨文件引用解析和多模态事件也属于后续工作。
+✅ R2–R4 显式接口与 opt-in 维护已实现；最终全分支审查尚待 controller。
+离线契约证据不代表真实 LLM 收益；跨文件引用解析和多模态事件仍属后续工作。
 
 ## 贡献
 

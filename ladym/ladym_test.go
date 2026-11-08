@@ -1,8 +1,12 @@
 package ladym
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/ProjAnvil/LadyM/internal/testutil"
+	"github.com/ProjAnvil/LadyM/storage"
 )
 
 func TestNamedOps(t *testing.T) {
@@ -34,29 +38,46 @@ func TestDefaultConfig(t *testing.T) {
 // helpers: RecordOperation persists through a throwaway engine, and a second
 // throwaway engine's RecallOperations retrieves it by the pivot key.
 func TestSDKRecordAndRecallOperations(t *testing.T) {
-	db := filepath.Join(t.TempDir(), "sdk.ladym.db")
+	backends := []string{"sqlite", "postgres"}
+	if storage.Edition == "enterprise" {
+		backends = []string{"postgres"}
+	}
+	for _, backend := range backends {
+		t.Run(backend, func(t *testing.T) {
+			t.Setenv("LADYM_STORE_BACKEND", backend)
+			t.Setenv("LADYM_STORE_DSN", "")
+			if backend == "postgres" {
+				dsn := os.Getenv("LADYM_TEST_PG_DSN")
+				if dsn == "" {
+					t.Skip("PostgreSQL requires LADYM_TEST_PG_DSN")
+				}
+				t.Setenv("LADYM_STORE_DSN", testutil.PGDatabase(t, dsn))
+			}
+			db := filepath.Join(t.TempDir(), "sdk.ladym.db")
 
-	ep, err := RecordOperation(OperationEvent{
-		Agent: "sdk", Action: "migrate", Resources: []string{"ladym.db"},
-		Observation: "v1 -> v2", Outcome: "success",
-	}, db, "sdkws")
-	if err != nil {
-		t.Fatalf("RecordOperation: %v", err)
-	}
-	if ep.ID == "" {
-		t.Fatal("RecordOperation returned empty id")
-	}
+			ep, err := RecordOperation(OperationEvent{
+				Agent: "sdk", Action: "migrate", Resources: []string{"ladym.db"},
+				Observation: "v1 -> v2", Outcome: "success",
+			}, db, "sdkws")
+			if err != nil {
+				t.Fatalf("RecordOperation: %v", err)
+			}
+			if ep.ID == "" {
+				t.Fatal("RecordOperation returned empty id")
+			}
 
-	resp, err := RecallOperations(OperationsQuery{
-		Resource: "ladym.db", Action: "migrate",
-	}, db, "sdkws")
-	if err != nil {
-		t.Fatalf("RecallOperations: %v", err)
-	}
-	if resp.Fallback {
-		t.Error("Fallback = true, want pivot hit")
-	}
-	if len(resp.Items) != 1 || resp.Items[0].Memory.ID != ep.ID {
-		t.Errorf("items = %+v, want the recorded episode %s", resp.Items, ep.ID)
+			resp, err := RecallOperations(OperationsQuery{
+				Resource: "ladym.db", Action: "migrate",
+			}, db, "sdkws")
+			if err != nil {
+				t.Fatalf("RecallOperations: %v", err)
+			}
+			if resp.Fallback {
+				t.Error("Fallback = true, want pivot hit")
+			}
+			if len(resp.Items) != 1 || resp.Items[0].Memory.ID != ep.ID {
+				t.Errorf("items = %+v, want the recorded episode %s", resp.Items, ep.ID)
+			}
+		})
 	}
 }

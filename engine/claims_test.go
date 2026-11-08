@@ -16,11 +16,24 @@ import (
 
 func runClaimBackends(t *testing.T, fn func(*testing.T, *Engine)) {
 	t.Helper()
-	for _, backend := range []string{"sqlite", "postgres"} {
+	runBackendConfigs(t, func(t *testing.T, cfg *config.Config) {
+		e, err := New(cfg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { e.Close() })
+		fn(t, e)
+	})
+}
+
+func runBackendConfigs(t *testing.T, fn func(*testing.T, *config.Config)) {
+	t.Helper()
+	backends := []string{"sqlite", "postgres"}
+	if storage.Edition == "enterprise" {
+		backends = []string{"postgres"}
+	}
+	for _, backend := range backends {
 		t.Run(backend, func(t *testing.T) {
-			if backend == "sqlite" && storage.Edition == "enterprise" {
-				t.Skip("SQLite excluded in enterprise edition")
-			}
 			cfg := config.ForTesting(t.TempDir())
 			cfg.StoreBackend = backend
 			if backend == "postgres" {
@@ -30,12 +43,7 @@ func runClaimBackends(t *testing.T, fn func(*testing.T, *Engine)) {
 				}
 				cfg.StoreDSN = testutil.PGDatabase(t, dsn)
 			}
-			e, err := New(cfg)
-			if err != nil {
-				t.Fatal(err)
-			}
-			t.Cleanup(func() { e.Close() })
-			fn(t, e)
+			fn(t, cfg)
 		})
 	}
 }

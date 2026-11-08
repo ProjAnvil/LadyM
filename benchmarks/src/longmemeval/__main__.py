@@ -14,7 +14,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--limit", type=int, default=None)
     p.add_argument("--top-k", type=int, default=50)
     p.add_argument("--force-ingest", action="store_true")
-    return p.parse_args(argv)
+    p.add_argument("--model", default=None)
+    p.add_argument("--budget-seconds", type=float, default=None)
+    args = p.parse_args(argv)
+    if args.command in {"qa", "evaluate"}:
+        try:
+            BenchConfig(limit=args.limit, live_budget_s=args.budget_seconds).require_live(args.model)
+        except ValueError as exc:
+            p.error(str(exc))
+    return args
 
 
 def _load_dataset(cfg: BenchConfig):
@@ -30,7 +38,8 @@ def _load_dataset(cfg: BenchConfig):
 def main(argv: list[str] | None = None) -> None:
     args = parse_args(argv)
     cfg = BenchConfig(difficulty=args.difficulty, variant=args.variant,
-                      limit=args.limit, top_k=args.top_k)
+                      limit=args.limit, top_k=args.top_k,
+                      live_model=args.model, live_budget_s=args.budget_seconds)
     if args.command == "ingest":
         from .ingest import ingest_instance
         data, _ = _load_dataset(cfg)
@@ -67,7 +76,7 @@ def main(argv: list[str] | None = None) -> None:
         _, dataset_path = _load_dataset(cfg)
         from .evaluate import evaluate
         try:
-            out = evaluate(cfg, dataset_path)
+            out = evaluate(cfg, dataset_path, judge_model=args.model)
         except RuntimeError as e:
             # evaluate._run() wraps subprocess timeout / non-zero-exit (incl. the
             # vendored judge's 429 infinite-retry) into a RuntimeError with a

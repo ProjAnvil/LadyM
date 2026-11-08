@@ -10,8 +10,18 @@ import (
 	"testing"
 )
 
-func TestCanonicalIdentityPaths(t *testing.T) {
+func identityFixture(t *testing.T) string {
+	t.Helper()
 	base := t.TempDir()
+	// Stop Git discovery at the fixture even when TMPDIR is inside a worktree.
+	if err := os.WriteFile(filepath.Join(base, ".git"), []byte("gitdir: ./not-a-repository\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return base
+}
+
+func TestCanonicalIdentityPaths(t *testing.T) {
+	base := identityFixture(t)
 	t.Setenv("GIT_CEILING_DIRECTORIES", base)
 	root := filepath.Join(base, "空 格", "project")
 	other := filepath.Join(base, "other", "project")
@@ -66,7 +76,7 @@ func TestCanonicalIdentityPaths(t *testing.T) {
 }
 
 func TestCanonicalIdentitySymlinkAndErrors(t *testing.T) {
-	base := t.TempDir()
+	base := identityFixture(t)
 	root := filepath.Join(base, "repo")
 	if err := os.MkdirAll(filepath.Join(root, "nested"), 0o700); err != nil {
 		t.Fatal(err)
@@ -99,7 +109,7 @@ func TestCanonicalIdentitySymlinkAndErrors(t *testing.T) {
 }
 
 func TestCanonicalIdentityPollutedGitEnv(t *testing.T) {
-	base := t.TempDir()
+	base := identityFixture(t)
 	t.Setenv("GIT_CEILING_DIRECTORIES", base)
 	root := filepath.Join(base, "repo")
 	nested := filepath.Join(root, "nested", "deeper")

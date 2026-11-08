@@ -1,5 +1,18 @@
 # LadyM Agent E2E Scenarios
 
+## 可自动运行的可信记忆生命周期
+
+`go test -count=1 ./scenarios` 运行真实 Engine API 的 verify/correct/重复任务、
+精确跨文件来源、递归删除、维护前 TTL 失效、job crash/takeover/预算以及模型迁移回滚。
+个人版显式 SQLite/PostgreSQL 两腿；企业版运行 PostgreSQL。PG 必须显式设置
+`LADYM_TEST_PG_DSN`，随机隔离数据库用新鲜、10 秒有界 context 清理；
+未设置时的 PG skip 不是通过证据。无需 agent、模型调用或新服务。
+
+`TestTrustedMemoryVariants` 测量 stateless/direct_source/r1/r2_topic 四种 reader 的
+来源覆盖、陈旧使用、读取秒数和上下文 UTF-8 字节。可通过
+`PYTHONPATH=benchmarks/src python -m longmemeval.learning_eval` 输出 JSON。
+这些不是 QA 准确率或 LLM 收益；详见[维护与验收](../docs/memory-maintenance.md)。
+
 面向 agent 执行的端到端剧本,验证 ladyM 在 **MCP + CLI** 两条路径下的 **L1–L6** 行为契约。
 
 ## 这是什么

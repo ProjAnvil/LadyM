@@ -32,13 +32,50 @@ uv run python -m longmemeval ingest   --difficulty oracle --variant raw
 uv run python -m longmemeval retrieve --difficulty oracle --variant raw
 
 # Phase B (needs an answer LLM + judge key)
-uv run python -m longmemeval qa       --difficulty oracle --variant raw
-uv run python -m longmemeval evaluate --difficulty oracle --variant raw
+uv run python -m longmemeval qa       --difficulty oracle --variant raw \
+  --model gpt-4o-mini --limit 2 --budget-seconds 30
+uv run python -m longmemeval evaluate --difficulty oracle --variant raw \
+  --model gpt-4o --limit 2 --budget-seconds 30
 
 # Repeat with --variant consolidated to compare.
 # Scores land in benchmarks/.cache/results/<difficulty>/<variant>/scores.md
 # (base_dir is relative to the CWD — run from benchmarks/).
 ```
+
+Live answer/judge calls require an explicitly named model, positive question
+limit and finite positive wall-time budget. Credentials alone never authorize
+network. The wall budget is seconds, **not** dollars, billing tokens or a count
+of judge retries; the pinned upstream judge runs inside a bounded subprocess.
+The answer client disables SDK retries and uses remaining-deadline timeouts.
+Injected test answer functions remain offline. No live QA/LLM gains are inferred
+from synthetic fixtures or unit-test hypotheses.
+
+## Four offline learning readers
+
+From the repository root, using the existing environment:
+
+```sh
+PYTHONPATH=benchmarks/src python -m longmemeval.learning_eval
+PYTHONPATH=benchmarks/src python -m longmemeval.learning_eval \
+  --backend postgres --edition enterprise
+python -m pytest benchmarks/tests/test_learning_variants.py
+```
+
+The latter backend requires explicit `LADYM_TEST_PG_DSN` and creates only random
+isolated test databases on the supplied server. No server, dataset download,
+generative provider, hosted tokenizer or new dependency is started.
+
+The real Go Engine fixture compares `stateless`, `direct_source`, `r1`,
+`r2_topic`. Per variant: `source_coverage` is reachable known source roots over
+two persisted cross-file fixtures; `stale_usage` is the fraction of selected
+memories failing shared freshness; `read_elapsed` is reader-call seconds;
+`context_units` is assembled UTF-8 bytes, `unit="bytes"`. Provenance follows the
+actual Store graph. Topic construction is explicit, not compulsory for an
+exact lookup. Every reader sees the same locally embedded corpus, including a
+rejected distractor; a separate scenario covers exact nonembedded source lookup.
+Results are contract/navigation observations, not QA accuracy,
+billing-token savings or proof that R2 outperforms R1.
+See [maintenance and B01–B14 evidence](../docs/memory-maintenance.md).
 
 `--limit 5` during development to cap cost. `--difficulty s` for the main
 500-question run. The first run downloads the dataset from HuggingFace into

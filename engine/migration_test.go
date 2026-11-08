@@ -1,16 +1,12 @@
-//go:build !enterprise
-
 package engine
 
 import (
 	"errors"
-	"os"
 	"slices"
 	"testing"
 
 	"github.com/ProjAnvil/LadyM/adapter"
 	"github.com/ProjAnvil/LadyM/config"
-	"github.com/ProjAnvil/LadyM/internal/testutil"
 	"github.com/ProjAnvil/LadyM/schema"
 	"github.com/ProjAnvil/LadyM/storage"
 )
@@ -46,16 +42,8 @@ func (p *migrationEmbedder) Embed(text string) ([]float32, error) {
 }
 
 func engineMigrationBackends(t *testing.T, fn func(*testing.T, *config.Config)) {
-	t.Run("sqlite", func(t *testing.T) { fn(t, config.ForTesting(t.TempDir())) })
-	t.Run("postgres", func(t *testing.T) {
-		dsn := os.Getenv("LADYM_TEST_PG_DSN")
-		if dsn == "" {
-			t.Skip("LADYM_TEST_PG_DSN not set")
-		}
-		cfg := config.ForTesting(t.TempDir())
-		cfg.StoreBackend, cfg.StoreDSN = "postgres", testutil.PGDatabase(t, dsn)
-		fn(t, cfg)
-	})
+	t.Helper()
+	runBackendConfigs(t, fn)
 }
 
 func TestMigrationFingerprintAndResume(t *testing.T) {

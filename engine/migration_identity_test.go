@@ -1,5 +1,3 @@
-//go:build !enterprise
-
 package engine
 
 import (
@@ -13,6 +11,7 @@ import (
 
 	"github.com/ProjAnvil/LadyM/adapter"
 	"github.com/ProjAnvil/LadyM/config"
+	"github.com/ProjAnvil/LadyM/internal/testutil"
 	"github.com/ProjAnvil/LadyM/schema"
 	"github.com/ProjAnvil/LadyM/storage"
 )
@@ -48,6 +47,10 @@ func TestMigrationLiveHashingEnginesKeepTokenizer(t *testing.T) {
 						t.Fatal(err)
 					}
 					secondCfg := config.ForTesting(t.TempDir())
+					secondCfg.StoreBackend = cfg.StoreBackend
+					if cfg.StoreBackend == "postgres" {
+						secondCfg.StoreDSN = testutil.PGDatabase(t, cfg.StoreDSN)
+					}
 					secondCfg.CJKDictDir, secondCfg.EmbeddingQueryCacheSize = dict, cache
 					secondCfg.EmbeddingCJKTokenizer = storage.CJKTokenizerChars
 					if mode == storage.CJKTokenizerChars {
@@ -136,29 +139,30 @@ func TestMigrationAnonymousLegacyIdentity(t *testing.T) {
 }
 
 func TestMigrationCancellationAndTargetFence(t *testing.T) {
-	cfg := config.ForTesting(t.TempDir())
-	eng, err := New(cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer eng.Close()
-	target := &migrationEmbedder{identity: schema.EmbeddingIdentity{Provider: "test", Model: "v2", Dim: 8, Tokenizer: "v1"}}
-	ctx, cancel := context.WithCancel(t.Context())
-	cancel()
-	if err := MigrateEmbeddings(ctx, eng.Store, target.identity, target, 2, true); !errors.Is(err, context.Canceled) {
-		t.Fatalf("cancel error: %v", err)
-	}
-	if len(target.calls) != 0 {
-		t.Fatal("cancelled migration called provider")
-	}
-	if err := MigrateEmbeddings(t.Context(), eng.Store, target.identity, target, 0, true); err == nil {
-		t.Fatal("unbounded batch accepted")
-	}
-	other := target.identity
-	other.Model = "different"
-	if err := MigrateEmbeddings(t.Context(), eng.Store, other, target, 2, true); err == nil {
-		t.Fatal("identified provider different same-dim target accepted")
-	}
+	runBackendConfigs(t, func(t *testing.T, cfg *config.Config) {
+		eng, err := New(cfg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer eng.Close()
+		target := &migrationEmbedder{identity: schema.EmbeddingIdentity{Provider: "test", Model: "v2", Dim: 8, Tokenizer: "v1"}}
+		ctx, cancel := context.WithCancel(t.Context())
+		cancel()
+		if err := MigrateEmbeddings(ctx, eng.Store, target.identity, target, 2, true); !errors.Is(err, context.Canceled) {
+			t.Fatalf("cancel error: %v", err)
+		}
+		if len(target.calls) != 0 {
+			t.Fatal("cancelled migration called provider")
+		}
+		if err := MigrateEmbeddings(t.Context(), eng.Store, target.identity, target, 0, true); err == nil {
+			t.Fatal("unbounded batch accepted")
+		}
+		other := target.identity
+		other.Model = "different"
+		if err := MigrateEmbeddings(t.Context(), eng.Store, other, target, 2, true); err == nil {
+			t.Fatal("identified provider different same-dim target accepted")
+		}
+	})
 }
 
 func TestMigrationOpenEngineCannotMixSpace(t *testing.T) {

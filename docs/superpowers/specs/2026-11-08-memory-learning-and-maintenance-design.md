@@ -1,7 +1,10 @@
 # LadyM R2–R4：可信学习、知识导航与预算维护
 
-状态：用户授权继续全部剩余内容；实施前独立审计
+状态：T1–T5 逐任务独立审查通过；T6 实施并验证；最终全分支审查待 controller
 基线：`44f55c0`；沿用 [R1 总体规格](2026-11-08-trusted-agent-memory-design.md)
+
+实现/恢复指南与实际 B01–B14 命令和 live-PG leaf counts：
+[memory maintenance](../../memory-maintenance.md)。离线 fixture 不声称 QA 或 LLM 收益。
 
 ## 1. 范围与方式
 
@@ -21,13 +24,14 @@
 ## 2. 通用数据与事务不变量
 
 新增 MemoryType：claim、evidence、topic_view、maintenance_job、task_state。
-前三种位于 L2，job/task_state 位于 L1；系统项不挤占普通 recall。
+前三种位于 L2，job 位于 L1，显式 task_state 实现位于 L2；
+job/task_state 均作为系统类别排除，不挤占普通 recall。
 旧记录兼容可检索；新类型必须带明确的 metadata 结构和验证。
 claim/view/job 的 revision 为正整数、metadata 持久化；每次内容/状态修订递增，
 访问 Touch 不改变 revision。来源 fingerprint 为 SHA256(content)；
 原始 source 的摘要变化不作为内容证据变更，content 变化必须使派生知识失效。
 
-MemoryBatch 新增 MustNotExist guards，支持第一次确定 ID topic/job 的竞争创建。
+MemoryBatch 新增 AbsentIDs guards，支持第一次确定 ID topic/job 的竞争创建。
 原 guard 快照仍以 R1 equalKnowledge 为准，revision 包含在 metadata。
 所有知识批次、PutMemory、UpdateMemoryContent、Retire、Delete：
 
@@ -147,10 +151,11 @@ HTTP/MCP/CLI 只提供bytes；tokens 模式经 Go SDK宿主注入，不假设远
 ### 4.4 评估门
 
 增加离线可运行的知识导航scenario，记录 source coverage、missing/stale 使用率、
-read elapsed、bootstrap计量。四variant：stateless/direct-source/R1/R2-topic。
+read elapsed、bootstrap计量。四variant：stateless/direct_source/r1/r2_topic。
 fixture任务有跨文件关系和精确符号；topic不强迫简单查找绕行。
 fixture结果只证明契约/来源导航，不称为真实QA准确率。
-真实LLM对比保留现有LongMemEval入口，显式limit/model/budget，未配置provider不发网络。
+真实LLM对比保留现有LongMemEval入口，必须显式 --limit/--model/--budget-seconds；
+budget 为有界 wall seconds，不是美元或 billing tokens。仅环境 credentials 不授权网络。
 
 ## 5. R4：持久化任务与预算
 

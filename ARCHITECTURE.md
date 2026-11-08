@@ -392,7 +392,7 @@ canonical capture identity, truthful observed/task statuses, MCP provenance,
 bounded LangGraph reference use, workspace-scoped worker progress and
 LongMemEval source-slot `evidence_metrics` alongside unchanged legacy `metrics`.
 See [benchmarks/README.md](benchmarks/README.md) for cutoff and DCG caveats.
-Existing `Engine.List` and HTTP memory listing remain; no new List/bootstrap API.
+Existing `Engine.List` and HTTP memory listing remain; R3 adds typed Bootstrap.
 
 **R2 core delivered:** workspace-scoped caller-attested evidence and revision-guarded
 claim verify/correct/reject through Engine/Scope. SHA256 content fingerprints,
@@ -410,13 +410,26 @@ The 8 MiB workspace quota includes all undeleted archive content, including
 expired/pinned entries; input and persisted entry content are capped at 64 KiB.
 See [memory learning](docs/memory-learning.md) for contracts and limitations.
 
-**Still deferred:** R3's topic views,
-lexical/vector/structural hybrid retrieval and startup knowledge entry; R4's
-change-driven incremental maintenance and measured quality/cost budgeting.
-No wiki, autonomous verifier, new UI or third-party runtime is added. Their
-independent acceptance gates are described in the
-[trusted-memory design](docs/superpowers/specs/2026-11-08-trusted-agent-memory-design.md).
-R1 does not establish an unmeasured QA, token-cost or production-latency improvement.
+**R3 delivered:** explicit source-grounded topic views, independent lexical/vector/
+structural hybrid ranking, bounded Bootstrap references and TTL task state.
+Read-time generation calls are zero. Byte mode measures complete UTF-8 output;
+embedded token mode requires a pure-local host counter, not a hosted tokenizer.
+Scopes/conditions, transitive TTL and source revisions govern all managed reads.
+
+**R4 delivered:** opt-in bounded maintenance on the existing worker, persistent
+input/Args/revision jobs, leased ownership, atomic outputs/checkpoints and context/
+migration fences. Raw model output, input and reservations are measured as bytes,
+separately from API token limits. Whole-store embedding fingerprint migrations
+stage durable keyset batches and retain explicit rollback; deletion cancels staging
+and cannot be resurrected by rollback.
+
+**Task 6 evidence:** real Engine lifecycle scenarios, four offline reader variants,
+live isolated PostgreSQL tests in both editions and production dependency gates.
+No wiki automation, autonomous verifier, new UI, queue or service is added.
+See [maintenance/recovery and B01–B14](docs/memory-maintenance.md) and the
+[trusted-memory specification](docs/superpowers/specs/2026-11-08-memory-learning-and-maintenance-design.md).
+Fixture source/cost observations do not establish QA, token-cost or production
+latency gains. Whole-branch controller review is still required.
 
 ---
 

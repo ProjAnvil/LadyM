@@ -1,5 +1,8 @@
 # Embedding migration and recovery
 
+For worker leases/context fences, units, backup/downgrade policy and the dual-edition
+acceptance matrix, see [memory maintenance](memory-maintenance.md).
+
 An embedding space is identified by provider, model/version, dimension and
 tokenizer/version, hashed as canonical JSON with SHA-256. Equal dimensions do
 **not** imply compatible spaces. Ordinary Engine startup fails on unidentified

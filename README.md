@@ -62,10 +62,15 @@ HTTP/MCP/CLI and Go/Python/TypeScript SDKs expose typed evidence and claim feedb
 Evidence archiving is opt-in, best-effort redacted and bounded to 64 KiB per entry
 and 8 MiB persisted text per workspace, checked atomically across writers.
 See [memory learning](docs/memory-learning.md) for actor attribution, quotas and retention.
-R3 topic views/hybrid retrieval/startup knowledge and R4 change-driven
-maintenance/quality-cost budgeting remain **deferred**.
-No new wiki, verifier, UI or bootstrap/List API is shipped. No QA uplift, token saving
-or production p95 is claimed. Details: [ARCHITECTURE.md](ARCHITECTURE.md#12-delivered-foundation-and-deferred-releases)
+**R3/R4:** explicit source-grounded topics, HybridRecall, bounded Bootstrap and
+TTL task state are available across front-ends. Byte mode is default; embedded
+token mode needs a host-local counter. Opt-in maintenance uses the existing worker
+with durable jobs, leases, revision/context fences and measured byte budgets.
+Embedding migration supports explicit adoption/resume/rollback/finalize.
+See [maintenance, recovery and acceptance evidence](docs/memory-maintenance.md).
+No autonomous verifier, command execution, new UI or service is shipped.
+Four offline variants measure source coverage/stale usage/read time/context bytes,
+not QA uplift, token savings or production p95. Details: [ARCHITECTURE.md](ARCHITECTURE.md#12-delivered-foundation-and-deferred-releases)
 and [benchmark provenance semantics](benchmarks/README.md#two-retrieval-metric-namespaces).
 
 ## What's New in 0.8.0
@@ -795,8 +800,9 @@ config, System 2 background worker, L5 mental-model / L6 forward-intent extracti
 embedded management console (`ladym serve --http`, Vue 3 SPA under `console/`),
 encrypted secret store.
 
-🚧 R2–R4 are deferred as described in the [R1 foundation](#trusted-memory-foundation-r1);
-cross-file ref resolution and multi-modal episodes are also future work.
+✅ R2–R4 interfaces and opt-in maintenance are implemented; whole-branch controller
+review remains. Live-LLM gains, cross-file ref resolution and multi-modal episodes
+are not claimed by the offline lifecycle evidence.
 
 ## Contributing
 

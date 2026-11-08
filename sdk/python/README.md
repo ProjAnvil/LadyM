@@ -6,6 +6,11 @@ Python client for the LadyM HTTP data-plane (`ladym serve --http`), mirroring
 
 ## Persisted maintenance
 
+See [maintenance/recovery and acceptance evidence](../../docs/memory-maintenance.md)
+for opt-in defaults, byte vs token units, leased job ownership, source/context
+fences and downgrade limitations. The HTTP SDK cannot inject a host-local
+TokenCounter and rejects token-mode Bootstrap; it never starts a worker/model service.
+
 Use `client.schedule_maintenance(ScheduleMaintenanceRequest("new_episode",
 episode_id, workspace="repo"))`, `client.list_maintenance_jobs("repo")`, and
 `client.maintenance_status("repo")`. Import the request/job/report dataclasses

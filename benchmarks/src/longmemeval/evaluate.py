@@ -66,17 +66,15 @@ def run_retrieval_metrics(cfg: BenchConfig) -> str:
 
 def run_qa_metrics(cfg: BenchConfig, dataset_path: Path, judge_model: str) -> str:
     """evaluate_qa.py then print_qa_metrics.py; return aggregated stdout."""
+    cfg.require_live(judge_model)
     hyp = cfg.results_dir / "hypothesis.jsonl"
-    # Per-question budget: a normal judge call is ~3-10s, an occasional single
-    # retry ~30s, so 45s/question is safe headroom. Floor 120s so even a
-    # 1-question run tolerates one slow call. A quota-429 hangs every question,
-    # so this still trips fast on small (smoke) runs — the typical first signal.
     n_questions = sum(1 for _ in hyp.open()) if hyp.exists() else 0
-    timeout = max(120, n_questions * 45)
+    if n_questions > cfg.limit:
+        raise ValueError("hypothesis count exceeds explicit live question limit")
     # 1. judge — writes <hyp>.eval-results-<judge_model> (see module docstring).
     _run(
         [_PY, str(_HERE / "evaluate_qa.py"), judge_model, str(hyp), str(dataset_path)],
-        timeout=timeout, label="evaluate_qa.py (GPT-4o judge)",
+        timeout=cfg.live_budget_s, label="evaluate_qa.py (explicit live judge)",
     )
     eval_log = Path(str(hyp) + f".eval-results-{judge_model}")
     # 2. aggregate
@@ -86,7 +84,7 @@ def run_qa_metrics(cfg: BenchConfig, dataset_path: Path, judge_model: str) -> st
     )
 
 
-def evaluate(cfg: BenchConfig, dataset_path: Path, *, judge_model: str = "gpt-4o") -> Path:
+def evaluate(cfg: BenchConfig, dataset_path: Path, *, judge_model: str | None = None) -> Path:
     """Run retrieval + QA metrics; write scores.md; return its path.
 
     Missing jsonls degrade gracefully to a placeholder block instead of raising,
@@ -99,6 +97,7 @@ def evaluate(cfg: BenchConfig, dataset_path: Path, *, judge_model: str = "gpt-4o
         else "(no retrieval run)"
     )
     qa_block = "(no qa run)"
+    judge_model = judge_model or cfg.live_model or ""
     if (cfg.results_dir / "hypothesis.jsonl").exists():
         qa_block = run_qa_metrics(cfg, dataset_path, judge_model)
     md = [

@@ -1,7 +1,9 @@
 # Evidence-backed memory learning
 
 For embedding identity changes and recovery, see
-[embedding migrations](embedding-migrations.md).
+[embedding migrations](embedding-migrations.md). For persistent jobs, budgets,
+leases, downgrade safety and release evidence, see
+[memory maintenance](memory-maintenance.md).
 
 Claims record caller-attested knowledge, not independent experimental verification.
 Recording evidence never executes its content, invokes a model, reads a path or URL,
@@ -240,4 +242,5 @@ propagates errors. The existing recall node retains its 4096-byte budget.
 These operations are offline navigation/contract machinery, not evidence of
 real QA accuracy. Hybrid currently enumerates scoped memories to filter
 transitive freshness before vector topK; large workspaces may need measurement.
-No new maintenance worker, agent execution or model service is involved.
+Opt-in maintenance reuses the existing worker; read-time navigation invokes no
+generative model. No agent execution or new service is involved.

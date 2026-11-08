@@ -30,7 +30,7 @@ def test_retrieval_block_parses_upstream_stdout(tmp_path, monkeypatch):
 
 
 def test_scores_md_written(tmp_path, monkeypatch):
-    cfg = BenchConfig(difficulty="oracle", variant="raw", base_dir=tmp_path)
+    cfg = BenchConfig(difficulty="oracle", variant="raw", base_dir=tmp_path, limit=1, live_budget_s=10)
     cfg.results_dir.mkdir(parents=True, exist_ok=True)
     (cfg.results_dir / "retrieval.jsonl").write_text("\n")
     (cfg.results_dir / "hypothesis.jsonl").write_text(
@@ -53,7 +53,7 @@ def test_eval_log_path_matches_vendored_short_name(tmp_path, monkeypatch):
     """evaluate_qa.py writes <hyp>.eval-results-<argv[1]>; for judge='gpt-4o'
     the suffix is '-gpt-4o' (NOT '-gpt4o'). This test pins the corrected path.
     """
-    cfg = BenchConfig(difficulty="oracle", variant="raw", base_dir=tmp_path)
+    cfg = BenchConfig(difficulty="oracle", variant="raw", base_dir=tmp_path, limit=1, live_budget_s=10)
     cfg.results_dir.mkdir(parents=True, exist_ok=True)
     (cfg.results_dir / "hypothesis.jsonl").write_text(
         '{"question_id":"x","hypothesis":"y"}\n'
@@ -83,7 +83,7 @@ def test_run_qa_metrics_surfaces_timeout_as_runtime_error(tmp_path, monkeypatch)
     """A hung judge (e.g. 429 infinite-retry) must fail fast with a diagnosis."""
     import subprocess
 
-    cfg = BenchConfig(difficulty="oracle", variant="raw", base_dir=tmp_path)
+    cfg = BenchConfig(difficulty="oracle", variant="raw", base_dir=tmp_path, limit=2, live_budget_s=10)
     cfg.results_dir.mkdir(parents=True, exist_ok=True)
     (cfg.results_dir / "hypothesis.jsonl").write_text(
         '{"question_id":"a","hypothesis":"x"}\n{"question_id":"b","hypothesis":"y"}\n'
@@ -106,7 +106,7 @@ def test_run_qa_metrics_surfaces_nonzero_exit_stderr(tmp_path, monkeypatch):
     """A failing judge must surface its stderr, not a bare exit code."""
     import subprocess
 
-    cfg = BenchConfig(difficulty="oracle", variant="raw", base_dir=tmp_path)
+    cfg = BenchConfig(difficulty="oracle", variant="raw", base_dir=tmp_path, limit=1, live_budget_s=10)
     cfg.results_dir.mkdir(parents=True, exist_ok=True)
     (cfg.results_dir / "hypothesis.jsonl").write_text(
         '{"question_id":"a","hypothesis":"x"}\n'

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import time
 
 from .config import BenchConfig
 from ._runtime import make_engine as _default_engine_factory
@@ -10,8 +11,8 @@ from ._runtime import make_engine as _default_engine_factory
 ABSTAIN_SCORE_FLOOR = 0.05
 
 
-def _default_answer_llm():
-    """Build the answer-LLM from environment configuration (OpenAI-compatible).
+def _default_answer_llm(cfg: BenchConfig):
+    """Build an explicitly selected, wall-budgeted OpenAI-compatible answer LLM.
 
     The original Python harness reused ladyM's configured LLM provider; the Go
     engine's MCP surface exposes no LLM completion tool, so the answer model is
@@ -19,26 +20,30 @@ def _default_answer_llm():
 
       * ``OPENAI_API_KEY``   — required (read by the ``openai`` client)
       * ``OPENAI_BASE_URL``  — optional, for OpenAI-compatible endpoints
-      * ``LME_ANSWER_MODEL`` — answer model, default ``gpt-4o-mini``
+    Model, wall budget and question limit must be provided in BenchConfig.
+    Environment credentials alone never authorize a request. Retries are disabled.
 
     Returns a callable ``(system, user) -> str``. Tests pass ``answer_llm=``
     explicitly and never hit the network.
     """
-    import os
-
+    cfg.require_live(cfg.live_model)
     from openai import OpenAI
 
-    model = os.environ.get("LME_ANSWER_MODEL", "gpt-4o-mini")
-    client = OpenAI()  # reads OPENAI_API_KEY / OPENAI_BASE_URL from the env
+    client = OpenAI(max_retries=0)
+    deadline = time.monotonic() + cfg.live_budget_s
 
     def _call(system: str, user: str) -> str:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError("live answer wall budget exhausted")
         resp = client.chat.completions.create(
-            model=model,
+            model=cfg.live_model,
             messages=[
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},
             ],
             temperature=0,
+            timeout=remaining,
         )
         return resp.choices[0].message.content.strip()
 
@@ -69,7 +74,9 @@ def run_qa(
     invoking ``answer_llm``.
     """
     if answer_llm is None:
-        answer_llm = _default_answer_llm()
+        cfg.require_live(cfg.live_model)
+        dataset = dataset[:cfg.limit]
+        answer_llm = _default_answer_llm(cfg)
     cfg.results_dir.mkdir(parents=True, exist_ok=True)
     out = cfg.results_dir / "hypothesis.jsonl"
     report_path = cfg.results_dir / "run_report.json"

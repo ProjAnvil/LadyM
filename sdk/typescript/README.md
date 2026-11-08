@@ -6,6 +6,11 @@ mirroring `client/golang` and `sdk/python`. Zero runtime dependencies — global
 
 ## Persisted maintenance
 
+See [maintenance/recovery and acceptance evidence](../../docs/memory-maintenance.md)
+for opt-in defaults, byte vs token units, leased job ownership, source/context
+fences and downgrade limitations. HTTP Bootstrap is byte-only; token mode needs
+an embedded host-local counter. This client does not start a worker/model service.
+
 `scheduleMaintenance({operation: "new_episode", target_id: episodeId,
 input_ids: [episodeId], workspace: "repo"})`, `listMaintenanceJobs("repo")`, and
 `maintenanceStatus("repo")` mirror the scoped HTTP endpoints. Request, job and
