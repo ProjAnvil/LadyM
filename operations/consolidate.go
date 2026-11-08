@@ -288,10 +288,26 @@ func Consolidate(store storage.Store, embedder storage.EmbeddingProvider, cfg *c
 			return cmp.Or(cmp.Compare(b.Sim, a.Sim), cmp.Compare(a.Memory.ID, b.Memory.ID))
 		})
 		if llmClassify == nil {
-			for j, fact := range similar {
-				if fact.Memory.Content == ep.Content {
+			// Exact equality cannot depend on embedding availability or top-k rank.
+			memories, err := store.IterMemories(ws, string(schema.LayerSemantic), "")
+			if err != nil {
+				return nil, err
+			}
+			var exact *schema.Memory
+			for _, m := range memories {
+				if schema.IsUsable(m) && m.Workspace == ws && m.Layer == schema.LayerSemantic &&
+					(m.Type == schema.TypeFact || m.Type == schema.TypeNote) && m.Content == ep.Content &&
+					(exact == nil || m.ID < exact.ID) {
+					exact = m
+				}
+			}
+			if exact != nil {
+				j := slices.IndexFunc(similar, func(f similarFact) bool { return f.Memory.ID == exact.ID })
+				if j >= 0 {
+					similar[j].Memory = exact
 					similar[0], similar[j] = similar[j], similar[0]
-					break
+				} else {
+					similar = append([]similarFact{{Memory: exact}}, similar...)
 				}
 			}
 		}

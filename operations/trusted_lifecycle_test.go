@@ -111,6 +111,191 @@ func TestConsolidateTypedOffline(t *testing.T) {
 	}
 }
 
+func TestConsolidateExactIndependentOfVectorRank(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		typ    schema.MemoryType
+		vector []float32
+		decoys int
+	}{
+		{"crowded fact", schema.TypeFact, []float32{0.8, 0.6}, 8},
+		{"crowded note", schema.TypeNote, []float32{0.8, 0.6}, 9},
+		{"unembedded fact", schema.TypeFact, nil, 0},
+		{"unembedded note", schema.TypeNote, nil, 0},
+		{"below similarity cutoff", schema.TypeFact, []float32{-1, 0}, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s, emb := trustedStore(t)
+			cfg := config.Default()
+			for i := range tc.decoys {
+				trustedMemory(t, s, schema.LayerSemantic, schema.TypeFact, fmt.Sprintf("decoy %d", i), "test", nil)
+			}
+			exact := trustedMemory(t, s, schema.LayerSemantic, tc.typ, "candidate", "test",
+				map[string]any{"knowledge_status": "verified", "marker": "exact"})
+			if err := s.PutMemory(exact, tc.vector); err != nil {
+				t.Fatal(err)
+			}
+			ep := trustedMemory(t, s, schema.LayerEpisodic, schema.TypeEvent, "candidate", "test",
+				map[string]any{"knowledge_status": "verified", "marker": "episode"})
+			raw, err := s.SearchMemories([]float32{1, 0}, cfg.Consolidate.MinEpisodesToTrigger+5, storage.MemoryFilter{
+				Workspace: "test", Layers: []schema.Layer{schema.LayerSemantic},
+				Types: []schema.MemoryType{schema.TypeFact, schema.TypeNote}, ExcludeUnusable: true,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, h := range raw {
+				if h.ID == exact.ID && h.Similarity >= 0.1 {
+					t.Fatal("fixture must hide the exact target from vector candidates")
+				}
+			}
+			wrapped := &beforeBatchStore{Store: s, before: func() {}, inspect: func(b storage.MemoryBatch) {
+				sourceGuard, targetGuard := false, false
+				for _, g := range b.Guards {
+					sourceGuard = sourceGuard || (g.Expected.ID == ep.ID && g.PendingEpisode)
+					targetGuard = targetGuard || g.Expected.ID == exact.ID
+				}
+				if !sourceGuard || !targetGuard || len(b.Writes) != 1 || b.Writes[0].Memory.ID != ep.ID ||
+					!b.Writes[0].PreserveEmbedding || len(b.Edges) != 0 || len(b.CloseEdgesFor) != 0 {
+					t.Error("exact NOOP must atomically guard source and exact target, stamping only the source")
+				}
+			}}
+			report, err := Consolidate(wrapped, emb, cfg, "test", nil, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if report.Actions[string(ActionNoop)] != 1 || report.Actions[string(ActionAdd)] != 0 || report.PromotedToSemantic != 0 {
+				t.Fatalf("exact live match must NOOP independently of vector rank: %+v", report)
+			}
+			memories, err := s.IterMemories("test", string(schema.LayerSemantic), "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(memories) != tc.decoys+1 {
+				t.Fatalf("NOOP published a duplicate: %d semantic memories", len(memories))
+			}
+			got, err := s.GetMemory(exact.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.Content != "candidate" || IsRetired(got) || got.MetaString("knowledge_status") != "verified" ||
+				got.MetaString("marker") != "exact" || got.UpdatedAt != exact.UpdatedAt {
+				t.Error("NOOP changed exact evidence or its metadata")
+			}
+			stamped, err := s.GetMemory(ep.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !IsConsolidated(stamped) || stamped.MetaString("knowledge_status") != "verified" || stamped.MetaString("marker") != "episode" {
+				t.Error("NOOP did not preserve and stamp the source episode")
+			}
+		})
+	}
+}
+
+func TestConsolidateExactLookupExcludesIneligible(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		layer schema.Layer
+		typ   schema.MemoryType
+		ws    string
+		meta  map[string]any
+	}{
+		{"retired", schema.LayerSemantic, schema.TypeFact, "test", map[string]any{"superseded": true}},
+		{"replaced", schema.LayerSemantic, schema.TypeFact, "test", map[string]any{"superseded_by": "replacement"}},
+		{"stale", schema.LayerSemantic, schema.TypeNote, "test", map[string]any{"knowledge_status": "stale"}},
+		{"rejected", schema.LayerSemantic, schema.TypeFact, "test", map[string]any{"knowledge_status": "rejected"}},
+		{"missing evidence", schema.LayerSemantic, schema.TypeFact, "test", map[string]any{"evidence_missing": true}},
+		{"code", schema.LayerSemantic, schema.TypeCodeFile, "test", nil},
+		{"resource", schema.LayerSemantic, schema.TypeResource, "test", nil},
+		{"other workspace", schema.LayerSemantic, schema.TypeFact, "other", nil},
+		{"other layer", schema.LayerProcedural, schema.TypeNote, "test", nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s, emb := trustedStore(t)
+			old := trustedMemory(t, s, tc.layer, tc.typ, "candidate", tc.ws, tc.meta)
+			if err := s.PutMemory(old, nil); err != nil {
+				t.Fatal(err)
+			}
+			ep := trustedMemory(t, s, schema.LayerEpisodic, schema.TypeEvent, "candidate", "test", nil)
+			report, err := Consolidate(s, emb, config.Default(), "test", nil, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if report.Actions[string(ActionAdd)] != 1 || report.Actions[string(ActionNoop)] != 0 || report.PromotedToSemantic != 1 {
+				t.Fatalf("ineligible exact match must not suppress ADD: %+v", report)
+			}
+			got, err := s.GetMemory(old.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.Content != old.Content || got.UpdatedAt != old.UpdatedAt || IsRetired(got) != IsRetired(old) ||
+				got.MetaString("knowledge_status") != old.MetaString("knowledge_status") || got.Meta("evidence_missing") != old.Meta("evidence_missing") {
+				t.Error("ADD changed ineligible evidence")
+			}
+			stamped, err := s.GetMemory(ep.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !IsConsolidated(stamped) {
+				t.Error("ADD did not stamp the source episode")
+			}
+		})
+	}
+}
+
+func TestConsolidateExactNoopAtomicConflict(t *testing.T) {
+	for _, fault := range []string{"source edited", "target edited", "target retired", "target deleted"} {
+		t.Run(fault, func(t *testing.T) {
+			s, emb := trustedStore(t)
+			exact := trustedMemory(t, s, schema.LayerSemantic, schema.TypeFact, "candidate", "test", nil)
+			if err := s.PutMemory(exact, nil); err != nil {
+				t.Fatal(err)
+			}
+			trustedMemory(t, s, schema.LayerSemantic, schema.TypeFact, "decoy", "test", nil)
+			ep := trustedMemory(t, s, schema.LayerEpisodic, schema.TypeEvent, "candidate", "test", nil)
+			wrapped := &beforeBatchStore{Store: s, before: func() {
+				var err error
+				switch fault {
+				case "source edited":
+					err = s.UpdateMemoryContent(ep.ID, "edited", "", nil, nil, 0)
+				case "target edited":
+					err = s.UpdateMemoryContent(exact.ID, "edited", "", nil, nil, 0)
+				case "target retired":
+					retired := exact.Clone()
+					retired.Metadata["superseded"] = true
+					err = s.PutMemory(retired, nil)
+				case "target deleted":
+					err = s.DeleteMemory(exact.ID)
+				}
+				if err != nil {
+					t.Fatal(err)
+				}
+			}}
+			_, err := Consolidate(wrapped, emb, config.Default(), "test", nil, 0)
+			if !errors.Is(err, storage.ErrMemoryConflict) {
+				t.Errorf("exact NOOP must conflict after %s: %v", fault, err)
+			}
+			got, err := s.GetMemory(ep.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if IsConsolidated(got) {
+				t.Error("failed exact NOOP stamped the source episode")
+			}
+			facts, err := s.IterMemories("test", string(schema.LayerSemantic), string(schema.TypeFact))
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, fact := range facts {
+				if fact.ID != exact.ID && fact.Content == "candidate" {
+					t.Error("failed exact NOOP published a duplicate")
+				}
+			}
+		})
+	}
+}
+
 func TestConsolidateInvalidVerdictPending(t *testing.T) {
 	for _, action := range []Action{"BOGUS", ActionUpdate, ActionDelete, ActionNoop} {
 		t.Run(string(action), func(t *testing.T) {

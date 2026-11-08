@@ -40,6 +40,35 @@ func TestRecallHonestTier2AndTokens(t *testing.T) {
 	}
 }
 
+func TestRecallHonestFieldAndHitBoundaries(t *testing.T) {
+	cfg := config.Default().Recall
+	cfg.ReflectionMinHits = 1
+	cfg.ReflectionMinCoverage = 1
+	for _, tc := range []struct {
+		name     string
+		query    string
+		memories []*schema.Memory
+		want     float64
+	}{
+		{"cross hit", "cat", []*schema.Memory{{Content: "dog", Summary: "c"}, {Content: "at"}}, 0},
+		{"empty content", "cat", []*schema.Memory{{Summary: "c"}, {Content: "at"}}, 0},
+		{"cross field", "cat", []*schema.Memory{{Content: "c", Summary: "at"}}, 0},
+		{"real tokens across hits", "cat dog", []*schema.Memory{{Summary: "cat"}, {Content: "dog"}}, 1},
+		{"real tokens across fields", "cat dog", []*schema.Memory{{Content: "cat", Summary: "dog"}}, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			hits := make([]*schema.RecallResult, len(tc.memories))
+			for i, m := range tc.memories {
+				hits[i] = &schema.RecallResult{Memory: m}
+			}
+			v := reflect(tc.query, hits, cfg)
+			if v.coverage != tc.want || v.sufficient != (tc.want == 1) || v.nHits != len(hits) {
+				t.Fatalf("want coverage %g with %d hits, got %+v", tc.want, len(hits), v)
+			}
+		})
+	}
+}
+
 func TestRecallExpansionBudgetAndScope(t *testing.T) {
 	s, _ := trustedStore(t)
 	cfg := config.Default()

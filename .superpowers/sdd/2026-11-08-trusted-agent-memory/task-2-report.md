@@ -112,3 +112,110 @@ git diff --check
 4. Recall access bookkeeping intentionally remains best-effort, preserving its previous public behavior; storage/search/provider and lifecycle publication errors propagate.
 5. L6 prediction writes and its metadata checkpoint are still separate commits. Provider/checkpoint errors propagate; retry after a partial prediction write can duplicate forecasts. Task 2 requires lossless cursor batching/restart behavior, not a new cursor CAS/storage interface or atomic forecast transaction.
 6. No new verification authority was added: model/fact derivations are inferred; playbooks are verified only when all explicitly trusted inputs have `task_outcome=success` and `knowledge_status=verified`. Tool observations alone cannot qualify.
+
+## Fix1 — scoped review corrections (round 1/5)
+
+**Status:** both reviewed Important defects fixed and verified.
+
+- Base: `4c257c1eced6c31dbe4e6e12b5b02c8c493aec4a`.
+- Workspace: `/Users/yuhaochen/Documents/codebase/projanvil/ladyM-agent-memory`.
+- Scope: only `operations/recall.go`, `operations/consolidate.go`, their existing
+  contract test files, and this appended report. No subagents/reviewers, other
+  tasks, new storage interfaces/frameworks, dependencies, merge or push.
+- Modern Go Guidelines CLI ran before Go edits:
+  `sh "<use-modern-go-skill>/scripts/run-tool.sh" list --file-path operations/recall.go`.
+  Complete output was read; applicable Go 1.26.4 guidance was followed.
+- All edits used `apply_patch`; Go formatting used `gofmt`.
+
+### Changes and preservation
+
+1. Recall reflection tokenizes each content and summary field separately, then
+   unions the tokens. A summary `c` followed by another hit's content `at` cannot
+   manufacture `cat`; legitimate tokens spanning separate fields/hits still
+   count. Existing stopword, coverage-threshold and hit-count semantics remain.
+2. Offline consolidation uses the existing scoped `Store.IterMemories` helper
+   to check live usable semantic fact/note content equality independently of
+   vector top-k and similarity thresholds. The stable lowest-ID exact match is
+   placed first, using its current snapshot in the existing atomic NOOP batch.
+   The pending source guard, exact-target guard and embedding-preserving source
+   stamp remain together; NOOP publishes no fact, retirement or provenance edge.
+   Scanning per pending episode also observes earlier publications in that pass.
+   The classifier interface and its ranked candidate behavior are unchanged.
+3. Regression coverage positively checks crowded facts/notes behind 8/9 better
+   vector matches, unembedded facts/notes, and an exact match below the similarity
+   cutoff. It checks preservation of knowledge status/metadata, no duplicate
+   publication, and rollback on source edits and exact-target edits/retirement/
+   deletion. Retired/replaced, stale/rejected/evidence-missing, code/resource,
+   foreign-workspace and wrong-layer exact matches cannot suppress ADD.
+
+### TDD red evidence
+
+First, before changing recall production code:
+
+```sh
+gofmt -w operations/recall_contract_test.go
+go test ./operations -run '^TestRecallHonestFieldAndHitBoundaries$' -count=1
+```
+
+**Exit 1, expected behavioral failures:**
+
+```text
+FAIL TestRecallHonestFieldAndHitBoundaries/cross_hit
+  want coverage 0 with 2 hits, got {sufficient:true coverage:1 nHits:2}
+FAIL TestRecallHonestFieldAndHitBoundaries/empty_content
+  want coverage 0 with 2 hits, got {sufficient:true coverage:1 nHits:2}
+FAIL TestRecallHonestFieldAndHitBoundaries/real_tokens_across_hits
+  want coverage 1 with 2 hits, got {sufficient:false coverage:0 nHits:2}
+FAIL github.com/ProjAnvil/LadyM/operations 0.458s
+```
+
+Then, before changing consolidation production code:
+
+```sh
+gofmt -w operations/trusted_lifecycle_test.go
+go test ./operations -run '^TestConsolidateExact' -count=1
+```
+
+**Exit 1, expected behavioral failures:**
+
+- `TestConsolidateExactIndependentOfVectorRank`: crowded fact/note, unembedded
+  fact/note, and below-cutoff exact match all reported ADD=1/NOOP=0, published a
+  duplicate, and omitted the exact-target NOOP guard.
+- `TestConsolidateExactNoopAtomicConflict`: target edited, retired and deleted
+  each returned nil instead of a conflict, stamped the source and published a
+  duplicate. The source-edit rollback case and eligibility exclusions passed.
+- Final output: `FAIL github.com/ProjAnvil/LadyM/operations 0.529s`.
+
+### Green commands and output
+
+Every command below completed with exit 0 after its corresponding fix:
+
+```sh
+gofmt -w operations/recall.go
+go test ./operations -run '^TestRecallHonest' -count=1
+# ok github.com/ProjAnvil/LadyM/operations 0.634s
+
+gofmt -w operations/consolidate.go
+go test ./operations -run '^TestConsolidate(Exact|TypedOffline|InvalidVerdictPending|AtomicSourceConflict|UpdateKeepsAllSources)' -count=1
+# ok github.com/ProjAnvil/LadyM/operations 0.869s
+
+go test ./operations ./engine -count=1
+# ok github.com/ProjAnvil/LadyM/operations 2.951s
+# ok github.com/ProjAnvil/LadyM/engine 7.715s
+
+go test -race ./operations ./engine -run 'Test(RecallHonest|RecallExpansion|ConsolidateExact|ConsolidateTyped|ConsolidateAtomic|ConsolidateInvalid|ConsolidateUpdateKeeps)' -count=1
+# ok github.com/ProjAnvil/LadyM/operations 3.866s
+# ok github.com/ProjAnvil/LadyM/engine 1.652s [no tests to run]
+
+go test -tags enterprise ./operations ./engine -run '^$'
+# ok github.com/ProjAnvil/LadyM/operations 0.298s [no tests to run]
+# ok github.com/ProjAnvil/LadyM/engine 0.716s [no tests to run]
+
+git diff --check
+# no output
+```
+
+The operations and engine suites ran in full; the race command exercised the
+affected operations contracts and compiled engine. Enterprise verification is
+compile-only, not live PostgreSQL testing. Fixture databases were cleaned up.
+Commit subject: `fix(memory): separate recall tokens and find exact live facts`.

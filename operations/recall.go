@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"maps"
 	"slices"
-	"strings"
 	"time"
 
 	"github.com/ProjAnvil/LadyM/config"
@@ -34,15 +33,13 @@ func reflect(query string, hits []*schema.RecallResult, cfg config.RecallConfig)
 	if len(qTokens) == 0 {
 		return reflectionVerdict{sufficient: true, coverage: 1.0, nHits: len(hits)}
 	}
-	var corpus strings.Builder
-	for _, r := range hits {
-		corpus.WriteString(r.Memory.Content)
-		corpus.WriteString(" ")
-		corpus.WriteString(r.Memory.Summary)
-	}
 	tokens := map[string]bool{}
-	for _, token := range storage.Tokenize(corpus.String()) {
-		tokens[token] = true
+	for _, r := range hits {
+		for _, field := range []string{r.Memory.Content, r.Memory.Summary} {
+			for _, token := range storage.Tokenize(field) {
+				tokens[token] = true
+			}
+		}
 	}
 	covered := 0
 	for t := range qTokens {
