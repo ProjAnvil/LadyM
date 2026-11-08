@@ -52,6 +52,11 @@ Notes:
 - `recordEvent` results carry the schema layer constant (e.g. `"L1_episodic"`).
 - Timeout defaults to 30s via `AbortSignal.timeout` (`timeoutMs: 0` disables).
 - For tests or custom stacks, inject `fetch` via the constructor options.
+- HTTP `Memory.metadata` retains knowledge status and `source_episode` /
+  `source_episodes`; it is not the MCP metadata whitelist. Missing status is
+  legacy-compatible, not verification. Observed tool success is not a verified
+  task. Explicit source deletion marks direct dependants stale with missing
+  evidence; recall excludes unusable knowledge. No SDK API change is required.
 
 ## Development
 

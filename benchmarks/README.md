@@ -4,8 +4,8 @@ Measures the **Go** ladyM engine's long-term memory on
 [LongMemEval](https://github.com/xiaowu0162/LongMemEval) (ICLR 2025), driving
 `ladym serve` through `ladym_wrapper.LadymClient` (MCP stdio). Ported from
 `benchmarks/longmemeval` on the Python `main` branch; the ingest → retrieval →
-QA → evaluate flow and all metric computation are unchanged — only the engine
-backend differs.
+QA → evaluate flow and legacy metric computation are unchanged. Provenance-aware
+`evidence_metrics` are emitted separately alongside the original `metrics`.
 
 Two phases share ingest+recall code:
 
@@ -14,7 +14,8 @@ Two phases share ingest+recall code:
 
 Run both for two variants to quantify consolidation's value:
 - `raw` — episodic ingest only (offline, deterministic given fixed embeddings)
-- `consolidated` — ingest + `consolidate()` (LLM write path)
+- `consolidated` — ingest + `consolidate()` (configured LLM classifier, or
+  conservative offline exact duplicate `NOOP` / additive `ADD`)
 
 ## Quick start
 
@@ -57,25 +58,56 @@ uv run python -m longmemeval evaluate --difficulty oracle --variant raw
   `LME_ANSWER_MODEL` (default `gpt-4o-mini`). The judge stays pinned to
   `gpt-4o` via the vendored scripts.
 
-## Differences from the Python harness (engine capability gaps)
+## Provenance and compatibility
 
-The Go MCP server (`mcp/server.go`) does not round-trip memory metadata:
-`record_event` takes no metadata argument and `recall` results omit
-`memory.metadata`. The harness needs `session_id`/`date`/`doc_id` per ingested
-turn, so the runtime seam (`_runtime.GoEngine`) keeps an append-only sidecar
+`record_event` takes no metadata argument, but MCP recall now returns a
+provenance whitelist: `session_id`, `source_episode`, `source_episodes`,
+`knowledge_status`, `evidence_missing`, `verified_at`, `action_class`,
+`tool_outcome`, `task_outcome`. Arbitrary server metadata is not exposed.
+The harness still needs ingest `session_id`/`date`/`doc_id`, so `_runtime.GoEngine`
+keeps an append-only sidecar
 `<question_id>.meta.jsonl` next to each instance db mapping
 `memory_id → metadata`, captured from the ids `record_event` returns and
-re-attached to `recall` results by memory id.
+re-attached to recall results by memory ID. Direct-ID sidecar fields take
+precedence over server fields, and original raw metadata remains intact.
+Derived source IDs resolve through this same sidecar into `evidence_sources`
+(list of metadata dictionaries with `memory_id`), deduped by source memory ID.
+There is no network lookup, session guessing or replacement of raw doc IDs
+with a derived fact's ID. Unknown source IDs have no mapping.
+
+### Two retrieval metric namespaces
+
+`retrieval_results.metrics` retains the exact legacy shape/numbers and upstream
+grading input, including first-encounter session deduplication. Derived evidence
+is **not** inserted into this legacy namespace.
+
+`retrieval_results.evidence_metrics` has the same keys: turn `recall_all@5/10/50`
+and `ndcg_any@5/10/50`; session `recall_all@5/10` and `ndcg_any@5/10`.
+**K counts recalled memory slots**, never flattened evidence sources:
+
+- Each memory supplies a set of turn IDs and a set of session IDs. A multi-source
+  fact can cover multiple gold IDs within one slot.
+- `recall_all@K` is 1 iff the union of the first K slots covers every gold ID.
+- `ndcg_any@K` gives a slot binary gain 1 only if it introduces a previously
+  uncovered gold source. Duplicates give no extra credit; scores do not exceed 1.
+- Ideal DCG has `min(K, len(gold))` binary gains. The existing upstream `_dcg`
+  keeps **both first ranks undiscounted**. For gold `{a,b}`, groups `[{a,b}]`:
+  K=1 gives recall=1, NDCG=1; K=2 gives recall=1, NDCG=0.5. This grouped score
+  is not a count of sources contributed. Empty gold yields zero.
+- Unknown provenance consumes a slot with zero gain. Turn/session ranks are
+  separate sets per memory, not the legacy deduplicated session ranking.
+- Older raw clients without server provenance use their direct doc/session
+  metadata as singleton groups; unique single-source rankings match legacy
+  slot scores. Missing direct metadata remains unknown.
 
 Consequences / limitations:
 
-- **Consolidated-variant retrieval caveat (carried over).** L2 facts produced
-  by `consolidate()` are created server-side, have no sidecar entry, and
-  surface with empty metadata — same as the Python harness, where consolidated
-  facts carry no `doc_id`/`session_id`. They can occupy top-k slots but never
-  match gold turns/sessions, which can artificially lower consolidated
-  `recall_all@k`. Read the consolidated payoff in QA accuracy (Phase B), not
-  Phase A recall.
+- **Partial or absent provenance.** Consolidated facts can now match gold through
+  their source mappings, but only when source IDs exist in the ingest sidecar.
+  Old facts without provenance and missing sidecar entries remain unknown.
+  Evidence metrics measure source retrieval, not claim correctness or task
+  verification. No QA improvement, token saving or production p95 has been
+  measured by adding these metrics.
 - **Stale-db detection is coarser.** The Python harness caught a specific
   `EmbeddingDimensionMismatch` to auto-rebuild stale DBs; over MCP any probe
   failure on an existing DB (`LadymError` while counting memories) is treated

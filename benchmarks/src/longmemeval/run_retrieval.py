@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from .config import BenchConfig
-from .metrics import build_metric_dict
+from .metrics import build_metric_dict, build_evidence_metric_dict
 from ._runtime import make_engine as _default_engine_factory
 
 
@@ -42,9 +42,20 @@ def run_retrieval(dataset: list[dict], cfg: BenchConfig, *,
                     recalled_turn_doc_ids, gold_turn_doc_ids,
                     gold_session_ids, recalled_session_ids_ordered,
                 )
+                turn_groups = []
+                session_groups = []
+                for meta in recalled:
+                    # Older raw clients have only direct doc/session metadata.
+                    # An empty provenance mapping remains an unknown ranked slot.
+                    sources = meta.get("evidence_sources", [meta])
+                    turn_groups.append({s["doc_id"] for s in sources if s.get("doc_id")})
+                    session_groups.append({s["session_id"] for s in sources if s.get("session_id")})
+                evidence_metrics = build_evidence_metric_dict(
+                    turn_groups, gold_turn_doc_ids, session_groups, gold_session_ids,
+                )
                 f.write(json.dumps({
                     "question_id": qid,
-                    "retrieval_results": {"metrics": metrics},
+                    "retrieval_results": {"metrics": metrics, "evidence_metrics": evidence_metrics},
                 }) + "\n")
             except Exception as e:
                 # Per-instance fault tolerance (spec requirement): 1 bad
