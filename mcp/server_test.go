@@ -172,6 +172,22 @@ func TestToolsListSchemas(t *testing.T) {
 			"replacement": {typ: "string"}, "method": {typ: "string"},
 			"reason": {typ: "string"}, "evidence_refs": {typ: "array"},
 		}},
+		"build_topic": {[]string{"topic", "input_ids", "expected_revision"}, map[string]propSpec{
+			"topic": {typ: "string"}, "input_ids": {typ: "array"}, "expected_revision": {typ: "integer"}, "workspace": {typ: "string"},
+		}},
+		"get_topic": {[]string{"topic"}, map[string]propSpec{
+			"topic": {typ: "string"}, "workspace": {typ: "string"},
+		}},
+		"hybrid_recall": {[]string{"query", "limit"}, map[string]propSpec{
+			"query": {typ: "string"}, "limit": {typ: "integer"}, "workspace": {typ: "string"},
+		}},
+		"bootstrap": {nil, map[string]propSpec{
+			"topic_ids": {typ: "array"}, "environment": {typ: "string"}, "code_version": {typ: "string"}, "conditions": {typ: "array"}, "task_id": {typ: "string"},
+			"unit": {typ: "string", hasDef: true, def: "bytes"}, "limit": {typ: "integer"}, "workspace": {typ: "string"},
+		}},
+		"set_task_state": {[]string{"id", "goal"}, map[string]propSpec{
+			"id": {typ: "string"}, "goal": {typ: "string"}, "next_step": {typ: "string"}, "ttl_s": {typ: "number", hasDef: true, def: float64(86400)}, "workspace": {typ: "string"},
+		}},
 	}
 
 	if len(tools) != len(want) {

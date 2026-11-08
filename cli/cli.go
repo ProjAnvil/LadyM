@@ -60,6 +60,7 @@ func newRootCmd() *cobra.Command {
 		statsCmd(), forgetCmd(), linkCmd(), userCmd(), serveCmd(), workerCmd(), configCmd(),
 		hookCmd(), doctorCmd(),
 		evidenceCmd(), claimCmd(),
+		topicCmd(), hybridRecallCmd(), bootstrapCmd(), taskStateCmd(),
 	)
 	return root
 }

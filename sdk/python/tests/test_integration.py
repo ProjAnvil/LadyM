@@ -17,7 +17,22 @@ from pathlib import Path
 
 import pytest
 
-from ladym_client import Client, ClaimFeedbackRequest, CreateClaimRequest, EvidenceRef, LadymError, RecordEvidenceRequest
+from ladym_client import Client, ClaimFeedbackRequest, CreateClaimRequest, EvidenceRef, LadymError, RecordEvidenceRequest, BuildTopicRequest, BootstrapRequest, HybridRecallRequest, SetTaskStateRequest
+
+
+def test_topic_bootstrap_hybrid_loopback(server):
+    c = Client(server)
+    memory = c.remember("ExactPythonNavigation", workspace="python-topic")
+    topic = c.build_topic(BuildTopicRequest(topic="module/path", input_ids=[memory.id], workspace="python-topic"))
+    assert c.get_topic("module/path", "python-topic").id == topic.id
+    hits = c.hybrid_recall(HybridRecallRequest(query="ExactPythonNavigation", limit=1, workspace="python-topic"))
+    assert hits.results[0].memory.id == memory.id
+    task = c.set_task_state(SetTaskStateRequest(id="explicit", goal="user goal", next_step="next", ttl_s=60, workspace="python-topic"))
+    result = c.bootstrap(BootstrapRequest(topic_ids=[topic.id], task_id="explicit", conditions=["A"], workspace="python-topic"))
+    assert result.used == len(result.content.encode("utf-8")) <= 4096
+    assert task.id in result.source_ids and topic.id in result.source_ids
+    with pytest.raises(ValueError, match="bytes only"):
+        c.bootstrap(BootstrapRequest(unit="tokens"))
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 

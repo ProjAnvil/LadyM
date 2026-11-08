@@ -17,6 +17,42 @@ export class LadymError extends Error {
   }
 }
 
+export interface BuildTopicRequest {
+  topic: string;
+  input_ids: string[];
+  expected_revision: number;
+  workspace?: string;
+}
+export interface HybridRecallRequest {
+  query: string;
+  limit: number;
+  workspace?: string;
+}
+export interface BootstrapRequest {
+  topic_ids?: string[];
+  environment?: string;
+  code_version?: string;
+  conditions?: string[];
+  task_id?: string;
+  unit?: "bytes" | "tokens";
+  limit?: number;
+  workspace?: string;
+}
+export interface BootstrapResponse {
+  content: string;
+  unit: "bytes";
+  model: string;
+  used: number;
+  source_ids: string[];
+}
+export interface SetTaskStateRequest {
+  id: string;
+  goal: string;
+  next_step?: string;
+  ttl_s?: number;
+  workspace?: string;
+}
+
 /** One memory as returned in recall results / memory lists. */
 export interface Memory {
   id: string;
@@ -301,6 +337,29 @@ export class LadymClient {
 
   async getClaim(memoryId: string, workspace = ""): Promise<Claim> {
     return await this.do("GET", "/api/claims/" + encodeURIComponent(memoryId), {workspace}) as unknown as Claim;
+  }
+
+  async buildTopic(request: BuildTopicRequest): Promise<Memory> {
+    return await this.do("POST", "/api/topics", undefined, request) as unknown as Memory;
+  }
+
+  async getTopic(topic: string, workspace = ""): Promise<Memory> {
+    return await this.do("GET", "/api/topics/" + encodeURIComponent(topic), {workspace}) as unknown as Memory;
+  }
+
+  async hybridRecall(request: HybridRecallRequest): Promise<RecallResponse> {
+    return await this.do("POST", "/api/hybrid_recall", undefined, request) as unknown as RecallResponse;
+  }
+
+  async bootstrap(request: BootstrapRequest = {}): Promise<BootstrapResponse> {
+    if (request.unit && request.unit !== "bytes") {
+      throw new Error("remote bootstrap supports bytes only; tokens require a host TokenCounter");
+    }
+    return await this.do("POST", "/api/bootstrap", undefined, request) as unknown as BootstrapResponse;
+  }
+
+  async setTaskState(request: SetTaskStateRequest): Promise<Memory> {
+    return await this.do("POST", "/api/task_state", undefined, request) as unknown as Memory;
   }
 
   async applyClaimFeedback(memoryId: string, request: ClaimFeedbackRequest): Promise<Claim> {

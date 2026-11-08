@@ -158,3 +158,76 @@ For embedded Go, the `ladym` facade exposes `ArchiveConfig`, `EvidenceRef`,
 `CreateClaim`, `GetClaim` and `ApplyClaimFeedback`; Engine convenience methods
 take workspace last. They share the same validation, freshness and transaction
 logic as the external fronts.
+
+## Source-grounded navigation
+
+| HTTP | MCP | Request |
+| --- | --- | --- |
+| `POST /api/topics` | `build_topic` | `topic`, `input_ids`, `expected_revision`, optional `workspace` |
+| `GET /api/topics/{topic}?workspace=...` | `get_topic` | MCP: `topic`, optional `workspace` |
+| `POST /api/hybrid_recall` | `hybrid_recall` | `query`, `limit` (1..200), optional `workspace` |
+| `POST /api/bootstrap` | `bootstrap` | Optional `topic_ids`, `environment`, `code_version`, `conditions`, `task_id`, `unit`, `limit`, `workspace` |
+| `POST /api/task_state` | `set_task_state` | `id`, `goal`, optional `next_step`, `ttl_s`, `workspace` |
+
+Topic names are nonblank, at most 128 Unicode runes. Their ID is the SHA256 of
+`workspace + NUL + topic`. Build accepts 1..64 unique same-workspace code
+files/symbols, facts, playbooks or verified claims. It uses no LLM: the <=16KiB
+body consists of literal source excerpts, complete IDs, types and scope,
+marking ordinary sources **unverified** and claims **caller-attested verified**.
+Metadata preserves every input fingerprint and revision; `produced_from` edges
+preserve navigation. Creation requires revision 0 and atomic absence; updates
+require the exact old revision. Source/trust/scope/TTL changes or deletion
+immediately make derived topics unusable. Get returns ID/state but no stale body.
+
+Hybrid independently ranks exact symbol/token/path matches (including
+unembedded sources), scoped vectors and a <=128-node graph, then combines ranks
+with reciprocal-rank fusion `1/(60+rank)`, ties by ID. Topic prose does not replace
+exact source lookup. System records never enter lexical/vector topK. Evidence
+can enter only through an explicit outgoing source reference from a claim/topic.
+Ordinary recall excludes jobs, task state, evidence and predictions by default;
+explicit ordinary type filters retain their existing opt-in semantics.
+Embedding/storage failures propagate; no read generates LLM requests.
+
+Bootstrap returns `{content,unit,model,used,source_ids}`. Only fresh verified
+claims, explicitly requested topic IDs (brief index links), and an explicitly
+named task are included. Empty claim environment/version are wildcards;
+nonempty values must equal the request exactly. Every claim/source/task scope
+condition must be present in caller-attested `conditions`, case-sensitively.
+Generic facts, inferred claims and predictions are not automatically injected.
+Task state persists the provided goal and next step; TTL defaults to 86400
+seconds when omitted/zero. Negative/nonfinite TTL is rejected.
+
+HTTP/MCP/CLI and remote SDK bootstrap are **bytes only**, default/max 4096.
+Requests for remote tokens fail instead of fabricating counts. Embedded Go
+`scope.Bootstrap(req,counter)` or `client.BootstrapLocal(scope,req,counter)` supports
+`unit:"tokens"` with a host-owned `TokenCounter{Name() string; Count(string)(int,error)}`:
+default 512, max 1024, model set to `Name()`. Every candidate and final **full
+string**, including reference header and complete IDs, is counted exactly.
+Excerpts shrink only at UTF-8 rune boundaries; no additive token guesses.
+Missing, panicking, negative, zero-for-nonempty, erroring or unstable counters
+fail. A positive host count is caller-attested, not independently tokenized.
+If no complete entry fits, only the header or empty content is returned.
+
+```bash
+ladym topic build auth --input-ids SOURCE_A,SOURCE_B --expected-revision 0 -w project
+ladym topic get auth -w project
+ladym hybrid-recall ExactAuthSymbol --limit 8 -w project
+ladym task-state set review --goal 'Review auth' --next-step 'Read SOURCE_A' --ttl-s 3600 -w project
+ladym bootstrap --topic-ids TOPIC_ID --task-id review --environment test --code-version v1 --conditions TestsPass -w project
+```
+
+All commands accept the existing local `--db` or remote `--server`/authentication
+options. SDK equivalents are Go `BuildTopic`, `GetTopic`, `HybridRecall`,
+`Bootstrap`, `SetTaskState`; Python `build_topic`, `get_topic`, `hybrid_recall`,
+`bootstrap`, `set_task_state`; TypeScript `buildTopic`, `getTopic`, `hybridRecall`,
+`bootstrap`, `setTaskState`. All export matching typed request/response objects.
+
+LangGraph hosts can add
+`CreateBootstrapNode(eng,req,counter,workspaceFunc)` as a `NodeFunc`: it uses the
+same scope API, adds a reference SystemMessage to the `messages` channel and
+propagates errors. The existing recall node retains its 4096-byte budget.
+
+These operations are offline navigation/contract machinery, not evidence of
+real QA accuracy. Hybrid currently enumerates scoped memories to filter
+transitive freshness before vector topK; large workspaces may need measurement.
+No new maintenance worker, agent execution or model service is involved.

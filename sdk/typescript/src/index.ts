@@ -3,6 +3,11 @@ export {
   LadymError,
 } from "./client.js";
 export type {
+  BuildTopicRequest,
+  HybridRecallRequest,
+  BootstrapRequest,
+  BootstrapResponse,
+  SetTaskStateRequest,
   FetchFn,
   LadymClientOptions,
   Memory,

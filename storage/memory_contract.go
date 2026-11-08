@@ -19,6 +19,8 @@ type MemoryFilter struct {
 	Types           []schema.MemoryType
 	ExcludeRetired  bool
 	ExcludeUnusable bool
+	ExcludeSystem   bool
+	ExcludeTypes    []schema.MemoryType
 	// ExcludePathResources keeps structural path identities out of fuzzy search.
 	ExcludePathResources bool
 }
@@ -27,6 +29,8 @@ func (f MemoryFilter) matches(m *schema.Memory) bool {
 	return (f.Workspace == "" || m.Workspace == f.Workspace) &&
 		(len(f.Layers) == 0 || slices.Contains(f.Layers, m.Layer)) &&
 		(len(f.Types) == 0 || slices.Contains(f.Types, m.Type)) &&
+		(!f.ExcludeSystem || !schema.IsSystemType(m.Type)) &&
+		!slices.Contains(f.ExcludeTypes, m.Type) &&
 		(!f.ExcludeRetired || !schema.IsRetired(m)) &&
 		(!f.ExcludePathResources || m.Type != schema.TypeResource || m.MetaString("resource_identity") != "path") &&
 		(!f.ExcludeUnusable || schema.IsUsable(m))
@@ -338,13 +342,14 @@ func applyMemoryBatch(tx memoryTransaction, batch MemoryBatch, preserveAccess bo
 		return outgoingSources(id, edges), nil
 	}
 	for _, w := range batch.Writes {
-		if w.Memory.Type == schema.TypeClaim && w.Memory.Meta("claim_data") != nil && schema.IsUsable(w.Memory) {
+		if (w.Memory.Type == schema.TypeClaim && w.Memory.Meta("claim_data") != nil ||
+			w.Memory.Type == schema.TypeTopicView && w.Memory.Meta("source_fingerprints") != nil) && schema.IsUsable(w.Memory) {
 			fresh, err := freshMemory(w.Memory, schema.Now(), resolve, deps, map[string]bool{})
 			if err != nil {
 				return err
 			}
 			if !fresh {
-				return fmt.Errorf("%w: stale claim evidence", ErrMemoryConflict)
+				return fmt.Errorf("%w: stale managed source evidence", ErrMemoryConflict)
 			}
 		}
 		if !schema.IsUsable(w.Memory) {

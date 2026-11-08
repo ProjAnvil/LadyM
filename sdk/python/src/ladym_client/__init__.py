@@ -19,9 +19,15 @@ from ladym_client.client import (
     RecordEvidenceRequest,
     CreateClaimRequest,
     ClaimFeedbackRequest,
+    BuildTopicRequest,
+    HybridRecallRequest,
+    BootstrapRequest,
+    BootstrapResponse,
+    SetTaskStateRequest,
 )
 
 __all__ = [
+    "BuildTopicRequest", "HybridRecallRequest", "BootstrapRequest", "BootstrapResponse", "SetTaskStateRequest",
     "Client",
     "LadymError",
     "RememberResult",

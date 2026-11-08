@@ -63,6 +63,17 @@ test("full chain against a real ladym serve --http", { skip: !RUN_IT && "set LAD
   t.after(() => proc.kill());
   const base = `http://127.0.0.1:${port}`;
   await waitHealthy(base, proc);
+  const navigation = new LadymClient(base);
+  const source = await navigation.remember("ExactTypeScriptNavigation", {workspace: "ts-topic"});
+  const topic = await navigation.buildTopic({topic: "module/path", input_ids: [source.id], expected_revision: 0, workspace: "ts-topic"});
+  assert.equal((await navigation.getTopic("module/path", "ts-topic")).id, topic.id);
+  const hybrid = await navigation.hybridRecall({query: "ExactTypeScriptNavigation", limit: 1, workspace: "ts-topic"});
+  assert.equal(hybrid.results[0]?.memory.id, source.id);
+  const task = await navigation.setTaskState({id: "explicit", goal: "user goal", next_step: "next", ttl_s: 60, workspace: "ts-topic"});
+  const bootstrap = await navigation.bootstrap({topic_ids: [topic.id], task_id: "explicit", conditions: ["A"], workspace: "ts-topic"});
+  assert.equal(bootstrap.used, Buffer.byteLength(bootstrap.content));
+  assert.ok(bootstrap.used <= 4096 && bootstrap.source_ids.includes(task.id) && bootstrap.source_ids.includes(topic.id));
+  await assert.rejects(navigation.bootstrap({unit: "tokens"}), /bytes only/);
 
   const c = new LadymClient(base);
   await c.ping();

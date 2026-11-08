@@ -42,6 +42,13 @@ A non-2xx response throws `LadymError` with `.status` and the server's
 `ping` · `login` · `remember` · `recall` · `recordEvent` · `consolidate` ·
 `stats` · `link` · `forget` · `listMemories` · `updateMemory` · `deleteMemory`
 
+Source navigation: `buildTopic(BuildTopicRequest)`, `getTopic(topic, workspace)`,
+`hybridRecall(HybridRecallRequest)`, `bootstrap(BootstrapRequest)` and
+`setTaskState(SetTaskStateRequest)`. Bootstrap counts the full UTF-8 message in
+bytes (default/max 4096); remote token requests reject without token estimates.
+`conditions` is an explicit, case-sensitive caller-attested set. See
+[navigation contracts](../../docs/memory-learning.md#source-grounded-navigation).
+
 Notes:
 
 - `recall` supports `topK` / `workspace` / `codeOnly`; the MCP-only knobs

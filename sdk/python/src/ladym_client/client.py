@@ -28,7 +28,53 @@ __all__ = [
     "User",
     "EvidenceRef", "ClaimScope", "Verification", "Claim",
     "RecordEvidenceRequest", "CreateClaimRequest", "ClaimFeedbackRequest",
+    "BuildTopicRequest", "HybridRecallRequest", "BootstrapRequest", "BootstrapResponse", "SetTaskStateRequest",
 ]
+
+@dataclass
+class BuildTopicRequest:
+    topic: str = ""
+    input_ids: list[str] = field(default_factory=list)
+    expected_revision: int = 0
+    workspace: str = ""
+
+
+@dataclass
+class HybridRecallRequest:
+    query: str = ""
+    limit: int = 8
+    workspace: str = ""
+
+
+@dataclass
+class BootstrapRequest:
+    topic_ids: list[str] = field(default_factory=list)
+    environment: str = ""
+    code_version: str = ""
+    conditions: list[str] = field(default_factory=list)
+    task_id: str = ""
+    unit: str = "bytes"
+    limit: int = 4096
+    workspace: str = ""
+
+
+@dataclass
+class BootstrapResponse:
+    content: str = ""
+    unit: str = "bytes"
+    model: str = ""
+    used: int = 0
+    source_ids: list[str] = field(default_factory=list)
+
+
+@dataclass
+class SetTaskStateRequest:
+    id: str = ""
+    goal: str = ""
+    next_step: str = ""
+    ttl_s: float = 86400
+    workspace: str = ""
+
 
 # Transport takes (method, path, query, body) and returns (status, parsed JSON
 # body as a dict). Injectable for tests and custom HTTP stacks.
@@ -312,6 +358,34 @@ class Client:
     def ping(self) -> None:
         """Probe /healthz (auth-exempt); returns None when healthy."""
         self._do("GET", "/healthz")
+
+    def build_topic(self, request: BuildTopicRequest) -> Memory:
+        return Memory.from_json(self._do("POST", "/api/topics", body=asdict(request)))
+
+    def get_topic(self, topic: str, workspace: str = "") -> Memory:
+        return Memory.from_json(self._do("GET", "/api/topics/" + urllib.parse.quote(topic, safe=""), query={"workspace": workspace}))
+
+    def hybrid_recall(self, request: HybridRecallRequest) -> RecallResponse:
+        out = self._do("POST", "/api/hybrid_recall", body=asdict(request))
+        results = [
+            RecallResult(score=r.get("score", 0.0), tier=r.get("tier", 0),
+                         via=r.get("via") or [], memory=Memory.from_json(r.get("memory") or {}))
+            for r in out.get("results") or []
+        ]
+        return RecallResponse(query=out.get("query", ""), tier_reached=out.get("tier_reached", 0),
+                              reflected_sufficient=out.get("reflected_sufficient", False),
+                              elapsed_ms=out.get("elapsed_ms", 0.0), results=results)
+
+    def bootstrap(self, request: BootstrapRequest) -> BootstrapResponse:
+        if request.unit not in ("", "bytes"):
+            raise ValueError("remote bootstrap supports bytes only; tokens require a host TokenCounter")
+        out = self._do("POST", "/api/bootstrap", body=asdict(request))
+        return BootstrapResponse(content=out.get("content", ""), unit=out.get("unit", "bytes"),
+                                 model=out.get("model", ""), used=out.get("used", 0),
+                                 source_ids=out.get("source_ids") or [])
+
+    def set_task_state(self, request: SetTaskStateRequest) -> Memory:
+        return Memory.from_json(self._do("POST", "/api/task_state", body=asdict(request)))
 
     def login(self) -> User:
         """Verify the client's own credentials; stateless, no session."""

@@ -233,6 +233,17 @@ func (s *PostgresStore) SearchMemories(queryVec []float32, topK int, filter Memo
 	if filter.ExcludePathResources {
 		where += ` AND (type<>'resource' OR metadata->>'resource_identity' IS DISTINCT FROM 'path')`
 	}
+	excluded := make([]string, 0, len(filter.ExcludeTypes)+4)
+	for _, typ := range filter.ExcludeTypes {
+		excluded = append(excluded, string(typ))
+	}
+	if filter.ExcludeSystem {
+		excluded = append(excluded, string(schema.TypeMaintenanceJob), string(schema.TypeTaskState), string(schema.TypeEvidence), string(schema.TypeForwardIntent))
+	}
+	if len(excluded) > 0 {
+		args = append(args, excluded)
+		where += " AND NOT (type=ANY(" + ph(len(args)) + "))"
+	}
 	// MATERIALIZED prevents an ANN preselection: sort the exact filtered set.
 	query := `WITH eligible AS MATERIALIZED (SELECT id,embedding FROM memories WHERE ` + where + `)
 		SELECT id, CASE WHEN vector_norm(embedding)=0 OR vector_norm($1::vector)=0 THEN 0::float8

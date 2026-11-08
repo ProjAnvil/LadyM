@@ -3,6 +3,7 @@ package storage
 import (
 	"encoding/json"
 	"math"
+	"strings"
 
 	"github.com/ProjAnvil/LadyM/schema"
 )
@@ -93,6 +94,7 @@ func (eval *freshnessEvaluation) fresh(m *schema.Memory) (fresh bool, err error)
 		}
 	}()
 	var refs []schema.EvidenceRef
+	var verificationRefs []schema.EvidenceRef
 	if m.Type == schema.TypeClaim {
 		c, err := schema.ClaimFromMemory(m)
 		if err != nil {
@@ -101,12 +103,28 @@ func (eval *freshnessEvaluation) fresh(m *schema.Memory) (fresh bool, err error)
 		if c.ValidUntil > 0 && now >= c.ValidUntil {
 			return false, nil
 		}
+		if c.Status == "verified" {
+			v := c.Verification
+			if v == nil || strings.TrimSpace(v.Actor) == "" || strings.TrimSpace(v.Method) == "" || v.CheckedAt <= 0 ||
+				math.IsNaN(v.CheckedAt) || math.IsInf(v.CheckedAt, 0) || len(v.Evidence) == 0 || len(v.Evidence) > 64 {
+				return false, nil
+			}
+			verificationRefs = v.Evidence
+		}
 		refs = append(refs, c.Evidence...)
 		if c.Verification != nil {
 			refs = append(refs, c.Verification.Evidence...)
 		}
 	}
 	var revisions map[string]int64
+	var fingerprints map[string]string
+	rawFingerprints, err := json.Marshal(m.Meta("source_fingerprints"))
+	if err != nil {
+		return false, err
+	}
+	if err := json.Unmarshal(rawFingerprints, &fingerprints); err != nil {
+		return false, err
+	}
 	raw, err := json.Marshal(m.Meta("source_revisions"))
 	if err != nil {
 		return false, err
@@ -128,7 +146,11 @@ func (eval *freshnessEvaluation) fresh(m *schema.Memory) (fresh bool, err error)
 	for id := range revisions {
 		ids = append(ids, id)
 	}
+	for id := range fingerprints {
+		ids = append(ids, id)
+	}
 	seen := map[string]bool{}
+	attested := false
 	for _, id := range ids {
 		if seen[id] {
 			continue
@@ -145,14 +167,29 @@ func (eval *freshnessEvaluation) fresh(m *schema.Memory) (fresh bool, err error)
 			if ref.MemoryID == id && schema.ValidateEvidenceRef(ref, source) != nil {
 				return false, nil
 			}
+			for _, ref := range verificationRefs {
+				if ref.MemoryID == id && source.Type == schema.TypeEvidence &&
+					(ref.Kind == "user_confirmation" || (ref.Kind == "test_result" || ref.Kind == "tool_result") && source.MetaString("outcome") == "success") {
+					attested = true
+				}
+			}
 		}
 		if revision, ok := revisions[id]; ok && revision != schema.ManagedRevision(source) {
 			return false, nil
+		}
+		if expected, ok := fingerprints[id]; ok {
+			actual, err := schema.SourceFingerprint(source)
+			if err != nil || actual != expected {
+				return false, err
+			}
 		}
 		fresh, err := eval.fresh(source)
 		if err != nil || !fresh {
 			return false, err
 		}
+	}
+	if len(verificationRefs) > 0 && !attested {
+		return false, nil
 	}
 	return true, nil
 }

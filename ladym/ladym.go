@@ -50,6 +50,12 @@ type (
 	RecordEvidenceRequest = schema.RecordEvidenceRequest
 	CreateClaimRequest    = schema.CreateClaimRequest
 	ClaimFeedbackRequest  = schema.ClaimFeedbackRequest
+	BuildTopicRequest     = schema.BuildTopicRequest
+	HybridRecallRequest   = schema.HybridRecallRequest
+	BootstrapRequest      = schema.BootstrapRequest
+	BootstrapResponse     = schema.BootstrapResponse
+	SetTaskStateRequest   = schema.SetTaskStateRequest
+	TokenCounter          = engine.TokenCounter
 )
 
 // Layer constants.
@@ -76,6 +82,8 @@ const (
 	TypeForwardIntent = schema.TypeForwardIntent
 	TypeClaim         = schema.TypeClaim
 	TypeEvidence      = schema.TypeEvidence
+	TypeTopicView     = schema.TypeTopicView
+	TypeTaskState     = schema.TypeTaskState
 )
 
 func KnowledgeFingerprint(m *Memory) string { return schema.KnowledgeFingerprint(m) }

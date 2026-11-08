@@ -88,7 +88,7 @@ func Recall(store storage.Store, embedder storage.EmbeddingProvider, query strin
 	}
 
 	fetchK := max(k1*3, k1)
-	filter := storage.MemoryFilter{Workspace: ws, Layers: layers, Types: types, ExcludeUnusable: true}
+	filter := storage.MemoryFilter{Workspace: ws, Layers: layers, Types: types, ExcludeUnusable: true, ExcludeSystem: len(types) == 0}
 	rawHits, err := store.SearchMemories(queryVec, fetchK, filter)
 	if err != nil {
 		return nil, err
@@ -203,6 +203,8 @@ func compareRecallResults(a, b *schema.RecallResult) int {
 
 func eligibleRecallMemory(m *schema.Memory, f storage.MemoryFilter) bool {
 	return schema.IsUsable(m) && m.Workspace == f.Workspace &&
+		(!f.ExcludeSystem || !schema.IsSystemType(m.Type)) &&
+		!slices.Contains(f.ExcludeTypes, m.Type) &&
 		(len(f.Layers) == 0 || layerIn(m.Layer, f.Layers)) &&
 		(len(f.Types) == 0 || typeIn(m.Type, f.Types))
 }
@@ -211,7 +213,7 @@ func tier2Expand(store storage.Store, tier1 []*schema.RecallResult, cfg *config.
 	var out []expandedItem
 	seen := map[string]bool{}
 	memories := map[string]*schema.Memory{}
-	filter := storage.MemoryFilter{Workspace: workspace, ExcludeUnusable: true}
+	filter := storage.MemoryFilter{Workspace: workspace, ExcludeUnusable: true, ExcludeSystem: true}
 	if len(filters) > 0 {
 		filter = filters[0]
 	}
