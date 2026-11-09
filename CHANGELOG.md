@@ -6,7 +6,10 @@ All notable changes to LadyM are documented in this file. The structure follows
 
 ## [Unreleased]
 
-## [0.9.0] - 2026-11-09
+## [0.10.0] - 2026-11-09
+
+The `v0.9.0` tag was reserved during release validation but was not published as
+a GitHub Release. It is retained unchanged; `v0.10.0` is the next available minor.
 
 ### Added
 
@@ -47,6 +50,8 @@ All notable changes to LadyM are documented in this file. The structure follows
 - Resource, topic and task identity collisions, stale fallback retrieval,
   duplicated provenance traversal and nullable Python claim conditions.
 - Live-answer evaluation timeouts did not enforce a total in-flight wall deadline.
+- Canonical identity test fixtures used an invalid Git discovery sentinel that
+  was not portable across runner Git versions.
 
 ### Upgrade notes
 
@@ -56,11 +61,11 @@ vectors may require explicit embedding identity adoption or migration. New
 Archiving, canonical capture and budgeted maintenance remain opt-in. Verification
 is caller-attested, not independent tool execution or model self-certification.
 
-Read the [full release notes](docs/releases/v0.9.0.md) before upgrading, including
+Read the [full release notes](docs/releases/v0.10.0.md) before upgrading, including
 the rollback-window write freeze and downgrade limitations.
 
 Earlier release history is available in [GitHub Releases].
 
-[Unreleased]: https://github.com/ProjAnvil/LadyM/compare/v0.9.0...HEAD
-[0.9.0]: https://github.com/ProjAnvil/LadyM/compare/v0.8.4...v0.9.0
+[Unreleased]: https://github.com/ProjAnvil/LadyM/compare/v0.10.0...HEAD
+[0.10.0]: https://github.com/ProjAnvil/LadyM/compare/v0.8.4...v0.10.0
 [GitHub Releases]: https://github.com/ProjAnvil/LadyM/releases

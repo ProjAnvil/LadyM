@@ -24,11 +24,11 @@ All front-ends call the same engine.
 
 ---
 
-## What's New in 0.9.0
+## What's New in 0.10.0
 
 Evidence-backed memory, source-grounded navigation, bounded maintenance and
 reversible embedding migration are now available. Read the
-[release notes](docs/releases/v0.9.0.md) and [changelog](CHANGELOG.md), especially
+[release notes](docs/releases/v0.10.0.md) and [changelog](CHANGELOG.md), especially
 the legacy-vector adoption, custom Store interface and rollback guidance.
 
 ### Trusted-memory foundation (R1)
