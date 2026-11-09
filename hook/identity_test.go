@@ -1,23 +1,89 @@
 package hook
 
 import (
+	"context"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"slices"
+	"strings"
 	"testing"
+	"time"
 )
 
 func identityFixture(t *testing.T) string {
 	t.Helper()
 	base := t.TempDir()
-	// Stop Git discovery at the fixture even when TMPDIR is inside a worktree.
-	if err := os.WriteFile(filepath.Join(base, ".git"), []byte("gitdir: ./not-a-repository\n"), 0o600); err != nil {
+	candidate := base
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	defer cancel()
+	for {
+		cmd := exec.CommandContext(ctx, "git", "-C", candidate, "rev-parse", "--show-toplevel")
+		cmd.Env = slices.DeleteFunc(os.Environ(), func(entry string) bool {
+			return strings.HasPrefix(entry, "GIT_")
+		})
+		cmd.Env = append(cmd.Env, "LC_ALL=C")
+		out, err := cmd.Output()
+		if err != nil {
+			exit, ok := errors.AsType[*exec.ExitError](err)
+			if !ok || !strings.Contains(string(exit.Stderr), "not a git repository") {
+				t.Fatalf("find non-repository fixture location: %v", err)
+			}
+			if candidate == base {
+				return base
+			}
+			isolated, err := os.MkdirTemp(candidate, "ladym-identity-fixture-")
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() {
+				if err := os.RemoveAll(isolated); err != nil {
+					t.Errorf("remove identity fixture: %v", err)
+				}
+			})
+			return isolated
+		}
+		root := filepath.Clean(strings.TrimSpace(string(out)))
+		parent := filepath.Dir(root)
+		if parent == root || parent == candidate {
+			t.Fatal("cannot create a fixture outside the enclosing worktree")
+		}
+		candidate = parent
+	}
+}
+
+func TestIdentityFixtureOutsideWorktree(t *testing.T) {
+	root := t.TempDir()
+	if out, err := exec.Command("git", "init", "-q", root).CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v: %s", err, out)
+	}
+	temp := filepath.Join(root, "temporary")
+	if err := os.Mkdir(temp, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	return base
+	t.Setenv("TMPDIR", temp)
+	t.Run("nested_temp_root", func(t *testing.T) {
+		base := identityFixture(t)
+		relative, err := filepath.Rel(root, base)
+		if err != nil || relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+			t.Fatalf("non-repository fixture remains inside worktree: %q, err=%v", base, err)
+		}
+		if _, err := os.Stat(filepath.Join(base, ".git")); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("fixture uses a corrupt Git discovery sentinel: %v", err)
+		}
+		child := filepath.Join(base, "non-git")
+		if err := os.Mkdir(child, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		got, _, err := ProjectIdentity(child)
+		if err != nil || got != child {
+			t.Fatalf("non-repository identity = %q, err=%v", got, err)
+		}
+	})
 }
 
 func TestCanonicalIdentityPaths(t *testing.T) {
