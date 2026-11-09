@@ -19,16 +19,24 @@ import (
 // test has overridden with a hook.
 type stubStore struct {
 	storage.Store
-	getMeta           func(key string) (string, error)
-	setMeta           func(key, value string) error
-	iterMemories      func(workspace, layer, typ string) ([]*schema.Memory, error)
-	putMemory         func(mem *schema.Memory, vector []float32) error
-	workspaces        func() ([]string, error)
-	adoptIdentity     func(schema.EmbeddingIdentity) error
-	migrationStatus   func() (*schema.MigrationStatus, error)
-	migrationBatch    func(string, int) ([]*schema.Memory, error)
-	stageMigration    func(string, []float32, string, string) error
-	activateMigration func(string) error
+	getMeta            func(key string) (string, error)
+	setMeta            func(key, value string) error
+	iterMemories       func(workspace, layer, typ string) ([]*schema.Memory, error)
+	putMemory          func(mem *schema.Memory, vector []float32) error
+	workspaces         func() ([]string, error)
+	adoptIdentity      func(schema.EmbeddingIdentity) error
+	initializeIdentity func(schema.EmbeddingIdentity) error
+	migrationStatus    func() (*schema.MigrationStatus, error)
+	migrationBatch     func(string, int) ([]*schema.Memory, error)
+	stageMigration     func(string, []float32, string, string) error
+	activateMigration  func(string) error
+}
+
+func (s *stubStore) InitializeEmbeddingIdentity(identity schema.EmbeddingIdentity) error {
+	if s.initializeIdentity != nil {
+		return s.initializeIdentity(identity)
+	}
+	return s.Store.InitializeEmbeddingIdentity(identity)
 }
 
 func (s *stubStore) AdoptEmbeddingIdentity(identity schema.EmbeddingIdentity) error {
@@ -117,10 +125,10 @@ func TestEnforceEmbeddingDim_FreshStoreMetaWriteError_Propagates(t *testing.T) {
 	eng := newTestEngine(t)
 	boom := errors.New("meta write boom")
 	eng.Store = &stubStore{
-		Store:           eng.Store,
-		getMeta:         func(string) (string, error) { return "", nil }, // fresh store
-		migrationStatus: func() (*schema.MigrationStatus, error) { return &schema.MigrationStatus{State: "idle"}, nil },
-		adoptIdentity:   func(schema.EmbeddingIdentity) error { return boom },
+		Store:              eng.Store,
+		getMeta:            func(string) (string, error) { return "", nil }, // fresh store
+		migrationStatus:    func() (*schema.MigrationStatus, error) { return &schema.MigrationStatus{State: "idle"}, nil },
+		initializeIdentity: func(schema.EmbeddingIdentity) error { return boom },
 	}
 
 	if err := eng.enforceEmbeddingDim(); !errors.Is(err, boom) {

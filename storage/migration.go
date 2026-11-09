@@ -181,6 +181,14 @@ func (m *embeddingMigrations) EmbeddingMigrationStatus() (*schema.MigrationStatu
 }
 
 func (m *embeddingMigrations) AdoptEmbeddingIdentity(identity schema.EmbeddingIdentity) error {
+	return m.adoptEmbeddingIdentity(identity, true)
+}
+
+func (m *embeddingMigrations) InitializeEmbeddingIdentity(identity schema.EmbeddingIdentity) error {
+	return m.adoptEmbeddingIdentity(identity, false)
+}
+
+func (m *embeddingMigrations) adoptEmbeddingIdentity(identity schema.EmbeddingIdentity, allowLegacy bool) error {
 	if err := identity.Validate(); err != nil {
 		return err
 	}
@@ -193,8 +201,17 @@ func (m *embeddingMigrations) AdoptEmbeddingIdentity(identity schema.EmbeddingId
 	if err != nil {
 		return err
 	}
-	if state.State != "idle" || state.ActiveFingerprint != "" && state.ActiveFingerprint != identity.Fingerprint() {
+	if state.State != "idle" {
 		return ErrEmbeddingMigration
+	}
+	if state.ActiveFingerprint != "" && state.ActiveFingerprint != identity.Fingerprint() {
+		if !allowLegacy {
+			return &EmbeddingFingerprintMismatch{Stored: state.ActiveFingerprint, Configured: identity.Fingerprint()}
+		}
+		return ErrEmbeddingMigration
+	}
+	if !allowLegacy && state.ActiveFingerprint == identity.Fingerprint() {
+		return tx.commit()
 	}
 	vectors, err := tx.vectors("memories")
 	if err != nil {
@@ -202,6 +219,9 @@ func (m *embeddingMigrations) AdoptEmbeddingIdentity(identity schema.EmbeddingId
 	}
 	for _, row := range vectors {
 		if row.Vector != nil {
+			if !allowLegacy {
+				return &EmbeddingFingerprintMismatch{Configured: identity.Fingerprint()}
+			}
 			if err := validateVector(row.Vector, identity.Dim); err != nil {
 				return err
 			}

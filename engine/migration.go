@@ -136,13 +136,14 @@ func (e *Engine) embeddingIdentity() (schema.EmbeddingIdentity, error) {
 }
 
 func (e *Engine) enforceEmbeddingFingerprint() error {
-	// Keep metadata I/O errors visible through the existing Store facade.
-	dim, err := e.Store.GetMeta("embedding_dim")
+	identity, identityErr := e.embeddingIdentity()
+	status, err := e.Store.EmbeddingMigrationStatus()
 	if err != nil {
 		return err
 	}
-	identity, identityErr := e.embeddingIdentity()
-	status, err := e.Store.EmbeddingMigrationStatus()
+	// Legacy metadata must not predate the published identity: another
+	// initializer may adopt it between these reads.
+	dim, err := e.Store.GetMeta("embedding_dim")
 	if err != nil {
 		return err
 	}
@@ -194,25 +195,13 @@ func (e *Engine) enforceEmbeddingFingerprint() error {
 		return &storage.EmbeddingFingerprintMismatch{Stored: status.ActiveFingerprint, Configured: identity.Fingerprint()}
 	}
 	if status.ActiveFingerprint == "" {
-		all, err := e.Store.IterMemories("", "", "")
-		if err != nil {
+		if err := e.Store.InitializeEmbeddingIdentity(identity); err != nil {
+			if _, mismatch := errors.AsType[*storage.EmbeddingFingerprintMismatch](err); mismatch && e.Config.EmbeddingAllowDimChange {
+				return MigrateEmbeddings(context.Background(), e.Store, identity, e.Provider, 64, false)
+			}
 			return err
 		}
-		hasVectors := false
-		for _, memory := range all {
-			vector, err := e.Store.GetEmbedding(memory.ID)
-			if err != nil {
-				return err
-			}
-			hasVectors = hasVectors || vector != nil
-		}
-		if !hasVectors && status.State == "idle" {
-			return e.Store.AdoptEmbeddingIdentity(identity)
-		}
-		if e.Config.EmbeddingAllowDimChange {
-			return MigrateEmbeddings(context.Background(), e.Store, identity, e.Provider, 64, false)
-		}
-		return &storage.EmbeddingFingerprintMismatch{Configured: identity.Fingerprint()}
+		return nil
 	}
 	if e.Config.EmbeddingAllowDimChange && status.State == "idle" {
 		return MigrateEmbeddings(context.Background(), e.Store, identity, e.Provider, 64, false)

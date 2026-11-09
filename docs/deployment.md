@@ -234,6 +234,13 @@ curl localhost:8080/healthz
 docker compose -f docker-compose.dev.yml -p ladym-dev down -v
 ```
 
+On an empty database, API and worker processes may initialize the same embedding
+identity concurrently. No startup ordering, automatic restart or
+`embedding.allow_dim_change=true` workaround is required. Initialization checks
+the identity and existing vectors in one storage transaction. Incompatible
+identities and unidentified legacy vectors still fail closed and require the
+documented migration procedure; do not ignore fingerprint mismatch errors.
+
 ## 4. 运维基线
 
 - **`GET /healthz`**(免鉴权):探测存储连通性。200 `{"status":"ok"}` /

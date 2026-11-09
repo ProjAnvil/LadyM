@@ -20,6 +20,9 @@ type Store interface {
 	RollbackEmbeddingMigration() error
 	FinalizeEmbeddingMigration() error
 	FinalizeAutomaticEmbeddingMigration(generation, targetFingerprint string) error
+	// InitializeEmbeddingIdentity atomically accepts a matching identity or
+	// initializes an unmarked store only when it has no persisted vectors.
+	InitializeEmbeddingIdentity(schema.EmbeddingIdentity) error
 	AdoptEmbeddingIdentity(schema.EmbeddingIdentity) error
 	EmbeddingMigrationStatus() (*schema.MigrationStatus, error)
 	EmbeddingMigrationBatch(generation string, limit int) ([]*schema.Memory, error)
