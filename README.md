@@ -24,7 +24,14 @@ All front-ends call the same engine.
 
 ---
 
-## Trusted-memory foundation (R1)
+## What's New in 0.9.0
+
+Evidence-backed memory, source-grounded navigation, bounded maintenance and
+reversible embedding migration are now available. Read the
+[release notes](docs/releases/v0.9.0.md) and [changelog](CHANGELOG.md), especially
+the legacy-vector adoption, custom Store interface and rollback guidance.
+
+### Trusted-memory foundation (R1)
 
 Shipped: scoped eligible search with lazy cross-connection SQLite index refresh,
 honest heuristic recall, typed offline exact duplicate `NOOP` / additive `ADD`,
